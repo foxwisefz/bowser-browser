@@ -18,9 +18,11 @@ defmodule TwitterNavMod do
       return Array.prototype.map.call(
         nav.querySelectorAll('a[role="link"]'),
         function (a) {
+          var href = a.getAttribute("href") || "";
           return {
             label: (a.getAttribute("aria-label") || a.textContent || "").trim(),
-            href: a.getAttribute("href") || ""
+            href: href,
+            active: href === location.pathname
           };
         }
       ).filter(function (item) { return item.label && item.href; });
@@ -100,8 +102,12 @@ defmodule TwitterNavMod do
 
   defp render(state) do
     rows =
-      for %{"label" => label, "href" => href} <- state.items do
-        button(String.slice(label, 0, 30), event: :go, payload: href)
+      for %{"label" => label, "href" => href} = item <- state.items do
+        button(String.slice(label, 0, 30),
+          event: :go,
+          payload: href,
+          active: item["active"] == true
+        )
       end
 
     hide_label = if state.hidden, do: "Show original nav", else: "Hide original nav"
