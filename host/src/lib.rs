@@ -152,7 +152,19 @@ fn ensure_servo() -> Option<Servo> {
         return Some(servo);
     }
     let waker = WAKER.with(|w| w.borrow().clone())?;
+
+    // Persist cookies/storage across engine deaths (bowser-browser-dyr) —
+    // without a config_dir servo keeps everything in RAM and resurrection
+    // logs the user out of every site.
+    let mut opts = servo::Opts::default();
+    if let Ok(home) = std::env::var("HOME") {
+        let dir = std::path::PathBuf::from(home).join(".bowser/engine");
+        let _ = std::fs::create_dir_all(&dir);
+        opts.config_dir = Some(dir);
+    }
+
     let servo = ServoBuilder::default()
+        .opts(opts)
         .event_loop_waker(Box::new(waker))
         .build();
     servo.setup_logging();
