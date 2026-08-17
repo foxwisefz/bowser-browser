@@ -38,9 +38,13 @@ defmodule TabsMod do
     render(state)
   end
 
+  # Idempotent: tab_activated can legally arrive before tab_opened (window
+  # becomes key during creation), so the tab may already exist — this event
+  # only contributes the opener lineage.
   def handle_event(%{"event" => "tab_opened", "webview" => id} = event, state) do
-    tab = %{title: "new tab", opener: event["opener"]}
-    render(%{state | tabs: Map.put(state.tabs, id, tab), order: state.order ++ [id]})
+    state = ensure_tab(state, id)
+    tab = %{state.tabs[id] | opener: event["opener"]}
+    render(%{state | tabs: Map.put(state.tabs, id, tab)})
   end
 
   def handle_event(%{"event" => "webview_closed", "webview" => id}, state) do

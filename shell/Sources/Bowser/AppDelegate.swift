@@ -34,6 +34,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let isFirstWindow = controllers.isEmpty
         controllers.append(controller)
+
+        // Emit BEFORE the window can become key: consumers must see
+        // tab_opened before the first tab_activated for this webview.
+        var opened: [String: Any] = [
+            "op": "event", "event": "tab_opened",
+            "webview": controller.engineView.webviewId,
+        ]
+        if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
+        BrainBridge.shared.send(opened)
+
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         controller.focusOmnibar()
@@ -43,13 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller?.window?.toggleFullScreen(nil)
             }
         }
-
-        var opened: [String: Any] = [
-            "op": "event", "event": "tab_opened",
-            "webview": controller.engineView.webviewId,
-        ]
-        if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
-        BrainBridge.shared.send(opened)
 
         return controller
     }
