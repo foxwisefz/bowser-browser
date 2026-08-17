@@ -38,6 +38,13 @@ defmodule BowserBrain.Engine do
     {:noreply, state}
   end
 
+  # Clean exit = the user quit on purpose (Cmd-Q, closed last window).
+  # Respawning would fight the user. Only dirty exits are crashes.
+  def handle_info({port, {:exit_status, 0}}, %{port: port} = state) do
+    Logger.info("engine: exited cleanly — user quit, not respawning")
+    {:noreply, %{state | port: nil, os_pid: nil}}
+  end
+
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.warning("engine: exited with status #{status} — respawning")
     Process.send_after(self(), :respawn, @respawn_delay_ms)

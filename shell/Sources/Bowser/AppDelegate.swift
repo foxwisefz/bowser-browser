@@ -29,10 +29,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if asTab, let keyWindow = NSApp.keyWindow ?? NSApp.mainWindow {
             keyWindow.addTabbedWindow(controller.window!, ordered: .above)
         }
+        let isFirstWindow = controllers.isEmpty
         controllers.append(controller)
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         controller.focusOmnibar()
+        // Restore fullscreen for the primary window after a respawn.
+        if isFirstWindow, !asTab, UserDefaults.standard.bool(forKey: "BowserWasFullscreen") {
+            DispatchQueue.main.async { [weak controller] in
+                controller?.window?.toggleFullScreen(nil)
+            }
+        }
         return controller
     }
 

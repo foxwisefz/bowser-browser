@@ -48,7 +48,8 @@ defmodule HnMod do
       document.body.innerHTML =
         '<div id="bowser-hn">' +
         '<header><h1>Hacker News</h1>' +
-        '<span class="tag">rewritten live by a Bowser mod</span></header>' +
+        '<span class="tag">rewritten live by a Bowser mod</span>' +
+        '<input id="bowser-hn-q" type="search" placeholder="Search HN…"></header>' +
         cards.map(function (c) {
           return '<article class="bowser-hn-card">' +
             '<span class="rank">' + esc(c.rank) + '</span>' +
@@ -63,6 +64,13 @@ defmodule HnMod do
         }).join("") +
         (more ? '<a class="more" href="' + esc(more.href) + '">More →</a>' : '') +
         '</div>';
+
+      var q = document.getElementById("bowser-hn-q");
+      if (q) q.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && q.value.trim()) {
+          location.href = "https://hn.algolia.com/?q=" + encodeURIComponent(q.value.trim());
+        }
+      });
 
       // Survive the reloads that toggling/editing this mod causes.
       var y = 0;
@@ -81,6 +89,9 @@ defmodule HnMod do
         "  border-bottom: 1px solid #2a2e38; padding-bottom: 14px; margin-bottom: 10px; }" +
         "#bowser-hn h1 { font-size: 22px; margin: 0; }" +
         "#bowser-hn .tag { font-size: 12px; color: #f0873c; }" +
+        "#bowser-hn-q { margin-left: auto; background: #1a1e26; color: #e8e6e1;" +
+        "  border: 1px solid #2a2e38; border-radius: 6px; padding: 6px 10px;" +
+        "  font-size: 13px; width: 180px; }" +
         ".bowser-hn-card { display: flex; gap: 14px; padding: 13px 4px;" +
         "  border-bottom: 1px solid #1c1f27; }" +
         ".bowser-hn-card .rank { color: #565d6b; font-size: 13px; min-width: 22px;" +

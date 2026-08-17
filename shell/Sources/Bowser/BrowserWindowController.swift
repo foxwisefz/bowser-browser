@@ -13,7 +13,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             backing: .buffered,
             defer: false
         )
-        window.center()
+        // Come back where the user left us, across crash/upgrade respawns.
+        if let saved = UserDefaults.standard.string(forKey: "BowserWindowFrame") {
+            window.setFrame(NSRectFromString(saved), display: false)
+        } else {
+            window.center()
+        }
         window.title = "Bowser"
         window.tabbingMode = .preferred
         window.tabbingIdentifier = "bowser-browser"
@@ -89,6 +94,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         ChromeSurface.unregister(self)
         engineView.tearDown()
         onClose?()
+    }
+
+    private func persistWindowState() {
+        guard let window else { return }
+        if !window.styleMask.contains(.fullScreen) {
+            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "BowserWindowFrame")
+        }
+    }
+
+    func windowDidMove(_ notification: Notification) { persistWindowState() }
+    func windowDidEndLiveResize(_ notification: Notification) { persistWindowState() }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        UserDefaults.standard.set(true, forKey: "BowserWasFullscreen")
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        UserDefaults.standard.set(false, forKey: "BowserWasFullscreen")
     }
 
     // MARK: NSToolbarDelegate
