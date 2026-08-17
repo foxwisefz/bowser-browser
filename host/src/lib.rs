@@ -322,6 +322,11 @@ pub extern "C" fn bowser_webview_destroy(id: u64) {
             .as_mut()
             .and_then(|host| host.tabs.remove(&id))
     });
+    if tab.is_some() {
+        brain::send(&serde_json::json!({
+            "op": "event", "event": "webview_closed", "webview": id,
+        }));
+    }
     drop(tab); // WebView drop sends CloseWebView
     bowser_host_spin();
 }
@@ -526,18 +531,24 @@ fn handle_brain_message(message: &serde_json::Value) {
     match op {
         // Synthetic marker queued by brain.rs when a brain connects.
         "_connected" => {
-            let webviews: Vec<u64> = HOST.with(|h| {
-                h.borrow()
-                    .as_ref()
-                    .map(|host| {
-                        let mut ids: Vec<u64> = host.tabs.keys().copied().collect();
-                        ids.sort_unstable();
-                        ids
+            let (webviews, tabs) = HOST.with(|h| {
+                let borrow = h.borrow();
+                let Some(host) = borrow.as_ref() else {
+                    return (Vec::new(), Vec::new());
+                };
+                let mut ids: Vec<u64> = host.tabs.keys().copied().collect();
+                ids.sort_unstable();
+                let tabs: Vec<serde_json::Value> = ids
+                    .iter()
+                    .map(|id| {
+                        let url = host.tabs[id].webview.url().map(|u| u.to_string());
+                        serde_json::json!({"id": id, "url": url})
                     })
-                    .unwrap_or_default()
+                    .collect();
+                (ids, tabs)
             });
             brain::send(&serde_json::json!({
-                "op": "hello", "v": 1, "webviews": webviews,
+                "op": "hello", "v": 1, "webviews": webviews, "tabs": tabs,
             }));
         }
         // Engine-injected user scripts/styles (the content-script mechanism).

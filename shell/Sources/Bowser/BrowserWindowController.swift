@@ -48,6 +48,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         window?.makeFirstResponder(omnibar)
     }
 
+    func loadURL(_ url: String) {
+        engineView.load(urlString: url)
+    }
+
     @objc func focusOmnibarAction(_ sender: Any?) {
         focusOmnibar()
     }

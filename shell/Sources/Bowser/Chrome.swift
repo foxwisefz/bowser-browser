@@ -46,6 +46,13 @@ enum ChromeSurface {
         case "remove_button":
             guard let id = object["id"] as? String else { return }
             buttons.removeAll { $0.id == id }
+        case "open_tab":
+            guard let delegate = NSApp.delegate as? AppDelegate else { return }
+            let controller = delegate.openWindow(asTab: true)
+            if let url = object["url"] as? String {
+                controller.loadURL(url)
+            }
+            return
         default:
             NSLog("Bowser: unknown chrome op \(action)")
             return

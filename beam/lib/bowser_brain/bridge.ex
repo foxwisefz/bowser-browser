@@ -24,6 +24,9 @@ defmodule BowserBrain.Bridge do
 
   def socket_path, do: Path.join(System.user_home!(), ".bowser/brain.sock")
 
+  @doc "Is the engine currently connected?"
+  def connected?, do: GenServer.call(__MODULE__, :connected?)
+
   @impl true
   def init(nil) do
     send(self(), :connect)
@@ -93,6 +96,8 @@ defmodule BowserBrain.Bridge do
   end
 
   @impl true
+  def handle_call(:connected?, _from, state), do: {:reply, state.sock != nil, state}
+
   def handle_call({:eval_js, webview, code}, from, state) do
     id = state.next_id
 
