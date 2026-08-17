@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["host"]
+
+[profile.release]
+# Spike settings: fast-enough codegen without LTO's compile-time cost.
+# Revisit (thin LTO, codegen-units=1) once the benchmark harness exists.
+opt-level = 3
+incremental = true
+
+[profile.dev]
+# Servo in a pure-debug build is unusably slow; optimize deps even in dev.
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 2

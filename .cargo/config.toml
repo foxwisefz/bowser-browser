@@ -1,0 +1,6 @@
+# ADR 0006: single target — this machine only.
+[build]
+target = "aarch64-apple-darwin"
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "target-cpu=native"]

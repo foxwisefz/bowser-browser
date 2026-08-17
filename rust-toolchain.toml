@@ -1,0 +1,4 @@
+[toolchain]
+# Matches servo upstream's pin (servo 0.5.0 / main @ a986ae1).
+channel = "1.97.1"
+components = ["clippy", "rustfmt", "rust-src"]
