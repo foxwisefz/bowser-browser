@@ -163,6 +163,11 @@ final class BrainBridge {
             } else {
                 tab["url"] = NSNull()
             }
+            // Live title too: an already-loaded page will never fire another
+            // title_changed, so hello is the only chance to learn it.
+            if let title = EngineView.live[id]?.webView.title, !title.isEmpty {
+                tab["title"] = title
+            }
             return tab
         }
         send(["op": "hello", "v": 1, "webviews": ids, "tabs": tabs])

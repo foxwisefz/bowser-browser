@@ -26,10 +26,22 @@ defmodule TabsMod do
     state =
       Enum.reduce(engine_tabs, state, fn %{"id" => id} = tab, acc ->
         acc = ensure_tab(acc, id)
+        current = acc.tabs[id]
+        placeholder? = current.title in ["tab #{id}", "new tab"]
+        title = tab["title"]
         url = tab["url"]
 
-        if is_binary(url) and url != "" and acc.tabs[id].title == "tab #{id}" do
-          %{acc | tabs: Map.put(acc.tabs, id, %{acc.tabs[id] | title: url})}
+        best =
+          cond do
+            # A live page title from the engine is ground truth — always wins.
+            is_binary(title) and title != "" -> title
+            # URLs only fill placeholders.
+            is_binary(url) and url != "" and placeholder? -> url
+            true -> nil
+          end
+
+        if best do
+          %{acc | tabs: Map.put(acc.tabs, id, %{current | title: best})}
         else
           acc
         end
