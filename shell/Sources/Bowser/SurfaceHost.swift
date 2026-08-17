@@ -148,10 +148,22 @@ struct SurfaceTreeView: View {
                     Spacer(minLength: 0)
                 }
             }
-            // .tint on .bordered is a visual no-op on macOS — prominent style
-            // is the only reliable "active" look.
+            // Our palettes are non-activating panels: never the key window,
+            // and macOS dims standard button styles (incl. borderedProminent)
+            // in non-key windows to gray. Active state needs an explicit
+            // fill that ignores key-window state.
             if active {
-                return AnyView(base.buttonStyle(.borderedProminent).padding(.leading, indent))
+                return AnyView(
+                    base
+                        .buttonStyle(.plain)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor))
+                        .padding(.leading, indent)
+                )
             }
             return AnyView(base.buttonStyle(.bordered).padding(.leading, indent))
         case "slider":
