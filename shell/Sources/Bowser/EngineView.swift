@@ -1,6 +1,44 @@
 import AppKit
 import CBowserHost
 
+// MARK: - C callback thunks
+// These MUST be file-scope (nonisolated) functions. A closure literal formed
+// inside a @MainActor context gets a hidden dispatch_assert_queue(main) when
+// converted to a C function pointer — and Servo's waker legally fires from
+// engine threads (e.g. WRRenderBackend), which trapped SIGTRAP at launch.
+
+private func bowserWake(_ ctx: UnsafeMutableRawPointer?) {
+    // Any thread. Only enqueue; never touch engine state here.
+    DispatchQueue.main.async { bowser_host_spin() }
+}
+
+// Delegate callbacks fire during bowser_host_spin, which only runs on the
+// main thread; assumeIsolated makes that contract loud if it's ever violated.
+// Pointers travel as UInt bits (raw pointers aren't Sendable), and C strings
+// are copied before the hop — they're only valid for the duration of the call.
+private func bowserFrameReady(_ ctx: UnsafeMutableRawPointer?) {
+    let key = UInt(bitPattern: ctx)
+    MainActor.assumeIsolated { EngineView.cbFrameReady(key) }
+}
+
+private func bowserURLChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
+    guard let value else { return }
+    let key = UInt(bitPattern: ctx)
+    let string = String(cString: value)
+    MainActor.assumeIsolated { EngineView.cbURLChanged(key, string) }
+}
+
+private func bowserTitleChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
+    guard let value else { return }
+    let key = UInt(bitPattern: ctx)
+    let string = String(cString: value)
+    MainActor.assumeIsolated { EngineView.cbTitleChanged(key, string) }
+}
+
+private func bowserLoadStatus(_ ctx: UnsafeMutableRawPointer?, _ value: UInt8) {
+    // Unused for now.
+}
+
 /// Hosts a Servo webview surface via the bowser-host FFI.
 ///
 /// Threading contract (see bowser_host.h): all bowser_* calls happen on the
@@ -15,18 +53,15 @@ final class EngineView: NSView {
     private var webviewId: UInt64 = 0
     private var pendingURL: String?
 
-    /// C callbacks look views up here; a torn-down view is simply absent,
-    /// so late callbacks are no-ops instead of use-after-free.
-    private static var live: [UnsafeMutableRawPointer: EngineView] = [:]
+    /// C callbacks look views up here (keyed by the ctx pointer's bits);
+    /// a torn-down view is simply absent, so late callbacks are no-ops
+    /// instead of use-after-free.
+    private static var live: [UInt: EngineView] = [:]
     private static var hostStarted = false
 
     static func ensureHostStarted() {
         guard !hostStarted else { return }
-        // Wake may fire on any thread; only enqueue a spin on the main queue.
-        let started = bowser_host_init({ _ in
-            DispatchQueue.main.async { bowser_host_spin() }
-        }, nil)
-        hostStarted = started
+        hostStarted = bowser_host_init(bowserWake, nil)
     }
 
     static func shutdownHost() {
@@ -65,7 +100,7 @@ final class EngineView: NSView {
         EngineView.ensureHostStarted()
 
         let ctx = Unmanaged.passUnretained(self).toOpaque()
-        EngineView.live[ctx] = self
+        EngineView.live[UInt(bitPattern: ctx)] = self
 
         let (width, height) = devicePixelSize
         let url = pendingURL
@@ -76,18 +111,18 @@ final class EngineView: NSView {
             Float(backingScale),
             url,
             ctx,
-            { ctx in MainActor.assumeIsolated { EngineView.cbFrameReady(ctx) } },
-            { ctx, value in MainActor.assumeIsolated { EngineView.cbURLChanged(ctx, value) } },
-            { ctx, value in MainActor.assumeIsolated { EngineView.cbTitleChanged(ctx, value) } },
-            { _, _ in /* load status: unused for now */ }
+            bowserFrameReady,
+            bowserURLChanged,
+            bowserTitleChanged,
+            bowserLoadStatus
         )
         if webviewId == 0 {
-            EngineView.live.removeValue(forKey: ctx)
+            EngineView.live.removeValue(forKey: UInt(bitPattern: ctx))
         }
     }
 
     func tearDown() {
-        EngineView.live.removeValue(forKey: Unmanaged.passUnretained(self).toOpaque())
+        EngineView.live.removeValue(forKey: UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
         if webviewId != 0 {
             bowser_webview_destroy(webviewId)
             webviewId = 0
@@ -96,25 +131,18 @@ final class EngineView: NSView {
 
     // MARK: C callback trampolines (fire during spin, on the main thread)
 
-    private static func view(for ctx: UnsafeMutableRawPointer?) -> EngineView? {
-        guard let ctx else { return nil }
-        return live[ctx]
-    }
-
-    private static func cbFrameReady(_ ctx: UnsafeMutableRawPointer?) {
-        guard let view = view(for: ctx), view.webviewId != 0 else { return }
+    fileprivate static func cbFrameReady(_ key: UInt) {
+        guard let view = live[key], view.webviewId != 0 else { return }
         let id = view.webviewId
         DispatchQueue.main.async { bowser_webview_paint(id) }
     }
 
-    private static func cbURLChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
-        guard let view = view(for: ctx), let value else { return }
-        view.onURLChange?(String(cString: value))
+    fileprivate static func cbURLChanged(_ key: UInt, _ value: String) {
+        live[key]?.onURLChange?(value)
     }
 
-    private static func cbTitleChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
-        guard let view = view(for: ctx), let value else { return }
-        view.onTitleChange?(String(cString: value))
+    fileprivate static func cbTitleChanged(_ key: UInt, _ value: String) {
+        live[key]?.onTitleChange?(value)
     }
 
     // MARK: Commands
