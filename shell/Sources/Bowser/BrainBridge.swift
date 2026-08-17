@@ -155,7 +155,15 @@ final class BrainBridge {
     private func sendHello() {
         let ids = EngineView.live.keys.sorted()
         let tabs: [[String: Any]] = ids.map { id in
-            ["id": id, "url": EngineView.live[id]?.currentURLString as Any]
+            var tab: [String: Any] = ["id": id]
+            // Never box an Optional into JSON — JSONSerialization rejects it
+            // and the whole hello silently dies.
+            if let url = EngineView.live[id]?.currentURLString {
+                tab["url"] = url
+            } else {
+                tab["url"] = NSNull()
+            }
+            return tab
         }
         send(["op": "hello", "v": 1, "webviews": ids, "tabs": tabs])
     }

@@ -55,8 +55,15 @@ defmodule BowserBrain.Engine do
     {:noreply, spawn_engine(state)}
   end
 
-  # Engine stdout (GL probing spam etc.) — ignore.
-  def handle_info({_port, {:data, _}}, state), do: {:noreply, state}
+  # Engine output: surface our own diagnostics, drop the GL probing spam.
+  def handle_info({_port, {:data, data}}, state) do
+    for line <- String.split(data, "\n", trim: true),
+        String.contains?(line, "Bowser:") do
+      Logger.info("engine> #{line}")
+    end
+
+    {:noreply, state}
+  end
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
@@ -73,7 +80,7 @@ defmodule BowserBrain.Engine do
 
     if File.exists?(path) do
       Logger.info("engine: spawning #{path}")
-      port = Port.open({:spawn_executable, path}, [:binary, :exit_status])
+      port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :stderr_to_stdout])
 
       os_pid =
         case Port.info(port, :os_pid) do
