@@ -654,7 +654,7 @@ fn handle_brain_message(message: &serde_json::Value) {
             ) else {
                 return;
             };
-            let mut builder = cookie::Cookie::build(name.to_string(), value.to_string());
+            let mut builder = cookie::Cookie::build((name.to_string(), value.to_string()));
             if let Some(domain) = spec.get("domain").and_then(|v| v.as_str()) {
                 builder = builder.domain(domain.to_string());
             }
@@ -670,7 +670,7 @@ fn handle_brain_message(message: &serde_json::Value) {
             if let Some(servo) = servo_handle() {
                 servo
                     .site_data_manager()
-                    .set_cookie_for_url(url, builder.finish(), None);
+                    .set_cookie_for_url(url, builder.build(), None);
                 servo.spin_event_loop();
             }
         }
