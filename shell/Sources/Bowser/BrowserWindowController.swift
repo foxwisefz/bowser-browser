@@ -40,6 +40,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         engineView.onURLChange = { [weak self] url in
             self?.omnibar.stringValue = url
         }
+
+        ChromeSurface.register(self)
     }
 
     func focusOmnibar() {
@@ -53,6 +55,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     @objc private func omnibarSubmitted(_ sender: Any?) {
         let text = omnibar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // ":command args" goes to the brain, not the web.
+        if text.hasPrefix(":") {
+            ChromeSurface.emit([
+                "op": "event", "event": "omnibar_command",
+                "text": String(text.dropFirst()),
+            ])
+            window?.makeFirstResponder(engineView)
+            return
+        }
         engineView.load(urlString: Self.normalize(text))
         window?.makeFirstResponder(engineView)
     }
@@ -66,6 +77,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     }
 
     func windowWillClose(_ notification: Notification) {
+        ChromeSurface.unregister(self)
         engineView.tearDown()
         onClose?()
     }
@@ -76,12 +88,36 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     private static let backItemID = NSToolbarItem.Identifier("back")
     private static let forwardItemID = NSToolbarItem.Identifier("forward")
 
+    private static let modPrefix = "mod."
+
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [Self.backItemID, Self.forwardItemID, .flexibleSpace, Self.omnibarItemID, .flexibleSpace]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
+            + ChromeSurface.buttons.map { NSToolbarItem.Identifier(Self.modPrefix + $0.id) }
+    }
+
+    /// Reconcile toolbar mod buttons with ChromeSurface.buttons (append-at-end).
+    func syncModButtons() {
+        guard let toolbar = window?.toolbar else { return }
+        let wanted = ChromeSurface.buttons.map { NSToolbarItem.Identifier(Self.modPrefix + $0.id) }
+
+        for (index, item) in toolbar.items.enumerated().reversed()
+        where item.itemIdentifier.rawValue.hasPrefix(Self.modPrefix)
+            && !wanted.contains(item.itemIdentifier) {
+            toolbar.removeItem(at: index)
+        }
+        let present = toolbar.items.map(\.itemIdentifier)
+        for identifier in wanted where !present.contains(identifier) {
+            toolbar.insertItem(withItemIdentifier: identifier, at: toolbar.items.count)
+        }
+    }
+
+    @objc private func modButtonClicked(_ sender: NSButton) {
+        let id = sender.identifier?.rawValue ?? ""
+        ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
     }
 
     func toolbar(
@@ -110,7 +146,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             item.action = #selector(EngineView.goForward(_:))
             return item
         default:
-            return nil
+            let raw = itemIdentifier.rawValue
+            guard raw.hasPrefix(Self.modPrefix) else { return nil }
+            let modID = String(raw.dropFirst(Self.modPrefix.count))
+            guard let spec = ChromeSurface.buttons.first(where: { $0.id == modID }) else {
+                return nil
+            }
+            let button = NSButton(title: spec.title, target: self, action: #selector(modButtonClicked(_:)))
+            button.bezelStyle = .texturedRounded
+            if let symbol = spec.symbol,
+               let image = NSImage(systemSymbolName: symbol, accessibilityDescription: spec.title) {
+                button.image = image
+                button.imagePosition = spec.title.isEmpty ? .imageOnly : .imageLeading
+            }
+            button.identifier = NSUserInterfaceItemIdentifier(modID)
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.view = button
+            item.label = spec.title
+            return item
         }
     }
 }

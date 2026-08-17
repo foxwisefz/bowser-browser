@@ -23,11 +23,12 @@ use raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
 };
+use embedder_traits::user_contents::UserStyleSheet;
 use servo::{
-    DevicePoint, InputEvent, JSValue, Key, KeyState, KeyboardEvent, LoadStatus, MouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext, Servo,
-    ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WheelDelta, WheelEvent, WheelMode,
-    WindowRenderingContext,
+    ConsoleLogLevel, DevicePoint, InputEvent, JSValue, Key, KeyState, KeyboardEvent, LoadStatus,
+    MouseButton, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext,
+    Servo, ServoBuilder, UserContentManager, UserScript, WebView, WebViewBuilder, WebViewDelegate,
+    WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
 };
 use url::Url;
 
@@ -107,6 +108,15 @@ impl WebViewDelegate for SwiftDelegate {
             "webview": self.id, "status": code,
         }));
     }
+
+    fn show_console_message(&self, _webview: WebView, level: ConsoleLogLevel, message: String) {
+        brain::send(&serde_json::json!({
+            "op": "event", "event": "console",
+            "webview": self.id,
+            "level": format!("{level:?}").to_lowercase(),
+            "message": message,
+        }));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +125,10 @@ impl WebViewDelegate for SwiftDelegate {
 struct Tab {
     webview: WebView,
     rendering_context: Rc<WindowRenderingContext>,
+    user_content: Rc<UserContentManager>,
+    // Kept so mod-installed content can be removed on replace.
+    mod_scripts: RefCell<Vec<Rc<UserScript>>>,
+    mod_styles: RefCell<Vec<Rc<UserStyleSheet>>>,
 }
 
 struct Host {
@@ -271,8 +285,10 @@ pub extern "C" fn bowser_webview_create(
         on_load_status,
     });
 
+    let user_content = Rc::new(UserContentManager::new(&servo));
     let mut builder = WebViewBuilder::new(&servo, rendering_context.clone())
         .hidpi_scale_factor(Scale::new(hidpi))
+        .user_content_manager(user_content.clone())
         .delegate(delegate);
     if let Some(parsed) = parse_url(url) {
         builder = builder.url(parsed);
@@ -289,6 +305,9 @@ pub extern "C" fn bowser_webview_create(
             Tab {
                 webview,
                 rendering_context,
+                user_content,
+                mod_scripts: RefCell::new(Vec::new()),
+                mod_styles: RefCell::new(Vec::new()),
             },
         );
     });
@@ -460,6 +479,34 @@ pub extern "C" fn bowser_brain_pump() {
     }
 }
 
+thread_local! {
+    // Shell-registered handler for "chrome" ops (toolbar buttons etc.).
+    // Called during pump, i.e. on the main thread, with a JSON C string
+    // that is only valid for the duration of the call.
+    static CHROME_CB: std::cell::Cell<Option<(StrCb, usize)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[no_mangle]
+pub extern "C" fn bowser_set_chrome_handler(cb: StrCb, ctx: *mut c_void) {
+    CHROME_CB.with(|c| c.set(Some((cb, ctx as usize))));
+}
+
+/// Shell → brain: forward a complete JSON message (e.g. chrome_click events).
+#[no_mangle]
+pub extern "C" fn bowser_emit_event(json: *const c_char) {
+    if json.is_null() {
+        return;
+    }
+    let Ok(s) = unsafe { CStr::from_ptr(json) }.to_str() else {
+        return;
+    };
+    match serde_json::from_str::<serde_json::Value>(s) {
+        Ok(value) => brain::send(&value),
+        Err(error) => eprintln!("bowser: bowser_emit_event bad JSON: {error}"),
+    }
+}
+
 /// webview 0 = "whichever" (lowest live id) so simple mods needn't track ids.
 fn resolve_webview(requested: u64) -> Option<u64> {
     HOST.with(|h| {
@@ -477,6 +524,71 @@ fn handle_brain_message(message: &serde_json::Value) {
     let requested = message.get("webview").and_then(|v| v.as_u64()).unwrap_or(0);
 
     match op {
+        // Synthetic marker queued by brain.rs when a brain connects.
+        "_connected" => {
+            let webviews: Vec<u64> = HOST.with(|h| {
+                h.borrow()
+                    .as_ref()
+                    .map(|host| {
+                        let mut ids: Vec<u64> = host.tabs.keys().copied().collect();
+                        ids.sort_unstable();
+                        ids
+                    })
+                    .unwrap_or_default()
+            });
+            brain::send(&serde_json::json!({
+                "op": "hello", "v": 1, "webviews": webviews,
+            }));
+        }
+        // Engine-injected user scripts/styles (the content-script mechanism).
+        // Absent field = leave alone; [] = clear. Takes effect on reload,
+        // so we reload by default.
+        "set_user_content" => {
+            let Some(id) = resolve_webview(requested) else {
+                return;
+            };
+            let styles = message.get("styles").and_then(|v| v.as_array()).cloned();
+            let scripts = message.get("scripts").and_then(|v| v.as_array()).cloned();
+            let reload = message
+                .get("reload")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            with_tab(id, move |tab| {
+                if let Some(styles) = styles {
+                    for old in tab.mod_styles.borrow_mut().drain(..) {
+                        tab.user_content.remove_stylesheet(old);
+                    }
+                    let base = Url::parse("bowser://mod/style").expect("static url");
+                    for css in styles.iter().filter_map(|v| v.as_str()) {
+                        let sheet = Rc::new(UserStyleSheet::new(css.to_string(), base.clone()));
+                        tab.user_content.add_stylesheet(sheet.clone());
+                        tab.mod_styles.borrow_mut().push(sheet);
+                    }
+                }
+                if let Some(scripts) = scripts {
+                    for old in tab.mod_scripts.borrow_mut().drain(..) {
+                        tab.user_content.remove_script(old);
+                    }
+                    for js in scripts.iter().filter_map(|v| v.as_str()) {
+                        let script = Rc::new(UserScript::new(js.to_string(), None));
+                        tab.user_content.add_script(script.clone());
+                        tab.mod_scripts.borrow_mut().push(script);
+                    }
+                }
+                if reload {
+                    tab.webview.reload();
+                }
+            });
+        }
+        // Chrome surface ops are the shell's business — pass through verbatim.
+        "chrome" => {
+            let Some((cb, ctx)) = CHROME_CB.with(|c| c.get()) else {
+                return;
+            };
+            if let Ok(s) = CString::new(message.to_string()) {
+                cb(ctx as *mut c_void, s.as_ptr());
+            }
+        }
         "navigate" => {
             let Some(url) = message
                 .get("url")

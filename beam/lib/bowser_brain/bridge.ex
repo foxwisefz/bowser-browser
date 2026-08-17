@@ -58,6 +58,11 @@ defmodule BowserBrain.Bridge do
           if from, do: GenServer.reply(from, js_reply(result))
           %{state | pending: pending}
 
+        {:ok, %{"op" => "hello", "v" => v} = hello} ->
+          Logger.info("bridge: engine hello, protocol v#{v}, webviews #{inspect(hello["webviews"])}")
+          broadcast(Map.put(hello, "event", "hello"))
+          state
+
         {:ok, other} ->
           Logger.warning("bridge: unknown message #{inspect(other)}")
           state

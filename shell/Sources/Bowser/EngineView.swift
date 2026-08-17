@@ -76,6 +76,7 @@ final class EngineView: NSView {
         if !socketPath.withCString({ bowser_brain_start($0, bowserBrainMessage, nil) }) {
             NSLog("Bowser: brain socket failed to start at \(socketPath)")
         }
+        bowser_set_chrome_handler(bowserChromeOp, nil)
     }
 
     static func shutdownHost() {

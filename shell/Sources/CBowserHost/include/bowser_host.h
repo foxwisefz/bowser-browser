@@ -49,3 +49,10 @@ void bowser_webview_key(uint64_t id, bool down, const char *characters,
 bool bowser_brain_start(const char *socket_path, bowser_void_cb on_message,
                         void *ctx);
 void bowser_brain_pump(void);
+
+// Chrome surface ops ("chrome" messages from the brain) are forwarded to this
+// handler as a JSON C string, valid only for the duration of the call. Fires
+// during bowser_brain_pump (main thread).
+void bowser_set_chrome_handler(bowser_str_cb handler, void *ctx);
+// Shell -> brain: send a complete JSON message (e.g. chrome_click events).
+void bowser_emit_event(const char *json);

@@ -61,8 +61,16 @@ pub fn start(path: String, cb: EventCb, ctx: usize) -> bool {
                 match stream {
                     Ok(stream) => {
                         eprintln!("bowser-brain: brain connected");
-                        if let Ok(writer) = stream.try_clone() {
-                            shared().lock().unwrap().writer = Some(writer);
+                        {
+                            let mut shared = shared().lock().unwrap();
+                            if let Ok(writer) = stream.try_clone() {
+                                shared.writer = Some(writer);
+                            }
+                            // Let the main thread greet the brain (hello + state).
+                            shared.queue.push_back(serde_json::json!({"op": "_connected"}));
+                            if let Some((cb, ctx)) = shared.cb {
+                                cb(ctx as *mut c_void);
+                            }
                         }
                         read_loop(stream);
                         shared().lock().unwrap().writer = None;
