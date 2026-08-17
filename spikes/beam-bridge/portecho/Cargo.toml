@@ -1,0 +1,11 @@
+[package]
+name = "portecho"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone spike crate — deliberately outside the root workspace.
+[workspace]
+
+[profile.release]
+opt-level = 3
