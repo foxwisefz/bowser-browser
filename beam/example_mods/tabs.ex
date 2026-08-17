@@ -11,13 +11,31 @@ defmodule TabsMod do
     render(%{tabs: %{}, order: [], active: nil})
   end
 
+  # hello is authoritative for WHICH tabs exist; lineage and titles we
+  # already learned are kept for survivors.
   def handle_event(%{"event" => "hello"} = event, state) do
-    tabs =
-      for %{"id" => id} = tab <- Map.get(event, "tabs", []), into: %{} do
-        {id, %{title: tab["url"] || "tab #{id}", opener: nil}}
-      end
+    engine_tabs = Map.get(event, "tabs", [])
+    ids = for %{"id" => id} <- engine_tabs, do: id
 
-    render(%{state | tabs: tabs, order: tabs |> Map.keys() |> Enum.sort()})
+    state = %{
+      state
+      | tabs: Map.take(state.tabs, ids),
+        order: Enum.filter(state.order, &(&1 in ids))
+    }
+
+    state =
+      Enum.reduce(engine_tabs, state, fn %{"id" => id} = tab, acc ->
+        acc = ensure_tab(acc, id)
+        url = tab["url"]
+
+        if is_binary(url) and url != "" and acc.tabs[id].title == "tab #{id}" do
+          %{acc | tabs: Map.put(acc.tabs, id, %{acc.tabs[id] | title: url})}
+        else
+          acc
+        end
+      end)
+
+    render(state)
   end
 
   def handle_event(%{"event" => "tab_opened", "webview" => id} = event, state) do
@@ -31,13 +49,26 @@ defmodule TabsMod do
 
   def handle_event(%{"event" => "title_changed", "webview" => id, "title" => title}, state)
       when title != "" do
-    case state.tabs[id] do
-      nil -> state
-      tab -> render(%{state | tabs: Map.put(state.tabs, id, %{tab | title: title})})
+    state = ensure_tab(state, id)
+    tab = state.tabs[id]
+    render(%{state | tabs: Map.put(state.tabs, id, %{tab | title: title})})
+  end
+
+  # Self-healing: any event naming a webview we don't know adds it — event
+  # streams are lossy at boundaries (races around hello); converge anyway.
+  def handle_event(%{"event" => "url_changed", "webview" => id, "url" => url}, state) do
+    state = ensure_tab(state, id)
+    tab = state.tabs[id]
+
+    if tab.title == "new tab" or tab.title == "tab #{id}" do
+      render(%{state | tabs: Map.put(state.tabs, id, %{tab | title: url})})
+    else
+      state
     end
   end
 
   def handle_event(%{"event" => "tab_activated", "webview" => id}, state) do
+    state = ensure_tab(state, id)
     if state.active == id, do: state, else: render(%{state | active: id})
   end
 
@@ -50,6 +81,18 @@ defmodule TabsMod do
   end
 
   def handle_event(_event, state), do: state
+
+  defp ensure_tab(state, id) do
+    if Map.has_key?(state.tabs, id) do
+      state
+    else
+      %{
+        state
+        | tabs: Map.put(state.tabs, id, %{title: "tab #{id}", opener: nil}),
+          order: state.order ++ [id]
+      }
+    end
+  end
 
   defp render(state) do
     rows =
