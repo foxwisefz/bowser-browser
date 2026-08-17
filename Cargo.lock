@@ -623,7 +623,9 @@ dependencies = [
 name = "bowser-host"
 version = "0.1.0"
 dependencies = [
+ "dpi",
  "euclid",
+ "raw-window-handle",
  "rustls",
  "servo",
  "servo-embedder-traits",

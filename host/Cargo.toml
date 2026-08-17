@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+name = "bowser_host"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
 [[bin]]
 name = "bowser-host"
 path = "src/main.rs"
@@ -14,7 +19,9 @@ servo = "=0.5.0"
 embedder_traits = { package = "servo-embedder-traits", version = "=0.5.0" }
 
 # Versions matched to servo 0.5.0's workspace pins.
+dpi = "0.1"
 euclid = "0.22"
+raw-window-handle = "0.6"
 rustls = "0.23"
 tracing = "0.1"
 url = "2.5"

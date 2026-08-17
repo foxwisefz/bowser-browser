@@ -6,8 +6,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        EngineView.ensureHostStarted()
         openWindow(asTab: false)
         NSApp.activate()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        EngineView.shutdownHost()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
