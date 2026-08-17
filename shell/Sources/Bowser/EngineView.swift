@@ -39,6 +39,11 @@ private func bowserLoadStatus(_ ctx: UnsafeMutableRawPointer?, _ value: UInt8) {
     // Unused for now.
 }
 
+private func bowserBrainMessage(_ ctx: UnsafeMutableRawPointer?) {
+    // Socket thread → only enqueue the pump.
+    DispatchQueue.main.async { bowser_brain_pump() }
+}
+
 /// Hosts a Servo webview surface via the bowser-host FFI.
 ///
 /// Threading contract (see bowser_host.h): all bowser_* calls happen on the
@@ -62,6 +67,15 @@ final class EngineView: NSView {
     static func ensureHostStarted() {
         guard !hostStarted else { return }
         hostStarted = bowser_host_init(bowserWake, nil)
+        guard hostStarted else { return }
+
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".bowser")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let socketPath = dir.appendingPathComponent("brain.sock").path
+        if !socketPath.withCString({ bowser_brain_start($0, bowserBrainMessage, nil) }) {
+            NSLog("Bowser: brain socket failed to start at \(socketPath)")
+        }
     }
 
     static func shutdownHost() {

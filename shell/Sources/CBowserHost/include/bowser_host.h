@@ -43,3 +43,9 @@ void bowser_webview_wheel(uint64_t id, double dx, double dy, uint8_t mode,
                           float x, float y);
 void bowser_webview_key(uint64_t id, bool down, const char *characters,
                         uint16_t keycode);
+
+// BEAM brain bridge. on_message fires on the socket thread: only enqueue a
+// main-queue bowser_brain_pump call from it, nothing else.
+bool bowser_brain_start(const char *socket_path, bowser_void_cb on_message,
+                        void *ctx);
+void bowser_brain_pump(void);

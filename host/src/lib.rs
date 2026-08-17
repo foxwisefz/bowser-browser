@@ -9,6 +9,8 @@
 //!   back into `bowser_*` synchronously (re-entrant spin) — always
 //!   `DispatchQueue.main.async` first.
 
+mod brain;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -22,7 +24,7 @@ use raw_window_handle::{
     WindowHandle,
 };
 use servo::{
-    DevicePoint, InputEvent, Key, KeyState, KeyboardEvent, LoadStatus, MouseButton,
+    DevicePoint, InputEvent, JSValue, Key, KeyState, KeyboardEvent, LoadStatus, MouseButton,
     MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext, Servo,
     ServoBuilder, WebView, WebViewBuilder, WebViewDelegate, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext,
@@ -59,6 +61,7 @@ impl embedder_traits::EventLoopWaker for CWaker {
 // Per-webview delegate forwarding to Swift.
 
 struct SwiftDelegate {
+    id: u64,
     ctx: *mut c_void,
     on_frame_ready: VoidCb,
     on_url_change: StrCb,
@@ -75,12 +78,21 @@ impl WebViewDelegate for SwiftDelegate {
         if let Ok(s) = CString::new(url.to_string()) {
             (self.on_url_change)(self.ctx, s.as_ptr());
         }
+        brain::send(&serde_json::json!({
+            "op": "event", "event": "url_changed",
+            "webview": self.id, "url": url.to_string(),
+        }));
     }
 
     fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
-        if let Ok(s) = CString::new(title.unwrap_or_default()) {
+        let title = title.unwrap_or_default();
+        if let Ok(s) = CString::new(title.clone()) {
             (self.on_title_change)(self.ctx, s.as_ptr());
         }
+        brain::send(&serde_json::json!({
+            "op": "event", "event": "title_changed",
+            "webview": self.id, "title": title,
+        }));
     }
 
     fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
@@ -90,6 +102,10 @@ impl WebViewDelegate for SwiftDelegate {
             LoadStatus::Complete => 2,
         };
         (self.on_load_status)(self.ctx, code);
+        brain::send(&serde_json::json!({
+            "op": "event", "event": "load_status",
+            "webview": self.id, "status": code,
+        }));
     }
 }
 
@@ -237,7 +253,17 @@ pub extern "C" fn bowser_webview_create(
         return 0;
     };
 
+    // Allocate the id up front so the delegate can tag brain events with it.
+    let id = HOST.with(|h| {
+        let mut borrow = h.borrow_mut();
+        let host = borrow.as_mut().expect("ensure_servo succeeded");
+        let id = host.next_id;
+        host.next_id += 1;
+        id
+    });
+
     let delegate = Rc::new(SwiftDelegate {
+        id,
         ctx: cb_ctx,
         on_frame_ready,
         on_url_change,
@@ -255,11 +281,9 @@ pub extern "C" fn bowser_webview_create(
     webview.focus();
     webview.show();
 
-    let id = HOST.with(|h| {
+    HOST.with(|h| {
         let mut borrow = h.borrow_mut();
-        let host = borrow.as_mut().expect("checked above");
-        let id = host.next_id;
-        host.next_id += 1;
+        let host = borrow.as_mut().expect("ensure_servo succeeded");
         host.tabs.insert(
             id,
             Tab {
@@ -267,7 +291,6 @@ pub extern "C" fn bowser_webview_create(
                 rendering_context,
             },
         );
-        id
     });
     servo.spin_event_loop();
     id
@@ -407,6 +430,117 @@ pub extern "C" fn bowser_webview_key(id: u64, down: bool, characters: *const c_c
                 state, key,
             )));
     });
+}
+
+// ---------------------------------------------------------------------------
+// Brain bridge (BEAM sidecar; see brain.rs and ADR 0007)
+
+/// Start the brain socket listener. `on_message` fires on the socket thread —
+/// Swift must only enqueue a main-queue bowser_brain_pump call from it.
+#[no_mangle]
+pub extern "C" fn bowser_brain_start(
+    socket_path: *const c_char,
+    on_message: brain::EventCb,
+    ctx: *mut c_void,
+) -> bool {
+    if socket_path.is_null() {
+        return false;
+    }
+    let Ok(path) = unsafe { CStr::from_ptr(socket_path) }.to_str() else {
+        return false;
+    };
+    brain::start(path.to_string(), on_message, ctx as usize)
+}
+
+/// Drain and execute pending brain messages. Main thread only.
+#[no_mangle]
+pub extern "C" fn bowser_brain_pump() {
+    for message in brain::drain() {
+        handle_brain_message(&message);
+    }
+}
+
+/// webview 0 = "whichever" (lowest live id) so simple mods needn't track ids.
+fn resolve_webview(requested: u64) -> Option<u64> {
+    HOST.with(|h| {
+        let borrow = h.borrow();
+        let host = borrow.as_ref()?;
+        if requested != 0 && host.tabs.contains_key(&requested) {
+            return Some(requested);
+        }
+        host.tabs.keys().min().copied()
+    })
+}
+
+fn handle_brain_message(message: &serde_json::Value) {
+    let op = message.get("op").and_then(|v| v.as_str()).unwrap_or("");
+    let requested = message.get("webview").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    match op {
+        "navigate" => {
+            let Some(url) = message
+                .get("url")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Url::parse(s).ok())
+            else {
+                return;
+            };
+            if let Some(id) = resolve_webview(requested) {
+                with_tab(id, |tab| tab.webview.load(url));
+            }
+        }
+        "eval_js" => {
+            let Some(request_id) = message.get("id").and_then(|v| v.as_u64()) else {
+                return;
+            };
+            let Some(code) = message.get("code").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(id) = resolve_webview(requested) else {
+                brain::send(&serde_json::json!({
+                    "op": "js_result", "id": request_id,
+                    "ok": false, "value": "no webview",
+                }));
+                return;
+            };
+            let code = code.to_string();
+            with_tab(id, move |tab| {
+                tab.webview.evaluate_javascript(code, move |result| {
+                    let reply = match result {
+                        Ok(value) => serde_json::json!({
+                            "op": "js_result", "id": request_id, "webview": id,
+                            "ok": true, "value": js_value_to_json(&value),
+                        }),
+                        Err(error) => serde_json::json!({
+                            "op": "js_result", "id": request_id, "webview": id,
+                            "ok": false, "value": format!("{error:?}"),
+                        }),
+                    };
+                    brain::send(&reply);
+                });
+            });
+        }
+        other => eprintln!("bowser-brain: unknown op {other:?}"),
+    }
+}
+
+fn js_value_to_json(value: &JSValue) -> serde_json::Value {
+    use serde_json::Value as J;
+    match value {
+        JSValue::Undefined | JSValue::Null => J::Null,
+        JSValue::Boolean(b) => J::Bool(*b),
+        JSValue::Number(n) => serde_json::Number::from_f64(*n).map_or(J::Null, J::Number),
+        JSValue::String(s) => J::String(s.clone()),
+        JSValue::Element(s) | JSValue::ShadowRoot(s) | JSValue::Frame(s) | JSValue::Window(s) => {
+            J::String(s.clone())
+        }
+        JSValue::Array(items) => J::Array(items.iter().map(js_value_to_json).collect()),
+        JSValue::Object(map) => J::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), js_value_to_json(v)))
+                .collect(),
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

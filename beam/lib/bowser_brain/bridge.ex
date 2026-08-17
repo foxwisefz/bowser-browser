@@ -1,0 +1,120 @@
+defmodule BowserBrain.Bridge do
+  @moduledoc """
+  Connection to the engine host over the Unix socket at ~/.bowser/brain.sock
+  ({packet,4} frames, JSON payloads — ADR 0007). Reconnects forever: the
+  browser can restart without restarting the brain, and vice versa.
+
+  Events from the engine are broadcast to every subscriber in the
+  BowserBrain.Events registry as `{:browser_event, map}`.
+  """
+  use GenServer
+  require Logger
+
+  @reconnect_ms 1_000
+
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+
+  @doc "Fire-and-forget message to the engine."
+  def cast_msg(map) when is_map(map), do: GenServer.cast(__MODULE__, {:send, map})
+
+  @doc "Evaluate JS in a webview and wait for the result."
+  def eval_js(webview, code, timeout \\ 5_000) do
+    GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
+  end
+
+  def socket_path, do: Path.join(System.user_home!(), ".bowser/brain.sock")
+
+  @impl true
+  def init(nil) do
+    send(self(), :connect)
+    {:ok, %{sock: nil, pending: %{}, next_id: 1}}
+  end
+
+  @impl true
+  def handle_info(:connect, state) do
+    path = socket_path() |> String.to_charlist()
+
+    case :gen_tcp.connect({:local, path}, 0, [:binary, packet: 4, active: true]) do
+      {:ok, sock} ->
+        Logger.info("bridge: connected to engine")
+        {:noreply, %{state | sock: sock}}
+
+      {:error, reason} ->
+        Logger.debug("bridge: engine not up (#{inspect(reason)}), retrying")
+        Process.send_after(self(), :connect, @reconnect_ms)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:tcp, _sock, data}, state) do
+    state =
+      case JSON.decode(data) do
+        {:ok, %{"op" => "event"} = event} ->
+          broadcast(event)
+          state
+
+        {:ok, %{"op" => "js_result", "id" => id} = result} ->
+          {from, pending} = Map.pop(state.pending, id)
+          if from, do: GenServer.reply(from, js_reply(result))
+          %{state | pending: pending}
+
+        {:ok, other} ->
+          Logger.warning("bridge: unknown message #{inspect(other)}")
+          state
+
+        {:error, reason} ->
+          Logger.warning("bridge: bad JSON from engine: #{inspect(reason)}")
+          state
+      end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:tcp_closed, _sock}, state) do
+    Logger.info("bridge: engine disconnected, retrying")
+    Process.send_after(self(), :connect, @reconnect_ms)
+    {:noreply, %{state | sock: nil}}
+  end
+
+  def handle_info({:tcp_error, _sock, _reason}, state) do
+    Process.send_after(self(), :connect, @reconnect_ms)
+    {:noreply, %{state | sock: nil}}
+  end
+
+  @impl true
+  def handle_cast({:send, map}, state) do
+    send_frame(state.sock, map)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call({:eval_js, webview, code}, from, state) do
+    id = state.next_id
+
+    case send_frame(state.sock, %{op: "eval_js", id: id, webview: webview, code: code}) do
+      :ok ->
+        {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
+
+      :error ->
+        {:reply, {:error, :not_connected}, state}
+    end
+  end
+
+  defp send_frame(nil, _map), do: :error
+
+  defp send_frame(sock, map) do
+    case :gen_tcp.send(sock, JSON.encode!(map)) do
+      :ok -> :ok
+      {:error, _} -> :error
+    end
+  end
+
+  defp broadcast(event) do
+    Registry.dispatch(BowserBrain.Events, :browser_event, fn entries ->
+      for {pid, _} <- entries, do: send(pid, {:browser_event, event})
+    end)
+  end
+
+  defp js_reply(%{"ok" => true, "value" => value}), do: {:ok, value}
+  defp js_reply(%{"value" => value}), do: {:error, value}
+end
