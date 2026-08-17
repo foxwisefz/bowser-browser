@@ -28,10 +28,16 @@ defmodule BowserBrain.Engine do
 
   @impl true
   def handle_info(:check, %{enabled: true} = state) do
+    # Trust liveness, not bookkeeping: if the port is dead but we never got
+    # exit_status (it happens — wrapper/pipe edge cases), self-heal here.
+    port_alive = state.port != nil and Port.info(state.port) != nil
+    state = if port_alive, do: state, else: %{state | port: nil, os_pid: nil}
+
     state =
-      if BowserBrain.Bridge.connected?() or state.port != nil do
+      if port_alive or BowserBrain.Bridge.connected?() do
         state
       else
+        Logger.info("engine: not running and bridge down — (re)spawning")
         spawn_engine(state)
       end
 
