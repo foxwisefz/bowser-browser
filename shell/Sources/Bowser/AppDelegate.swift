@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -16,8 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult
-    func openWindow(asTab: Bool) -> BrowserWindowController {
-        let controller = BrowserWindowController()
+    func openWindow(
+        asTab: Bool,
+        configuration: WKWebViewConfiguration? = nil,
+        opener explicitOpener: UInt64? = nil
+    ) -> BrowserWindowController {
+        let opener = explicitOpener
+            ?? (NSApp.keyWindow?.windowController as? BrowserWindowController)?.engineView.webviewId
+        let controller = BrowserWindowController(configuration: configuration)
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             self.controllers.removeAll { $0 === controller }
@@ -36,6 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller?.window?.toggleFullScreen(nil)
             }
         }
+
+        var opened: [String: Any] = [
+            "op": "event", "event": "tab_opened",
+            "webview": controller.engineView.webviewId,
+        ]
+        if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
+        BrainBridge.shared.send(opened)
+
         return controller
     }
 

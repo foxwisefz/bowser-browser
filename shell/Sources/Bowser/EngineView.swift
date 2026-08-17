@@ -26,7 +26,7 @@ private final class ConsoleRelay: NSObject, WKScriptMessageHandler {
 /// rendering, and process isolation; this class owns identity, user content,
 /// and event flow to the brain.
 @MainActor
-final class EngineView: NSView, WKNavigationDelegate {
+final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     private(set) static var live: [UInt64: EngineView] = [:]
     private static var nextId: UInt64 = 1
 
@@ -59,9 +59,18 @@ final class EngineView: NSView, WKNavigationDelegate {
     })();
     """
 
-    override init(frame frameRect: NSRect) {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default() // cookies/storage persist
+    override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, configuration: nil)
+    }
+
+    /// Popups (target=_blank) must be created with the configuration WebKit
+    /// hands us in createWebViewWith — hence the injectable configuration.
+    init(frame frameRect: NSRect, configuration external: WKWebViewConfiguration?) {
+        let configuration = external ?? {
+            let c = WKWebViewConfiguration()
+            c.websiteDataStore = .default() // cookies/storage persist
+            return c
+        }()
         webView = WKWebView(frame: .zero, configuration: configuration)
 
         super.init(frame: frameRect)
@@ -75,6 +84,7 @@ final class EngineView: NSView, WKNavigationDelegate {
         rebuildUserScripts()
 
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.autoresizingMask = [.width, .height]
         webView.frame = bounds
@@ -185,5 +195,21 @@ final class EngineView: NSView, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         NSLog("Bowser: WebContent process died for webview \(webviewId) — reloading")
         webView.reload()
+    }
+
+    // MARK: WKUIDelegate
+
+    // target=_blank / window.open: open a real tab, with opener lineage.
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
+        let controller = delegate.openWindow(
+            asTab: true, configuration: configuration, opener: webviewId
+        )
+        return controller.engineView.webView
     }
 }

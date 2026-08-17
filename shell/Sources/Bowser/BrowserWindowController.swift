@@ -1,12 +1,13 @@
 import AppKit
+import WebKit
 
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSTextFieldDelegate {
-    private let engineView = EngineView()
+    private(set) var engineView: EngineView!
     private let omnibar = NSTextField()
     var onClose: (() -> Void)?
 
-    convenience init() {
+    convenience init(configuration: WKWebViewConfiguration? = nil) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -24,6 +25,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         window.tabbingIdentifier = "bowser-browser"
         self.init(window: window)
 
+        engineView = EngineView(frame: .zero, configuration: configuration)
         window.delegate = self
         window.contentView = engineView
 
@@ -94,6 +96,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         ChromeSurface.unregister(self)
         engineView.tearDown()
         onClose?()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        BrainBridge.shared.send([
+            "op": "event", "event": "tab_activated", "webview": engineView.webviewId,
+        ])
     }
 
     private func persistWindowState() {

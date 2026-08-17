@@ -253,6 +253,18 @@ final class BrainBridge {
         case "chrome":
             ChromeSurface.handle(message)
 
+        case "surface":
+            SurfaceManager.shared.handle(message)
+
+        case "activate_tab":
+            if let view = EngineView.live[requested] {
+                view.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate()
+            }
+
+        case "close_tab":
+            EngineView.live[requested]?.window?.performClose(nil)
+
         default:
             NSLog("Bowser: unknown brain op \(op)")
         }
