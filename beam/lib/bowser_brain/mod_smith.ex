@@ -177,6 +177,12 @@ defmodule BowserBrain.ModSmith do
         env = claude_env()
         args = ["-p", prompt] ++ model_args()
 
+        Logger.info(
+          "modsmith: exec #{claude} -p <#{byte_size(prompt)}B prompt> " <>
+            "#{Enum.join(model_args(), " ")} | env: #{Enum.map_join(env, ",", &elem(&1, 0))} " <>
+            "| model flag #{if model_args() == [], do: "ABSENT — CLI default applies (set modsmith_model)", else: "set"}"
+        )
+
         task =
           Task.async(fn ->
             # sh wrapper: claude waits 3s on the port's dangling stdin
