@@ -38,7 +38,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             window?.title = title.isEmpty ? "Bowser" : title
         }
         engineView.onURLChange = { [weak self] url in
-            self?.omnibar.stringValue = url
+            guard let self else { return }
+            // Never clobber what the user is typing: while the omnibar has an
+            // active field editor, page-driven URL updates are dropped.
+            if self.omnibar.currentEditor() == nil {
+                self.omnibar.stringValue = url
+            }
         }
 
         ChromeSurface.register(self)

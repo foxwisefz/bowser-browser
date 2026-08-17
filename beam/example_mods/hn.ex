@@ -64,6 +64,14 @@ defmodule HnMod do
         (more ? '<a class="more" href="' + esc(more.href) + '">More →</a>' : '') +
         '</div>';
 
+      // Survive the reloads that toggling/editing this mod causes.
+      var y = 0;
+      try { y = parseInt(sessionStorage.getItem("bowser-hn-scroll") || "0", 10); } catch (e) {}
+      if (y) window.scrollTo(0, y);
+      window.addEventListener("scroll", function () {
+        try { sessionStorage.setItem("bowser-hn-scroll", String(window.scrollY)); } catch (e) {}
+      }, { passive: true });
+
       var st = document.createElement("style");
       st.textContent =
         "body { margin: 0; background: #0f1115; color: #e8e6e1;" +
