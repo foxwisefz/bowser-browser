@@ -1,20 +1,22 @@
 #!/bin/sh
 # Spawn shim for the browser: ties the child's life to the BEAM's, and the
-# wrapper's life to the child's.
-# - BEAM dies (any way): the port pipe (our stdin) closes -> watcher kills child.
-# - Child dies (crash/pkill): main wait returns -> wrapper exits with the
-#   child's status so the supervisor sees it and respawns.
-# NB: backgrounded commands get stdin from /dev/null in sh, so the watcher
-# must be handed the real stdin explicitly via fd 3.
+# wrapper's life to the child's. Hard-won rules encoded here:
+# 1. Backgrounded sh commands read stdin from /dev/null — hand the watcher
+#    the real port pipe explicitly via fd 3.
+# 2. With :stderr_to_stdout, EVERY descendant's fd2 is the port's output
+#    pipe; a surviving holder (orphaned cat) keeps the port "alive" in the
+#    BEAM forever — no exit_status, no respawn. The watcher gets /dev/null
+#    stderr and is pkill'd with its children on exit.
 "$@" &
 child=$!
 trap 'kill -TERM "$child" 2>/dev/null' TERM INT
 
 exec 3<&0
-( cat 0<&3 > /dev/null; kill -TERM "$child" 2>/dev/null ) &
+( cat 0<&3 >/dev/null 2>/dev/null; kill -TERM "$child" 2>/dev/null ) &
 watcher=$!
 
 wait "$child"
 status=$?
+pkill -P "$watcher" 2>/dev/null
 kill "$watcher" 2>/dev/null
 exit "$status"
