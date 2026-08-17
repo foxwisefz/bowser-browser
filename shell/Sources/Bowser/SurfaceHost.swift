@@ -11,6 +11,7 @@ final class SurfaceManager {
     static let shared = SurfaceManager()
 
     private var panels: [String: NSPanel] = [:]
+    private var hostings: [String: NSHostingView<SurfaceRootView>] = [:]
 
     func handle(_ message: [String: Any]) {
         switch message["surface"] as? String {
@@ -26,6 +27,7 @@ final class SurfaceManager {
             )
         case "close":
             guard let id = message["id"] as? String else { return }
+            hostings.removeValue(forKey: id)
             panels.removeValue(forKey: id)?.close()
         default:
             NSLog("Bowser: unknown surface op")
@@ -35,15 +37,12 @@ final class SurfaceManager {
     private func show(id: String, title: String, anchor: String, width: Double, tree: [String: Any]) {
         let root = SurfaceRootView(surfaceId: id, title: title, node: tree)
 
-        if let panel = panels[id],
-           let effect = panel.contentView as? NSVisualEffectView {
-            let hosting = NSHostingView(rootView: root)
-            hosting.autoresizingMask = [.width, .height]
-            effect.subviews.forEach { $0.removeFromSuperview() }
-            let size = NSSize(width: width, height: hosting.fittingSize.height)
-            panel.setContentSize(size)
-            hosting.frame = effect.bounds
-            effect.addSubview(hosting)
+        if let panel = panels[id], let hosting = hostings[id] {
+            // Update in place: SwiftUI diffs the tree, row identity (and
+            // hover tracking) survives — replacing the view left stuck
+            // hover highlights behind.
+            hosting.rootView = root
+            panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
             return
         }
 
@@ -64,6 +63,7 @@ final class SurfaceManager {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
+        panel.acceptsMouseMovedEvents = true
 
         let effect = NSVisualEffectView(frame: panel.contentLayoutRect)
         effect.material = .popover
@@ -84,6 +84,7 @@ final class SurfaceManager {
         position(panel, anchor: anchor)
         panel.orderFront(nil)
         panels[id] = panel
+        hostings[id] = hosting
     }
 
     private func position(_ panel: NSPanel, anchor: String) {

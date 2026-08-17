@@ -127,12 +127,8 @@ defmodule TwitterNavMod do
 
     Surface.show(
       :twitter_nav,
-      vstack(
-        [text("Twitter", style: :title)] ++
-          rows ++
-          [divider(), button(hide_label, event: :toggle_orig, symbol: "eye")]
-      ),
-      title: "Nav",
+      vstack(rows ++ [divider(), button(hide_label, event: :toggle_orig, symbol: "eye")]),
+      title: "Twitter",
       anchor: :left_of_main,
       width: 210
     )

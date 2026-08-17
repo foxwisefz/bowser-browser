@@ -40,6 +40,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .none
 
         engineView.onTitleChange = { [weak window] title in
             window?.title = title.isEmpty ? "Bowser" : title
