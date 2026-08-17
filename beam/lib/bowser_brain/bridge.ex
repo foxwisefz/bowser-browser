@@ -22,6 +22,16 @@ defmodule BowserBrain.Bridge do
     GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
   end
 
+  @doc "Engine-level cookie read for a URL (includes HttpOnly)."
+  def get_cookies(url, timeout \\ 5_000) do
+    GenServer.call(__MODULE__, {:get_cookies, url}, timeout)
+  end
+
+  @doc "Engine-level cookie write (HTTP source, so HttpOnly replays too)."
+  def set_cookie(url, cookie) when is_map(cookie) do
+    cast_msg(%{op: "set_cookie", url: url, cookie: cookie})
+  end
+
   def socket_path, do: Path.join(System.user_home!(), ".bowser/brain.sock")
 
   @doc "Is the engine currently connected?"
@@ -59,6 +69,11 @@ defmodule BowserBrain.Bridge do
         {:ok, %{"op" => "js_result", "id" => id} = result} ->
           {from, pending} = Map.pop(state.pending, id)
           if from, do: GenServer.reply(from, js_reply(result))
+          %{state | pending: pending}
+
+        {:ok, %{"op" => "cookies_result", "id" => id} = result} ->
+          {from, pending} = Map.pop(state.pending, id)
+          if from, do: GenServer.reply(from, {:ok, Map.get(result, "cookies", [])})
           %{state | pending: pending}
 
         {:ok, %{"op" => "hello", "v" => v} = hello} ->
@@ -102,6 +117,18 @@ defmodule BowserBrain.Bridge do
     id = state.next_id
 
     case send_frame(state.sock, %{op: "eval_js", id: id, webview: webview, code: code}) do
+      :ok ->
+        {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
+
+      :error ->
+        {:reply, {:error, :not_connected}, state}
+    end
+  end
+
+  def handle_call({:get_cookies, url}, from, state) do
+    id = state.next_id
+
+    case send_frame(state.sock, %{op: "get_cookies", id: id, url: url}) do
       :ok ->
         {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
 

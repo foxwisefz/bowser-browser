@@ -19,6 +19,7 @@ servo = "=0.5.0"
 embedder_traits = { package = "servo-embedder-traits", version = "=0.5.0" }
 
 # Versions matched to servo 0.5.0's workspace pins.
+cookie = "=0.16.2"
 dpi = "0.1"
 euclid = "0.22"
 raw-window-handle = "0.6"

@@ -603,6 +603,77 @@ fn handle_brain_message(message: &serde_json::Value) {
                 }
             });
         }
+        // Cookie snapshot/replay (session resurrection includes logins).
+        // Engine-level via SiteDataManager — bypasses document.cookie
+        // entirely, includes HttpOnly cookies.
+        "get_cookies" => {
+            let Some(request_id) = message.get("id").and_then(|v| v.as_u64()) else {
+                return;
+            };
+            let Some(url) = message
+                .get("url")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Url::parse(s).ok())
+            else {
+                return;
+            };
+            let cookies: Vec<serde_json::Value> = servo_handle()
+                .map(|servo| {
+                    servo
+                        .site_data_manager()
+                        .cookies_for_url(url, servo::CookieSource::HTTP)
+                        .iter()
+                        .map(|c| {
+                            serde_json::json!({
+                                "name": c.name(), "value": c.value(),
+                                "domain": c.domain(), "path": c.path(),
+                                "secure": c.secure(), "http_only": c.http_only(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            brain::send(&serde_json::json!({
+                "op": "cookies_result", "id": request_id, "cookies": cookies,
+            }));
+        }
+        "set_cookie" => {
+            let Some(url) = message
+                .get("url")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Url::parse(s).ok())
+            else {
+                return;
+            };
+            let Some(spec) = message.get("cookie") else {
+                return;
+            };
+            let (Some(name), Some(value)) = (
+                spec.get("name").and_then(|v| v.as_str()),
+                spec.get("value").and_then(|v| v.as_str()),
+            ) else {
+                return;
+            };
+            let mut builder = cookie::Cookie::build(name.to_string(), value.to_string());
+            if let Some(domain) = spec.get("domain").and_then(|v| v.as_str()) {
+                builder = builder.domain(domain.to_string());
+            }
+            if let Some(path) = spec.get("path").and_then(|v| v.as_str()) {
+                builder = builder.path(path.to_string());
+            }
+            if let Some(secure) = spec.get("secure").and_then(|v| v.as_bool()) {
+                builder = builder.secure(secure);
+            }
+            if let Some(http_only) = spec.get("http_only").and_then(|v| v.as_bool()) {
+                builder = builder.http_only(http_only);
+            }
+            if let Some(servo) = servo_handle() {
+                servo
+                    .site_data_manager()
+                    .set_cookie_for_url(url, builder.finish(), None);
+                servo.spin_event_loop();
+            }
+        }
         // Chrome surface ops are the shell's business — pass through verbatim.
         "chrome" => {
             let Some((cb, ctx)) = CHROME_CB.with(|c| c.get()) else {

@@ -623,6 +623,7 @@ dependencies = [
 name = "bowser-host"
 version = "0.1.0"
 dependencies = [
+ "cookie 0.16.2",
  "dpi",
  "euclid",
  "raw-window-handle",
