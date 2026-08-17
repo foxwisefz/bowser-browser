@@ -38,11 +38,11 @@ final class SurfaceManager {
         let root = SurfaceRootView(surfaceId: id, title: title, node: tree)
 
         if let panel = panels[id], let hosting = hostings[id] {
-            // Update in place: SwiftUI diffs the tree, row identity (and
-            // hover tracking) survives — replacing the view left stuck
-            // hover highlights behind.
+            // Update in place: SwiftUI diffs the tree; replacing the view
+            // caused stuck-state artifacts.
             hosting.rootView = root
             panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
+            panel.invalidateShadow()
             return
         }
 
@@ -69,11 +69,10 @@ final class SurfaceManager {
         effect.material = .popover
         effect.state = .active
         effect.blendingMode = .behindWindow
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
-        effect.layer?.masksToBounds = true
-        effect.layer?.borderWidth = 0.5
-        effect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
+        // Layer cornerRadius does NOT round the behind-window backdrop —
+        // the system composites a square blur/shadow region behind the
+        // clipped layer. maskImage masks the backdrop itself.
+        effect.maskImage = Self.roundedMask(radius: 14)
         effect.autoresizingMask = [.width, .height]
 
         hosting.autoresizingMask = [.width, .height]
@@ -83,8 +82,21 @@ final class SurfaceManager {
 
         position(panel, anchor: anchor)
         panel.orderFront(nil)
+        panel.invalidateShadow()
         panels[id] = panel
         hostings[id] = hosting
+    }
+
+    private static func roundedMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
     }
 
     private func position(_ panel: NSPanel, anchor: String) {
@@ -130,6 +142,11 @@ struct SurfaceRootView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Hairline drawn here (the old layer border was square-cornered).
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
+        )
     }
 }
 
