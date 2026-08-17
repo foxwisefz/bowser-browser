@@ -109,6 +109,31 @@ struct Host {
 
 thread_local! {
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
+    // Waker registered at init; Servo itself is built lazily on first webview
+    // creation, AFTER a rendering context exists and is current — upstream's
+    // winit example follows this order and Servo panics without it.
+    static WAKER: RefCell<Option<CWaker>> = const { RefCell::new(None) };
+}
+
+/// Build Servo on first use. Caller must have made a rendering context
+/// current on this thread.
+fn ensure_servo() -> Option<Servo> {
+    if let Some(servo) = servo_handle() {
+        return Some(servo);
+    }
+    let waker = WAKER.with(|w| w.borrow().clone())?;
+    let servo = ServoBuilder::default()
+        .event_loop_waker(Box::new(waker))
+        .build();
+    servo.setup_logging();
+    HOST.with(|h| {
+        *h.borrow_mut() = Some(Host {
+            servo: servo.clone(),
+            tabs: HashMap::new(),
+            next_id: 1,
+        })
+    });
+    Some(servo)
 }
 
 fn servo_handle() -> Option<Servo> {
@@ -136,25 +161,14 @@ fn with_tab<R>(id: u64, f: impl FnOnce(&Tab) -> R) -> Option<R> {
 #[no_mangle]
 pub extern "C" fn bowser_host_init(wake_cb: VoidCb, wake_ctx: *mut c_void) -> bool {
     // Idempotent-ish: refuse double init.
-    if HOST.with(|h| h.borrow().is_some()) {
+    if WAKER.with(|w| w.borrow().is_some()) {
         return false;
     }
-
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-    let servo = ServoBuilder::default()
-        .event_loop_waker(Box::new(CWaker {
+    WAKER.with(|w| {
+        *w.borrow_mut() = Some(CWaker {
             cb: wake_cb,
             ctx: wake_ctx,
-        }))
-        .build();
-    servo.setup_logging();
-
-    HOST.with(|h| {
-        *h.borrow_mut() = Some(Host {
-            servo,
-            tabs: HashMap::new(),
-            next_id: 1,
         })
     });
     true
@@ -171,6 +185,7 @@ pub extern "C" fn bowser_host_spin() {
 /// no other bowser_* call is valid.
 #[no_mangle]
 pub extern "C" fn bowser_host_shutdown() {
+    WAKER.with(|w| w.borrow_mut().take());
     let host = HOST.with(|h| h.borrow_mut().take());
     if let Some(host) = host {
         drop(host.tabs); // close all webviews first
@@ -199,9 +214,6 @@ pub extern "C" fn bowser_webview_create(
     let Some(ns_view) = NonNull::new(ns_view) else {
         return 0;
     };
-    let Some(servo) = servo_handle() else {
-        return 0;
-    };
 
     let window_handle = unsafe {
         WindowHandle::borrow_raw(RawWindowHandle::AppKit(AppKitWindowHandle::new(ns_view)))
@@ -219,6 +231,11 @@ pub extern "C" fn bowser_webview_create(
         }
     };
     let _ = rendering_context.make_current();
+
+    // Servo is created here, after the first context is current.
+    let Some(servo) = ensure_servo() else {
+        return 0;
+    };
 
     let delegate = Rc::new(SwiftDelegate {
         ctx: cb_ctx,
