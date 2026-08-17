@@ -5,6 +5,7 @@ import WebKit
 final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSTextFieldDelegate {
     private(set) var engineView: EngineView!
     private let omnibar = NSTextField()
+    private let commandHint = NSTextField(labelWithString: "")
     var onClose: (() -> Void)?
 
     convenience init(configuration: WKWebViewConfiguration? = nil) {
@@ -29,12 +30,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         window.delegate = self
         window.contentView = engineView
 
-        omnibar.placeholderString = "Search or enter address"
+        omnibar.placeholderString = "Search, address, or :command"
         omnibar.delegate = self
         omnibar.target = self
         omnibar.action = #selector(omnibarSubmitted(_:))
         omnibar.bezelStyle = .roundedBezel
         omnibar.font = .systemFont(ofSize: 13)
+
+        commandHint.font = .systemFont(ofSize: 10, weight: .semibold)
+        commandHint.textColor = .secondaryLabelColor
+        commandHint.isHidden = true
+        commandHint.translatesAutoresizingMaskIntoConstraints = false
+        omnibar.addSubview(commandHint)
+        NSLayoutConstraint.activate([
+            commandHint.trailingAnchor.constraint(equalTo: omnibar.trailingAnchor, constant: -8),
+            commandHint.centerYAnchor.constraint(equalTo: omnibar.centerYAnchor),
+        ])
 
         let toolbar = NSToolbar(identifier: "bowser-toolbar")
         toolbar.delegate = self
@@ -52,6 +63,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             // active field editor, page-driven URL updates are dropped.
             if self.omnibar.currentEditor() == nil {
                 self.omnibar.stringValue = url
+                self.updateOmnibarMode()
             }
         }
 
@@ -84,6 +96,49 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         }
         engineView.load(urlString: Self.normalize(text))
         window?.makeFirstResponder(engineView)
+    }
+
+    // MARK: Command-mode recognition
+
+    func controlTextDidChange(_ obj: Notification) {
+        updateOmnibarMode()
+    }
+
+    private func updateOmnibarMode() {
+        let text = omnibar.stringValue
+
+        guard text.hasPrefix(":") else {
+            omnibar.font = .systemFont(ofSize: 13)
+            omnibar.textColor = .textColor
+            styleEditor(font: .systemFont(ofSize: 13), color: .textColor)
+            commandHint.isHidden = true
+            return
+        }
+
+        let name = text.dropFirst().split(separator: " ").first.map(String.init) ?? ""
+        let hint: String
+        if name.isEmpty {
+            hint = "command"
+        } else if let registered = ChromeSurface.commands[name] {
+            hint = registered
+        } else {
+            let candidates = ChromeSurface.commands.keys
+                .filter { $0.hasPrefix(name) }.sorted()
+            hint = candidates.isEmpty ? "unknown command" : candidates.joined(separator: " · ")
+        }
+
+        let font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .medium)
+        omnibar.font = font
+        omnibar.textColor = .controlAccentColor
+        styleEditor(font: font, color: .controlAccentColor)
+        commandHint.stringValue = hint
+        commandHint.isHidden = false
+    }
+
+    private func styleEditor(font: NSFont, color: NSColor) {
+        guard let editor = omnibar.currentEditor() as? NSTextView else { return }
+        editor.font = font
+        editor.textColor = color
     }
 
     // Bare words search; things that look like URLs get https://.

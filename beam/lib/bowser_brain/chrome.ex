@@ -28,4 +28,13 @@ defmodule BowserBrain.Chrome do
   def remove_button(id) do
     Bridge.cast_msg(%{op: "chrome", chrome: "remove_button", id: id})
   end
+
+  @doc """
+  Register an omnibar command for visual recognition: while the user types
+  `:name …`, the omnibar shows `hint`. Re-register on "hello" (shell state
+  dies with the engine).
+  """
+  def register_command(name, hint) do
+    Bridge.cast_msg(%{op: "chrome", chrome: "register_command", name: name, hint: hint})
+  end
 end

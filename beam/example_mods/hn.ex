@@ -133,7 +133,10 @@ defmodule HnMod do
   def handle_event(%{"event" => "omnibar_command", "text" => "hn"}, state), do: toggle(state)
   def handle_event(_event, state), do: state
 
-  defp assert_chrome, do: Chrome.add_button("hn", "HN", symbol: "newspaper")
+  defp assert_chrome do
+    Chrome.add_button("hn", "HN", symbol: "newspaper")
+    Chrome.register_command("hn", "toggle HN cards")
+  end
 
   defp toggle(%{on: false} = state) do
     Page.set_scripts([@script])

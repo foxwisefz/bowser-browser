@@ -26,6 +26,11 @@ defmodule BowserBrain.ModSmith do
   end
 
   @impl true
+  def handle_info({:browser_event, %{"event" => "hello"}}, state) do
+    BowserBrain.Chrome.register_command("do", "ModSmith")
+    {:noreply, state}
+  end
+
   def handle_info({:browser_event, %{"event" => "tab_activated", "webview" => wv}}, state) do
     {:noreply, %{state | active: wv}}
   end

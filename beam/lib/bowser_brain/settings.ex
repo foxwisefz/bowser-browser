@@ -48,6 +48,12 @@ defmodule BowserBrain.Settings do
   end
 
   @impl true
+  def handle_info({:browser_event, %{"event" => "hello"}}, state) do
+    BowserBrain.Chrome.register_command("set", "Settings — :set <key> <value>")
+    BowserBrain.Chrome.register_command("settings", "Settings — show all")
+    {:noreply, state}
+  end
+
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "set " <> rest}}, state) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [key, value] ->

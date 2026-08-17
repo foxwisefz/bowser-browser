@@ -19,6 +19,7 @@ defmodule ReaderMod do
 
   def init_mod(_opts) do
     Chrome.add_button("reader", "Reader", symbol: "book")
+    Chrome.register_command("reader", "toggle reader mode")
     %{on: false}
   end
 
@@ -28,6 +29,7 @@ defmodule ReaderMod do
   # Engine restarted: chrome state is gone, ours isn't — re-assert it.
   def handle_event(%{"event" => "hello"}, state) do
     Chrome.add_button("reader", "Reader", symbol: "book")
+    Chrome.register_command("reader", "toggle reader mode")
     if state.on, do: Page.set_styles([@css])
     state
   end
