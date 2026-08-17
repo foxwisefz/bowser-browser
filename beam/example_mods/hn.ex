@@ -66,11 +66,20 @@ defmodule HnMod do
         '</div>';
 
       var q = document.getElementById("bowser-hn-q");
-      if (q) q.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" && q.value.trim()) {
-          location.href = "https://hn.algolia.com/?q=" + encodeURIComponent(q.value.trim());
-        }
-      });
+      if (q) {
+        try {
+          var savedQ = sessionStorage.getItem("bowser-hn-q");
+          if (savedQ) q.value = savedQ;
+        } catch (e) {}
+        q.addEventListener("input", function () {
+          try { sessionStorage.setItem("bowser-hn-q", q.value); } catch (e) {}
+        });
+        q.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" && q.value.trim()) {
+            location.href = "https://hn.algolia.com/?q=" + encodeURIComponent(q.value.trim());
+          }
+        });
+      }
 
       // Survive the reloads that toggling/editing this mod causes.
       var y = 0;
@@ -114,6 +123,35 @@ defmodule HnMod do
   })();
   """
 
+  # Injected when the rewrite is OFF: no visual changes, but typed search
+  # text and scroll survive the round trip through the original page.
+  @carrier """
+  (function () {
+    if (location.hostname !== "news.ycombinator.com") return;
+    function hook() {
+      var input = document.querySelector('form[action*="algolia"] input[name="q"]') ||
+                  document.querySelector('input[name="q"]');
+      if (input) {
+        try {
+          var v = sessionStorage.getItem("bowser-hn-q");
+          if (v && !input.value) input.value = v;
+        } catch (e) {}
+        input.addEventListener("input", function () {
+          try { sessionStorage.setItem("bowser-hn-q", input.value); } catch (e) {}
+        });
+      }
+      var y = 0;
+      try { y = parseInt(sessionStorage.getItem("bowser-hn-scroll") || "0", 10); } catch (e) {}
+      if (y) window.scrollTo(0, y);
+      window.addEventListener("scroll", function () {
+        try { sessionStorage.setItem("bowser-hn-scroll", String(window.scrollY)); } catch (e) {}
+      }, { passive: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", hook);
+    else hook();
+  })();
+  """
+
   def init_mod(_opts) do
     assert_chrome()
     # Apply immediately when dropped into a live session; harmlessly dropped
@@ -124,13 +162,13 @@ defmodule HnMod do
 
   def handle_event(%{"event" => "hello"}, state) do
     assert_chrome()
-    if state.on, do: Page.set_scripts([@script], reload: false)
+    Page.set_scripts([current_script(state)], reload: false)
     state
   end
 
   # Fired by the Loader after a hot swap: re-inject with the new script.
   def handle_event(%{"event" => "mod_reloaded"}, state) do
-    if state.on, do: Page.set_scripts([@script])
+    Page.set_scripts([current_script(state)])
     state
   end
 
@@ -146,7 +184,10 @@ defmodule HnMod do
   end
 
   defp toggle(%{on: true} = state) do
-    Page.set_scripts([])
+    Page.set_scripts([@carrier])
     %{state | on: false}
   end
+
+  defp current_script(%{on: true}), do: @script
+  defp current_script(%{on: false}), do: @carrier
 end
