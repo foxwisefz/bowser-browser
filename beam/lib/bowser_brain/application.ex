@@ -12,8 +12,10 @@ defmodule BowserBrain.Application do
     children = [
       {Registry, keys: :unique, name: BowserBrain.ModRegistry},
       {Registry, keys: :duplicate, name: BowserBrain.Events},
-      # Session registers for events before Bridge can broadcast a hello.
+      # Session and UserContent register for events before Bridge can
+      # broadcast a hello.
       BowserBrain.Session,
+      BowserBrain.UserContent,
       BowserBrain.Bridge,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
       BowserBrain.Loader,

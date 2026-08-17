@@ -49,7 +49,7 @@ defmodule HnMod do
         '<div id="bowser-hn">' +
         '<header><h1>Hacker News</h1>' +
         '<span class="tag">rewritten live by a Bowser mod</span>' +
-        '<input id="bowser-hn-q" type="search" placeholder="Search HN…"></header>' +
+        '<input id="bowser-hn-q" name="q" type="search" placeholder="Search HN…"></header>' +
         cards.map(function (c) {
           return '<article class="bowser-hn-card">' +
             '<span class="rank">' + esc(c.rank) + '</span>' +
@@ -65,29 +65,14 @@ defmodule HnMod do
         (more ? '<a class="more" href="' + esc(more.href) + '">More →</a>' : '') +
         '</div>';
 
+      // Search value + scroll survive reloads via the browser's standard
+      // preservation script (both fields are name="q" — shared state).
       var q = document.getElementById("bowser-hn-q");
-      if (q) {
-        try {
-          var savedQ = sessionStorage.getItem("bowser-hn-q");
-          if (savedQ) q.value = savedQ;
-        } catch (e) {}
-        q.addEventListener("input", function () {
-          try { sessionStorage.setItem("bowser-hn-q", q.value); } catch (e) {}
-        });
-        q.addEventListener("keydown", function (e) {
-          if (e.key === "Enter" && q.value.trim()) {
-            location.href = "https://hn.algolia.com/?q=" + encodeURIComponent(q.value.trim());
-          }
-        });
-      }
-
-      // Survive the reloads that toggling/editing this mod causes.
-      var y = 0;
-      try { y = parseInt(sessionStorage.getItem("bowser-hn-scroll") || "0", 10); } catch (e) {}
-      if (y) window.scrollTo(0, y);
-      window.addEventListener("scroll", function () {
-        try { sessionStorage.setItem("bowser-hn-scroll", String(window.scrollY)); } catch (e) {}
-      }, { passive: true });
+      if (q) q.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && q.value.trim()) {
+          location.href = "https://hn.algolia.com/?q=" + encodeURIComponent(q.value.trim());
+        }
+      });
 
       var st = document.createElement("style");
       st.textContent =
@@ -123,35 +108,6 @@ defmodule HnMod do
   })();
   """
 
-  # Injected when the rewrite is OFF: no visual changes, but typed search
-  # text and scroll survive the round trip through the original page.
-  @carrier """
-  (function () {
-    if (location.hostname !== "news.ycombinator.com") return;
-    function hook() {
-      var input = document.querySelector('form[action*="algolia"] input[name="q"]') ||
-                  document.querySelector('input[name="q"]');
-      if (input) {
-        try {
-          var v = sessionStorage.getItem("bowser-hn-q");
-          if (v && !input.value) input.value = v;
-        } catch (e) {}
-        input.addEventListener("input", function () {
-          try { sessionStorage.setItem("bowser-hn-q", input.value); } catch (e) {}
-        });
-      }
-      var y = 0;
-      try { y = parseInt(sessionStorage.getItem("bowser-hn-scroll") || "0", 10); } catch (e) {}
-      if (y) window.scrollTo(0, y);
-      window.addEventListener("scroll", function () {
-        try { sessionStorage.setItem("bowser-hn-scroll", String(window.scrollY)); } catch (e) {}
-      }, { passive: true });
-    }
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", hook);
-    else hook();
-  })();
-  """
-
   def init_mod(_opts) do
     assert_chrome()
     # Apply immediately when dropped into a live session; harmlessly dropped
@@ -160,15 +116,16 @@ defmodule HnMod do
     %{on: true}
   end
 
+  # Content re-assert on engine hello is handled by UserContent; only the
+  # chrome button needs us.
   def handle_event(%{"event" => "hello"}, state) do
     assert_chrome()
-    Page.set_scripts([current_script(state)], reload: false)
     state
   end
 
-  # Fired by the Loader after a hot swap: re-inject with the new script.
+  # Fired by the Loader after a hot swap: push the NEW script version.
   def handle_event(%{"event" => "mod_reloaded"}, state) do
-    Page.set_scripts([current_script(state)])
+    if state.on, do: Page.set_scripts([@script])
     state
   end
 
@@ -184,10 +141,7 @@ defmodule HnMod do
   end
 
   defp toggle(%{on: true} = state) do
-    Page.set_scripts([@carrier])
+    Page.set_scripts([])
     %{state | on: false}
   end
-
-  defp current_script(%{on: true}), do: @script
-  defp current_script(%{on: false}), do: @carrier
 end
