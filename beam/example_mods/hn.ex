@@ -109,6 +109,12 @@ defmodule HnMod do
     state
   end
 
+  # Fired by the Loader after a hot swap: re-inject with the new script.
+  def handle_event(%{"event" => "mod_reloaded"}, state) do
+    if state.on, do: Page.set_scripts([@script])
+    state
+  end
+
   def handle_event(%{"event" => "chrome_click", "id" => "hn"}, state), do: toggle(state)
   def handle_event(%{"event" => "omnibar_command", "text" => "hn"}, state), do: toggle(state)
   def handle_event(_event, state), do: state

@@ -49,8 +49,10 @@ defmodule BowserBrain.Loader do
           {:ok, _pid} ->
             Logger.info("loader: started mod #{inspect(module)}")
 
-          {:error, {:already_started, _pid}} ->
+          {:error, {:already_started, pid}} ->
             Logger.info("loader: hot-swapped mod #{inspect(module)}")
+            # Let the mod re-assert injected content/chrome with its NEW code.
+            send(pid, {:browser_event, %{"event" => "mod_reloaded"}})
 
           {:error, reason} ->
             Logger.error("loader: mod #{inspect(module)} failed to start: #{inspect(reason)}")
