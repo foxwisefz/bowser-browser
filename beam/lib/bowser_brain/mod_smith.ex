@@ -201,25 +201,13 @@ defmodule BowserBrain.ModSmith do
   #   :set dodorouter_endpoint https://...
   #   :set dodorouter_api_key sk-...
   defp claude_env do
-    endpoint = BowserBrain.Settings.get("dodorouter_endpoint")
-
-    configured =
-      [
-        {"ANTHROPIC_BASE_URL", endpoint},
-        {"ANTHROPIC_API_KEY", BowserBrain.Settings.get("dodorouter_api_key")},
-        # For routers wanting Authorization: Bearer instead of x-api-key.
-        {"ANTHROPIC_AUTH_TOKEN", BowserBrain.Settings.get("dodorouter_auth_token")}
-      ]
-      |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
-
-    if is_binary(endpoint) and endpoint != "" do
-      # Router mode: an inherited OAuth token outranks key auth in the CLI
-      # and would send unusable bearer creds to (or bypass) the router.
-      # nil removes the var from the child environment.
-      configured ++ [{"CLAUDE_CODE_OAUTH_TOKEN", nil}]
-    else
-      configured
-    end
+    [
+      {"ANTHROPIC_BASE_URL", BowserBrain.Settings.get("dodorouter_endpoint")},
+      # DodoRouter speaks Claude Code's own auth: the token rides as
+      # CLAUDE_CODE_OAUTH_TOKEN (owner's call, "for now").
+      {"CLAUDE_CODE_OAUTH_TOKEN", BowserBrain.Settings.get("dodorouter_api_key")}
+    ]
+    |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
   end
 
   # Routers serve their own model ids; the CLI's default may not exist there.
