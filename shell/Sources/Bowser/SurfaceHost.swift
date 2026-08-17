@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// ADR 0009: mods own surfaces. A surface is a native window/panel whose
-/// content is a declarative view tree sent as JSON from Elixir, rendered
-/// here as real SwiftUI. Interaction events flow back over the brain socket
-/// as {"event": "surface", "surface": id, "id": widgetEvent, "value": ...}.
+/// ADR 0009: mods own surfaces — native windows whose content is a
+/// declarative view tree sent as JSON from Elixir, rendered as SwiftUI.
+/// Look: borderless translucent HUD panels (vibrancy material adapts to
+/// light/dark automatically), rounded corners, hover rows, gradient accent
+/// for active state. Drag anywhere to move.
 @MainActor
 final class SurfaceManager {
     static let shared = SurfaceManager()
@@ -20,40 +21,66 @@ final class SurfaceManager {
                 id: id,
                 title: message["title"] as? String ?? id,
                 anchor: message["anchor"] as? String ?? "right_of_main",
-                width: message["width"] as? Double ?? 260,
+                width: message["width"] as? Double ?? 240,
                 tree: tree
             )
         case "close":
             guard let id = message["id"] as? String else { return }
-            close(id: id)
+            panels.removeValue(forKey: id)?.close()
         default:
             NSLog("Bowser: unknown surface op")
         }
     }
 
     private func show(id: String, title: String, anchor: String, width: Double, tree: [String: Any]) {
-        let root = NSHostingView(rootView: SurfaceTreeView(surfaceId: id, node: tree))
-        root.setFrameSize(root.fittingSize)
+        let root = SurfaceRootView(surfaceId: id, title: title, node: tree)
 
-        if let panel = panels[id] {
-            panel.title = title
-            panel.contentView = root
-            panel.setContentSize(NSSize(width: width, height: root.fittingSize.height))
+        if let panel = panels[id],
+           let effect = panel.contentView as? NSVisualEffectView {
+            let hosting = NSHostingView(rootView: root)
+            hosting.autoresizingMask = [.width, .height]
+            effect.subviews.forEach { $0.removeFromSuperview() }
+            let size = NSSize(width: width, height: hosting.fittingSize.height)
+            panel.setContentSize(size)
+            hosting.frame = effect.bounds
+            effect.addSubview(hosting)
             return
         }
 
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: max(80, root.fittingSize.height)),
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+        let hosting = NSHostingView(rootView: root)
+        let height = max(60, hosting.fittingSize.height)
+
+        let panel = SurfacePanel(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        panel.title = title
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
-        panel.contentView = root
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isMovableByWindowBackground = true
+
+        let effect = NSVisualEffectView(frame: panel.contentLayoutRect)
+        effect.material = .popover
+        effect.state = .active
+        effect.blendingMode = .behindWindow
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 14
+        effect.layer?.masksToBounds = true
+        effect.layer?.borderWidth = 0.5
+        effect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
+        effect.autoresizingMask = [.width, .height]
+
+        hosting.autoresizingMask = [.width, .height]
+        hosting.frame = effect.bounds
+        effect.addSubview(hosting)
+        panel.contentView = effect
+
         position(panel, anchor: anchor)
         panel.orderFront(nil)
         panels[id] = panel
@@ -66,35 +93,53 @@ final class SurfaceManager {
         }
         let frame = main.frame
         let size = panel.frame.size
-        // Cascade so multiple palettes on the same edge don't stack exactly.
-        let drop = 40 + CGFloat(panels.count) * (size.height + 24)
+        let drop = 40 + CGFloat(panels.count) * (size.height + 20)
         switch anchor {
         case "left_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.minX - size.width - 12, y: frame.maxY - size.height - drop))
+            panel.setFrameOrigin(NSPoint(x: frame.minX - size.width - 14, y: frame.maxY - size.height - drop))
         case "right_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.maxX + 12, y: frame.maxY - size.height - drop))
+            panel.setFrameOrigin(NSPoint(x: frame.maxX + 14, y: frame.maxY - size.height - drop))
         default:
             panel.center()
         }
     }
+}
 
-    private func close(id: String) {
-        panels.removeValue(forKey: id)?.close()
+/// Borderless panels refuse key status by default; allow it so text fields
+/// in palettes can be edited (becomesKeyOnlyIfNeeded keeps buttons from
+/// stealing focus).
+private final class SurfacePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+// MARK: - Root chrome (title + tree)
+
+struct SurfaceRootView: View {
+    let surfaceId: String
+    let title: String
+    let node: [String: Any]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased())
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .kerning(1.1)
+                .foregroundStyle(.secondary)
+            SurfaceTreeView(surfaceId: surfaceId, node: node)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 // MARK: - The view-tree interpreter
 
-/// Renders one JSON node (recursively). Vocabulary v1: vstack, hstack, text,
-/// button, slider, textfield, divider, spacer, image. Unknown nodes render
-/// as a visible placeholder so vocabulary gaps are loud, not silent.
 struct SurfaceTreeView: View {
     let surfaceId: String
     let node: [String: Any]
 
     var body: some View {
         render(node)
-            .padding(12)
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -113,7 +158,7 @@ struct SurfaceTreeView: View {
     private func render(_ node: [String: Any]) -> AnyView {
         switch node["t"] as? String ?? "" {
         case "vstack":
-            let spacing = node["spacing"] as? Double ?? 8
+            let spacing = node["spacing"] as? Double ?? 4
             return AnyView(VStack(alignment: .leading, spacing: spacing) {
                 ForEach(Array(children(node).enumerated()), id: \.offset) { _, child in
                     render(child)
@@ -129,43 +174,21 @@ struct SurfaceTreeView: View {
         case "text":
             let value = node["value"] as? String ?? ""
             let style = node["style"] as? String
-            return AnyView(
-                Text(value)
-                    .font(style == "title" ? .headline : style == "caption" ? .caption : .body)
-                    .foregroundStyle(style == "caption" ? .secondary : .primary)
-            )
-        case "button":
-            let label = node["label"] as? String ?? "?"
-            let eventId = node["event"] as? String ?? "click"
-            let active = node["active"] as? Bool ?? false
-            let indent = node["indent"] as? Double ?? 0
-            let base = Button(action: { emit(eventId, node["payload"]) }) {
-                HStack(spacing: 6) {
-                    if let symbol = node["symbol"] as? String {
-                        Image(systemName: symbol)
-                    }
-                    Text(label).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-            }
-            // Our palettes are non-activating panels: never the key window,
-            // and macOS dims standard button styles (incl. borderedProminent)
-            // in non-key windows to gray. Active state needs an explicit
-            // fill that ignores key-window state.
-            if active {
+            switch style {
+            case "title":
                 return AnyView(
-                    base
-                        .buttonStyle(.plain)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor))
-                        .padding(.leading, indent)
+                    Text(value)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                 )
+            case "caption":
+                return AnyView(
+                    Text(value).font(.system(size: 11)).foregroundStyle(.secondary)
+                )
+            default:
+                return AnyView(Text(value).font(.system(size: 13)))
             }
-            return AnyView(base.buttonStyle(.bordered).padding(.leading, indent))
+        case "button":
+            return AnyView(SurfaceRow(node: node, emit: emit))
         case "slider":
             let eventId = node["event"] as? String ?? "slide"
             return AnyView(SurfaceSlider(
@@ -185,7 +208,13 @@ struct SurfaceTreeView: View {
                 emit: emit
             ))
         case "divider":
-            return AnyView(Divider())
+            return AnyView(
+                Rectangle()
+                    .fill(.separator)
+                    .frame(height: 1)
+                    .padding(.vertical, 5)
+                    .opacity(0.6)
+            )
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
         case "image":
@@ -201,6 +230,59 @@ struct SurfaceTreeView: View {
     }
 }
 
+/// A palette row: quiet at rest, soft highlight on hover, gradient accent
+/// fill when active. Explicit colors throughout — non-key panels dim
+/// standard control styles to gray, so we never rely on them.
+private struct SurfaceRow: View {
+    let node: [String: Any]
+    let emit: (String, Any?) -> Void
+
+    @State private var hovering = false
+
+    private var active: Bool { node["active"] as? Bool ?? false }
+    private var indent: Double { node["indent"] as? Double ?? 0 }
+
+    var body: some View {
+        Button(action: { emit(node["event"] as? String ?? "click", node["payload"]) }) {
+            HStack(spacing: 8) {
+                if let symbol = node["symbol"] as? String {
+                    Image(systemName: symbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 16)
+                }
+                Text(node["label"] as? String ?? "?")
+                    .font(.system(size: 13, weight: active ? .semibold : .regular))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        .background(
+            Group {
+                if active {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(LinearGradient(
+                            colors: [Color.accentColor, Color.accentColor.opacity(0.72)],
+                            startPoint: .top, endPoint: .bottom
+                        ))
+                        .shadow(color: Color.accentColor.opacity(0.35), radius: 4, y: 1)
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.primary.opacity(0.08))
+                }
+            }
+        )
+        .onHover { hovering = $0 }
+        .padding(.leading, indent)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
 private struct SurfaceSlider: View {
     let eventId: String
     let min: Double
@@ -213,14 +295,20 @@ private struct SurfaceSlider: View {
     @State private var loaded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             if let label {
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label.uppercased())
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .kerning(0.6)
+                    .foregroundStyle(.secondary)
             }
             Slider(value: $value, in: min...max) { editing in
                 if !editing { emit(eventId, value) }
             }
+            .controlSize(.small)
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
         .onAppear {
             if !loaded {
                 value = initial
@@ -242,7 +330,9 @@ private struct SurfaceTextField: View {
     var body: some View {
         TextField(placeholder, text: $text)
             .textFieldStyle(.roundedBorder)
+            .font(.system(size: 12))
             .onSubmit { emit(eventId, text) }
+            .padding(.horizontal, 9)
             .onAppear {
                 if !loaded {
                     text = initial
