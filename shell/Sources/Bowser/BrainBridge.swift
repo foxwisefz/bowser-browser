@@ -170,7 +170,12 @@ final class BrainBridge {
             }
             return tab
         }
-        send(["op": "hello", "v": 1, "webviews": ids, "tabs": tabs])
+        var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs]
+        let keyController = (NSApp.keyWindow ?? NSApp.mainWindow)?.windowController
+        if let active = (keyController as? BrowserWindowController)?.engineView.webviewId {
+            hello["active"] = active
+        }
+        send(hello)
     }
 
     private func resolve(_ requested: UInt64) -> EngineView? {

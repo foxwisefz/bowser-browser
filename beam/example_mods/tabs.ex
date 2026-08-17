@@ -20,7 +20,8 @@ defmodule TabsMod do
     state = %{
       state
       | tabs: Map.take(state.tabs, ids),
-        order: Enum.filter(state.order, &(&1 in ids))
+        order: Enum.filter(state.order, &(&1 in ids)),
+        active: Map.get(event, "active", state.active)
     }
 
     state =

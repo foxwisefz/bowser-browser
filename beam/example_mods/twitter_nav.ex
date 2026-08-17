@@ -59,7 +59,7 @@ defmodule TwitterNavMod do
 
   def init_mod(_opts) do
     Page.set_scripts([@script])
-    %{items: [], hidden: false, active: 0}
+    %{items: [], hidden: false, active: 0, path: nil}
   end
 
   def handle_event(%{"event" => "hello"}, state) do
@@ -74,6 +74,19 @@ defmodule TwitterNavMod do
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
     %{state | active: wv}
+  end
+
+  # Track the current path brain-side so the active highlight works even
+  # independently of the injected script's own active flag.
+  def handle_event(%{"event" => "url_changed", "url" => url}, state) do
+    case URI.parse(url) do
+      %URI{host: host, path: path}
+      when is_binary(host) and (host == "x.com" or host == "twitter.com") ->
+        if state.items != [], do: render(%{state | path: path || "/"}), else: %{state | path: path || "/"}
+
+      _ ->
+        state
+    end
   end
 
   def handle_event(
@@ -106,7 +119,7 @@ defmodule TwitterNavMod do
         button(String.slice(label, 0, 30),
           event: :go,
           payload: href,
-          active: item["active"] == true
+          active: item["active"] == true or (state.path != nil and href == state.path)
         )
       end
 
