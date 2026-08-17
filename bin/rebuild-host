@@ -1,0 +1,11 @@
+#!/bin/sh
+# Rebuild the Rust engine host and keep the dylib loadable by the shell.
+# The shell binary references @rpath/libbowser_host.dylib with an rpath of
+# target/aarch64-apple-darwin/release — cargo rebuilds reset the dylib's
+# install name, so we normalize it after every build.
+set -e
+cd "$(dirname "$0")/.."
+cargo build --release
+install_name_tool -id @rpath/libbowser_host.dylib \
+  target/aarch64-apple-darwin/release/libbowser_host.dylib
+echo "host rebuilt — kill Bowser (or let it crash) to deliver; the brain respawns it"
