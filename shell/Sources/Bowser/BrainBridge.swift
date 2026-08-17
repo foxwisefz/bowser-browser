@@ -275,7 +275,7 @@ final class BrainBridge {
         }
     }
 
-    nonisolated private static func jsonify(_ value: Any?) -> Any {
+    nonisolated static func jsonify(_ value: Any?) -> Any {
         switch value {
         case nil: return NSNull()
         case let v as NSNumber: return v

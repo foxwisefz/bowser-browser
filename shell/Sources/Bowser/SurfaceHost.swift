@@ -66,11 +66,13 @@ final class SurfaceManager {
         }
         let frame = main.frame
         let size = panel.frame.size
+        // Cascade so multiple palettes on the same edge don't stack exactly.
+        let drop = 40 + CGFloat(panels.count) * (size.height + 24)
         switch anchor {
         case "left_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.minX - size.width - 12, y: frame.maxY - size.height - 40))
+            panel.setFrameOrigin(NSPoint(x: frame.minX - size.width - 12, y: frame.maxY - size.height - drop))
         case "right_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.maxX + 12, y: frame.maxY - size.height - 40))
+            panel.setFrameOrigin(NSPoint(x: frame.maxX + 12, y: frame.maxY - size.height - drop))
         default:
             panel.center()
         }

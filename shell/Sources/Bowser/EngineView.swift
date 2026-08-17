@@ -1,23 +1,37 @@
 import AppKit
 import WebKit
 
-/// Console relay: pages' console.* calls arrive here and flow to the brain.
+/// Relays page messages (console.* taps and window.bowser.emit) to the brain.
 /// Separate object so the user content controller never retains EngineView.
-private final class ConsoleRelay: NSObject, WKScriptMessageHandler {
+private final class PageRelay: NSObject, WKScriptMessageHandler {
     weak var view: EngineView?
 
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard let body = message.body as? [String: Any] else { return }
+        let name = message.name
+        let body = message.body
         MainActor.assumeIsolated {
             guard let id = view?.webviewId else { return }
-            BrainBridge.shared.send([
-                "op": "event", "event": "console", "webview": id,
-                "level": body["level"] as? String ?? "log",
-                "message": body["message"] as? String ?? "",
-            ])
+            switch name {
+            case "bowserConsole":
+                guard let dict = body as? [String: Any] else { return }
+                BrainBridge.shared.send([
+                    "op": "event", "event": "console", "webview": id,
+                    "level": dict["level"] as? String ?? "log",
+                    "message": dict["message"] as? String ?? "",
+                ])
+            case "bowserEmit":
+                // The page->brain duplex channel: whatever the page emits,
+                // mods receive as {"event": "page", "payload": ...}.
+                BrainBridge.shared.send([
+                    "op": "event", "event": "page", "webview": id,
+                    "payload": BrainBridge.jsonify(body),
+                ])
+            default:
+                break
+            }
         }
     }
 }
@@ -36,7 +50,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     private(set) var webviewId: UInt64 = 0
     let webView: WKWebView
 
-    private let consoleRelay = ConsoleRelay()
+    private let pageRelay = PageRelay()
     private var urlObservation: NSKeyValueObservation?
     private var titleObservation: NSKeyValueObservation?
     private var currentScripts: [String] = []
@@ -56,6 +70,12 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
           return original.apply(console, arguments);
         };
       });
+      window.bowser = {
+        emit: function (payload) {
+          try { window.webkit.messageHandlers.bowserEmit.postMessage(payload); }
+          catch (e) {}
+        }
+      };
     })();
     """
 
@@ -79,8 +99,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         Self.nextId += 1
         Self.live[webviewId] = self
 
-        consoleRelay.view = self
-        configuration.userContentController.add(consoleRelay, name: "bowserConsole")
+        pageRelay.view = self
+        configuration.userContentController.add(pageRelay, name: "bowserConsole")
+        configuration.userContentController.add(pageRelay, name: "bowserEmit")
         rebuildUserScripts()
 
         webView.navigationDelegate = self
@@ -174,6 +195,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         urlObservation = nil
         titleObservation = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "bowserConsole")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "bowserEmit")
     }
 
     // MARK: WKNavigationDelegate
