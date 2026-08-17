@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "bowser_browser",
+  "project_id": "f609086c-5f6b-4a6d-8c5b-63ed9219d599"
+}
