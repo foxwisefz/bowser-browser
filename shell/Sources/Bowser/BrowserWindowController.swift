@@ -112,6 +112,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         let present = toolbar.items.map(\.itemIdentifier)
         for identifier in wanted where !present.contains(identifier) {
             toolbar.insertItem(withItemIdentifier: identifier, at: toolbar.items.count)
+            NSLog("Bowser: toolbar mod button inserted: \(identifier.rawValue)")
         }
     }
 
