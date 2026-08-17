@@ -1,6 +1,7 @@
 # ADR 0001 — Engine: Servo (embedded)
 
-**Status:** accepted (2026-08-17, owner)
+**Status:** SUPERSEDED by [0008](0008-engine-wkwebview.md) (same day — one
+day of engine fights was the experiment; the brain proved to be the product)
 
 ## Decision
 

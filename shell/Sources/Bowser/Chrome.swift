@@ -1,5 +1,4 @@
 import AppKit
-import CBowserHost
 import Foundation
 
 /// Mod-driven chrome surface points (Mod API v1): the brain sends "chrome"
@@ -25,12 +24,9 @@ enum ChromeSurface {
         controllers.removeValue(forKey: ObjectIdentifier(controller))
     }
 
-    static func handle(_ json: String) {
-        guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let action = object["chrome"] as? String
-        else {
-            NSLog("Bowser: unparseable chrome op")
+    static func handle(_ object: [String: Any]) {
+        guard let action = object["chrome"] as? String else {
+            NSLog("Bowser: chrome op without action")
             return
         }
 
@@ -63,17 +59,6 @@ enum ChromeSurface {
     }
 
     static func emit(_ message: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: message),
-              let json = String(data: data, encoding: .utf8)
-        else { return }
-        json.withCString { bowser_emit_event($0) }
+        BrainBridge.shared.send(message)
     }
-}
-
-// File-scope C trampoline (see swift6-c-callback-trap). Fires during
-// bowser_brain_pump on the main thread; string is copied before the hop.
-func bowserChromeOp(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
-    guard let value else { return }
-    let json = String(cString: value)
-    MainActor.assumeIsolated { ChromeSurface.handle(json) }
 }

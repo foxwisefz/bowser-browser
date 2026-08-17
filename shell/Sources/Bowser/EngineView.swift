@@ -1,259 +1,189 @@
 import AppKit
-import CBowserHost
+import WebKit
 
-// MARK: - C callback thunks
-// These MUST be file-scope (nonisolated) functions. A closure literal formed
-// inside a @MainActor context gets a hidden dispatch_assert_queue(main) when
-// converted to a C function pointer — and Servo's waker legally fires from
-// engine threads (e.g. WRRenderBackend), which trapped SIGTRAP at launch.
+/// Console relay: pages' console.* calls arrive here and flow to the brain.
+/// Separate object so the user content controller never retains EngineView.
+private final class ConsoleRelay: NSObject, WKScriptMessageHandler {
+    weak var view: EngineView?
 
-private func bowserWake(_ ctx: UnsafeMutableRawPointer?) {
-    // Any thread. Only enqueue; never touch engine state here.
-    DispatchQueue.main.async { bowser_host_spin() }
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any] else { return }
+        MainActor.assumeIsolated {
+            guard let id = view?.webviewId else { return }
+            BrainBridge.shared.send([
+                "op": "event", "event": "console", "webview": id,
+                "level": body["level"] as? String ?? "log",
+                "message": body["message"] as? String ?? "",
+            ])
+        }
+    }
 }
 
-// Delegate callbacks fire during bowser_host_spin, which only runs on the
-// main thread; assumeIsolated makes that contract loud if it's ever violated.
-// Pointers travel as UInt bits (raw pointers aren't Sendable), and C strings
-// are copied before the hop — they're only valid for the duration of the call.
-private func bowserFrameReady(_ ctx: UnsafeMutableRawPointer?) {
-    let key = UInt(bitPattern: ctx)
-    MainActor.assumeIsolated { EngineView.cbFrameReady(key) }
-}
-
-private func bowserURLChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
-    guard let value else { return }
-    let key = UInt(bitPattern: ctx)
-    let string = String(cString: value)
-    MainActor.assumeIsolated { EngineView.cbURLChanged(key, string) }
-}
-
-private func bowserTitleChanged(_ ctx: UnsafeMutableRawPointer?, _ value: UnsafePointer<CChar>?) {
-    guard let value else { return }
-    let key = UInt(bitPattern: ctx)
-    let string = String(cString: value)
-    MainActor.assumeIsolated { EngineView.cbTitleChanged(key, string) }
-}
-
-private func bowserLoadStatus(_ ctx: UnsafeMutableRawPointer?, _ value: UInt8) {
-    // Unused for now.
-}
-
-private func bowserBrainMessage(_ ctx: UnsafeMutableRawPointer?) {
-    // Socket thread → only enqueue the pump.
-    DispatchQueue.main.async { bowser_brain_pump() }
-}
-
-/// Hosts a Servo webview surface via the bowser-host FFI.
-///
-/// Threading contract (see bowser_host.h): all bowser_* calls happen on the
-/// main thread. C callbacks fire inside bowser_host_spin (main thread), and
-/// must never re-enter bowser_* synchronously — paint is bounced through the
-/// main queue.
+/// The engine surface (ADR 0008): a WKWebView per tab. WebKit owns input,
+/// rendering, and process isolation; this class owns identity, user content,
+/// and event flow to the brain.
 @MainActor
-final class EngineView: NSView {
+final class EngineView: NSView, WKNavigationDelegate {
+    private(set) static var live: [UInt64: EngineView] = [:]
+    private static var nextId: UInt64 = 1
+
     var onTitleChange: ((String) -> Void)?
     var onURLChange: ((String) -> Void)?
 
-    private var webviewId: UInt64 = 0
-    private var pendingURL: String?
+    private(set) var webviewId: UInt64 = 0
+    let webView: WKWebView
 
-    /// C callbacks look views up here (keyed by the ctx pointer's bits);
-    /// a torn-down view is simply absent, so late callbacks are no-ops
-    /// instead of use-after-free.
-    private static var live: [UInt: EngineView] = [:]
-    private static var hostStarted = false
+    private let consoleRelay = ConsoleRelay()
+    private var urlObservation: NSKeyValueObservation?
+    private var titleObservation: NSKeyValueObservation?
+    private var currentScripts: [String] = []
+    private var currentStyles: [String] = []
 
-    static func ensureHostStarted() {
-        guard !hostStarted else { return }
-        hostStarted = bowser_host_init(bowserWake, nil)
-        guard hostStarted else { return }
-
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".bowser")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let socketPath = dir.appendingPathComponent("brain.sock").path
-        if !socketPath.withCString({ bowser_brain_start($0, bowserBrainMessage, nil) }) {
-            NSLog("Bowser: brain socket failed to start at \(socketPath)")
-        }
-        bowser_set_chrome_handler(bowserChromeOp, nil)
-    }
-
-    static func shutdownHost() {
-        guard hostStarted else { return }
-        bowser_host_shutdown()
-        hostStarted = false
-    }
+    private static let consoleHook = """
+    (function () {
+      ["log", "warn", "error", "info"].forEach(function (level) {
+        var original = console[level];
+        console[level] = function () {
+          try {
+            window.webkit.messageHandlers.bowserConsole.postMessage({
+              level: level,
+              message: Array.prototype.map.call(arguments, String).join(" ")
+            });
+          } catch (e) {}
+          return original.apply(console, arguments);
+        };
+      });
+    })();
+    """
 
     override init(frame frameRect: NSRect) {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default() // cookies/storage persist
+        webView = WKWebView(frame: .zero, configuration: configuration)
+
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
+
+        webviewId = Self.nextId
+        Self.nextId += 1
+        Self.live[webviewId] = self
+
+        consoleRelay.view = self
+        configuration.userContentController.add(consoleRelay, name: "bowserConsole")
+        rebuildUserScripts()
+
+        webView.navigationDelegate = self
+        webView.allowsBackForwardNavigationGestures = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
+        addSubview(webView)
+
+        urlObservation = webView.observe(\.url) { [weak self] view, _ in
+            MainActor.assumeIsolated {
+                guard let self, let url = view.url?.absoluteString else { return }
+                self.onURLChange?(url)
+                BrainBridge.shared.send([
+                    "op": "event", "event": "url_changed",
+                    "webview": self.webviewId, "url": url,
+                ])
+            }
+        }
+        titleObservation = webView.observe(\.title) { [weak self] view, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let title = view.title ?? ""
+                self.onTitleChange?(title)
+                BrainBridge.shared.send([
+                    "op": "event", "event": "title_changed",
+                    "webview": self.webviewId, "title": title,
+                ])
+            }
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
-
-    private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
-
-    private var devicePixelSize: (UInt32, UInt32) {
-        let scale = backingScale
-        return (
-            UInt32(max(1, bounds.width * scale)),
-            UInt32(max(1, bounds.height * scale))
-        )
-    }
-
-    // MARK: Webview lifecycle
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window != nil, webviewId == 0 else { return }
-        EngineView.ensureHostStarted()
-
-        let ctx = Unmanaged.passUnretained(self).toOpaque()
-        EngineView.live[UInt(bitPattern: ctx)] = self
-
-        let (width, height) = devicePixelSize
-        let url = pendingURL
-        pendingURL = nil
-        webviewId = bowser_webview_create(
-            Unmanaged.passUnretained(self).toOpaque(),
-            width, height,
-            Float(backingScale),
-            url,
-            ctx,
-            bowserFrameReady,
-            bowserURLChanged,
-            bowserTitleChanged,
-            bowserLoadStatus
-        )
-        if webviewId == 0 {
-            EngineView.live.removeValue(forKey: UInt(bitPattern: ctx))
-        }
-    }
-
-    func tearDown() {
-        EngineView.live.removeValue(forKey: UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
-        if webviewId != 0 {
-            bowser_webview_destroy(webviewId)
-            webviewId = 0
-        }
-    }
-
-    // MARK: C callback trampolines (fire during spin, on the main thread)
-
-    fileprivate static func cbFrameReady(_ key: UInt) {
-        guard let view = live[key], view.webviewId != 0 else { return }
-        let id = view.webviewId
-        DispatchQueue.main.async { bowser_webview_paint(id) }
-    }
-
-    fileprivate static func cbURLChanged(_ key: UInt, _ value: String) {
-        live[key]?.onURLChange?(value)
-    }
-
-    fileprivate static func cbTitleChanged(_ key: UInt, _ value: String) {
-        live[key]?.onTitleChange?(value)
-    }
+    var currentURLString: String? { webView.url?.absoluteString }
 
     // MARK: Commands
 
     func load(urlString: String) {
-        guard webviewId != 0 else {
-            pendingURL = urlString
-            return
-        }
-        bowser_webview_load(webviewId, urlString)
+        guard let url = URL(string: urlString) else { return }
+        webView.load(URLRequest(url: url))
     }
 
-    @objc func goBack(_ sender: Any?) {
-        guard webviewId != 0 else { return }
-        bowser_webview_go_back(webviewId)
+    @objc func goBack(_ sender: Any?) { webView.goBack() }
+    @objc func goForward(_ sender: Any?) { webView.goForward() }
+
+    /// nil = leave that kind untouched; [] = clear. Applies on reload.
+    func applyUserContent(scripts: [String]?, styles: [String]?, reload: Bool) {
+        if let scripts { currentScripts = scripts }
+        if let styles { currentStyles = styles }
+        rebuildUserScripts()
+        if reload { webView.reload() }
     }
 
-    @objc func goForward(_ sender: Any?) {
-        guard webviewId != 0 else { return }
-        bowser_webview_go_forward(webviewId)
-    }
-
-    // MARK: Geometry
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        guard webviewId != 0 else { return }
-        let (width, height) = devicePixelSize
-        bowser_webview_resize(webviewId, width, height)
-    }
-
-    // MARK: Input
-
-    private func devicePoint(_ event: NSEvent) -> (Float, Float) {
-        let local = convert(event.locationInWindow, from: nil)
-        let scale = backingScale
-        return (Float(local.x * scale), Float(local.y * scale))
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect],
-            owner: self
+    private func rebuildUserScripts() {
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(
+            source: Self.consoleHook,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
         ))
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        guard webviewId != 0 else { return }
-        let (x, y) = devicePoint(event)
-        bowser_webview_mouse_move(webviewId, x, y)
-    }
-
-    override func mouseDragged(with event: NSEvent) { mouseMoved(with: event) }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        sendButton(event, button: 0, down: true)
-    }
-    override func mouseUp(with event: NSEvent) { sendButton(event, button: 0, down: false) }
-    override func rightMouseDown(with event: NSEvent) { sendButton(event, button: 2, down: true) }
-    override func rightMouseUp(with event: NSEvent) { sendButton(event, button: 2, down: false) }
-    override func otherMouseDown(with event: NSEvent) { sendButton(event, button: 1, down: true) }
-    override func otherMouseUp(with event: NSEvent) { sendButton(event, button: 1, down: false) }
-
-    private func sendButton(_ event: NSEvent, button: UInt8, down: Bool) {
-        guard webviewId != 0 else { return }
-        let (x, y) = devicePoint(event)
-        bowser_webview_mouse_button(webviewId, button, down, x, y)
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        guard webviewId != 0 else { return }
-        let (x, y) = devicePoint(event)
-        if event.hasPreciseScrollingDeltas {
-            let scale = backingScale
-            bowser_webview_wheel(
-                webviewId,
-                Double(event.scrollingDeltaX * scale),
-                Double(event.scrollingDeltaY * scale),
-                0, x, y
-            )
-        } else {
-            bowser_webview_wheel(webviewId, Double(event.scrollingDeltaX), Double(event.scrollingDeltaY), 1, x, y)
+        for css in currentStyles {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: [css]),
+                  let literal = String(data: encoded, encoding: .utf8)
+            else { continue }
+            let injector = """
+            (function () {
+              var s = document.createElement("style");
+              s.textContent = \(literal)[0];
+              (document.head || document.documentElement).appendChild(s);
+            })();
+            """
+            controller.addUserScript(WKUserScript(
+                source: injector, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+            ))
+        }
+        for script in currentScripts {
+            controller.addUserScript(WKUserScript(
+                source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true
+            ))
         }
     }
 
-    override func keyDown(with event: NSEvent) {
-        guard webviewId != 0 else { return }
-        bowser_webview_key(webviewId, true, event.characters, event.keyCode)
+    func tearDown() {
+        EngineView.live.removeValue(forKey: webviewId)
+        BrainBridge.shared.send([
+            "op": "event", "event": "webview_closed", "webview": webviewId,
+        ])
+        urlObservation = nil
+        titleObservation = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "bowserConsole")
     }
 
-    override func keyUp(with event: NSEvent) {
-        guard webviewId != 0 else { return }
-        bowser_webview_key(webviewId, false, event.characters, event.keyCode)
+    // MARK: WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        BrainBridge.shared.send([
+            "op": "event", "event": "load_status", "webview": webviewId, "status": 0,
+        ])
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        BrainBridge.shared.send([
+            "op": "event", "event": "load_status", "webview": webviewId, "status": 2,
+        ])
+    }
+
+    // The chrome/engine split, delivered by WebKit: a page crash kills only
+    // Apple's WebContent process. Reload and move on; the window never blinks.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        NSLog("Bowser: WebContent process died for webview \(webviewId) — reloading")
+        webView.reload()
     }
 }
