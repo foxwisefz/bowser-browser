@@ -41,6 +41,11 @@ defmodule BowserBrain.Settings do
     :ok
   end
 
+  def delete(key) do
+    File.write!(path(), JSON.encode!(Map.delete(all(), key)))
+    :ok
+  end
+
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
@@ -59,6 +64,11 @@ defmodule BowserBrain.Settings do
       [key, value] ->
         put(key, value)
         Logger.info("settings: #{key} = #{mask(key, value)}")
+        show_all()
+
+      [key] when key != "" ->
+        delete(key)
+        Logger.info("settings: #{key} deleted")
         show_all()
 
       _ ->

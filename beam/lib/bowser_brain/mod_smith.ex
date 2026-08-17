@@ -175,10 +175,18 @@ defmodule BowserBrain.ModSmith do
 
       claude ->
         env = claude_env()
+        args = ["-p", prompt] ++ model_args()
 
         task =
           Task.async(fn ->
-            System.cmd(claude, ["-p", prompt], stderr_to_stdout: true, env: env)
+            # sh wrapper: claude waits 3s on the port's dangling stdin
+            # without an explicit < /dev/null.
+            System.cmd(
+              "/bin/sh",
+              ["-c", ~s(exec "$0" "$@" < /dev/null), claude | args],
+              stderr_to_stdout: true,
+              env: env
+            )
           end)
 
         case Task.yield(task, @timeout_ms) || Task.shutdown(task) do
@@ -198,6 +206,15 @@ defmodule BowserBrain.ModSmith do
       {"ANTHROPIC_API_KEY", BowserBrain.Settings.get("dodorouter_api_key")}
     ]
     |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
+  end
+
+  # Routers serve their own model ids; the CLI's default may not exist there.
+  #   :set modsmith_model <id-your-router-serves>
+  defp model_args do
+    case BowserBrain.Settings.get("modsmith_model") do
+      model when is_binary(model) and model != "" -> ["--model", model]
+      _ -> []
+    end
   end
 
   defp install({:error, _} = error, _host), do: error
