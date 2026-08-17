@@ -33,7 +33,12 @@ defmodule BowserBrain.UserContent do
         });
     }
     function save() {
-      var data = { y: window.scrollY, f: {} };
+      // Merge-write: never erase a stored value with an empty field (a mod
+      // rewriting the DOM mid-tick would otherwise wipe the snapshot).
+      var data = null;
+      try { data = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
+      if (!data) data = { y: 0, f: {} };
+      if (window.scrollY) data.y = window.scrollY;
       fields().forEach(function (el) {
         if (el.value) data.f[el.name || el.id] = el.value;
       });
@@ -53,8 +58,13 @@ defmodule BowserBrain.UserContent do
       restore();
       setTimeout(restore, 50);
       setTimeout(restore, 400);
+      // Listeners where Servo delivers them...
       document.addEventListener("input", save, true);
+      document.addEventListener("keyup", save, true);
       window.addEventListener("scroll", save, { passive: true });
+      // ...and a poll as ground truth: Servo doesn't reliably deliver
+      // input events to document-level listeners yet.
+      setInterval(save, 400);
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
     else boot();
