@@ -1,0 +1,10 @@
+#!/bin/sh
+# Spawn shim for the browser: ties the child's life to the BEAM's.
+# stdin is the Erlang port pipe — it closes when the brain dies, gracefully
+# OR by hard abort (Ctrl-C x2), and then we kill the browser. No orphans.
+"$@" &
+child=$!
+trap 'kill -TERM "$child" 2>/dev/null' TERM INT EXIT
+cat > /dev/null
+kill -TERM "$child" 2>/dev/null
+wait "$child"

@@ -14,6 +14,7 @@ defmodule BowserBrain.Engine do
   @check_ms 3_000
   @respawn_delay_ms 500
   @default_path "/Users/gezim/projects/bowser-browser/shell/.build/debug/Bowser"
+  @wrapper "/Users/gezim/projects/bowser-browser/bin/engine-wrapper"
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -80,7 +81,14 @@ defmodule BowserBrain.Engine do
 
     if File.exists?(path) do
       Logger.info("engine: spawning #{path}")
-      port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :stderr_to_stdout])
+
+      # Via the wrapper shim: the browser dies with the BEAM even on hard
+      # abort (Ctrl-C x2), when terminate/2 never runs.
+      port =
+        Port.open(
+          {:spawn_executable, @wrapper},
+          [:binary, :exit_status, :stderr_to_stdout, args: [path]]
+        )
 
       os_pid =
         case Port.info(port, :os_pid) do
