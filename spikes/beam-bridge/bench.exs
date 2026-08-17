@@ -9,8 +9,12 @@ defmodule BridgeBench do
   @sizes [32, 1_024, 16_384]
 
   def run do
-    exe = Path.join(__DIR__, "portecho/target/release/portecho")
-    unless File.exists?(exe), do: raise("build portecho first: cargo build --release")
+    exe =
+      [
+        Path.join(__DIR__, "portecho/target/aarch64-apple-darwin/release/portecho"),
+        Path.join(__DIR__, "portecho/target/release/portecho")
+      ]
+      |> Enum.find(&File.exists?/1) || raise("build portecho first: cargo build --release")
 
     port = Port.open({:spawn_executable, exe}, [:binary, {:packet, 4}])
 
