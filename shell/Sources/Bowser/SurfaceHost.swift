@@ -231,14 +231,13 @@ struct SurfaceTreeView: View {
     }
 }
 
-/// A palette row: quiet at rest, soft highlight on hover, gradient accent
-/// fill when active. Explicit colors throughout — non-key panels dim
-/// standard control styles to gray, so we never rely on them.
+/// A palette row: quiet at rest, dims on press, gradient accent fill when
+/// active. NO hover state — non-activating panels drop mouse-exit events,
+/// so hover highlights stick; press feedback is synchronous and can't.
+/// Explicit colors throughout — non-key panels dim standard control styles.
 private struct SurfaceRow: View {
     let node: [String: Any]
     let emit: (String, Any?) -> Void
-
-    @State private var hovering = false
 
     private var active: Bool { node["active"] as? Bool ?? false }
     private var indent: Double { node["indent"] as? Double ?? 0 }
@@ -256,15 +255,22 @@ private struct SurfaceRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
+        }
+        .buttonStyle(PaletteRowStyle(active: active))
+        .padding(.leading, indent)
+    }
+}
+
+private struct PaletteRowStyle: ButtonStyle {
+    let active: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
             .padding(.vertical, 5)
             .padding(.horizontal, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-        .background(
-            Group {
+            .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background {
                 if active {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(LinearGradient(
@@ -272,15 +278,13 @@ private struct SurfaceRow: View {
                             startPoint: .top, endPoint: .bottom
                         ))
                         .shadow(color: Color.accentColor.opacity(0.35), radius: 4, y: 1)
-                } else if hovering {
+                } else if configuration.isPressed {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.primary.opacity(0.08))
+                        .fill(Color.primary.opacity(0.12))
                 }
             }
-        )
-        .onHover { hovering = $0 }
-        .padding(.leading, indent)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+            .opacity(configuration.isPressed && active ? 0.85 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
