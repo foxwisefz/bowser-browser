@@ -139,20 +139,21 @@ struct SurfaceTreeView: View {
             let eventId = node["event"] as? String ?? "click"
             let active = node["active"] as? Bool ?? false
             let indent = node["indent"] as? Double ?? 0
-            return AnyView(
-                Button(action: { emit(eventId, node["payload"]) }) {
-                    HStack(spacing: 6) {
-                        if let symbol = node["symbol"] as? String {
-                            Image(systemName: symbol)
-                        }
-                        Text(label).lineLimit(1)
-                        Spacer(minLength: 0)
+            let base = Button(action: { emit(eventId, node["payload"]) }) {
+                HStack(spacing: 6) {
+                    if let symbol = node["symbol"] as? String {
+                        Image(systemName: symbol)
                     }
+                    Text(label).lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.bordered)
-                .tint(active ? .accentColor : nil)
-                .padding(.leading, indent)
-            )
+            }
+            // .tint on .bordered is a visual no-op on macOS — prominent style
+            // is the only reliable "active" look.
+            if active {
+                return AnyView(base.buttonStyle(.borderedProminent).padding(.leading, indent))
+            }
+            return AnyView(base.buttonStyle(.bordered).padding(.leading, indent))
         case "slider":
             let eventId = node["event"] as? String ?? "slide"
             return AnyView(SurfaceSlider(
