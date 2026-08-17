@@ -169,9 +169,11 @@ defmodule BowserBrain.ModSmith do
         {:error, "claude CLI not found on PATH"}
 
       claude ->
+        env = claude_env()
+
         task =
           Task.async(fn ->
-            System.cmd(claude, ["-p", prompt], stderr_to_stdout: true)
+            System.cmd(claude, ["-p", prompt], stderr_to_stdout: true, env: env)
           end)
 
         case Task.yield(task, @timeout_ms) || Task.shutdown(task) do
@@ -180,6 +182,17 @@ defmodule BowserBrain.ModSmith do
           nil -> {:error, "claude timed out"}
         end
     end
+  end
+
+  # Route through a custom endpoint (e.g. DodoRouter) when configured:
+  #   :set dodorouter_endpoint https://...
+  #   :set dodorouter_api_key sk-...
+  defp claude_env do
+    [
+      {"ANTHROPIC_BASE_URL", BowserBrain.Settings.get("dodorouter_endpoint")},
+      {"ANTHROPIC_API_KEY", BowserBrain.Settings.get("dodorouter_api_key")}
+    ]
+    |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
   end
 
   defp install({:error, _} = error, _host), do: error

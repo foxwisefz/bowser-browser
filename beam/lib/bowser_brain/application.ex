@@ -19,6 +19,7 @@ defmodule BowserBrain.Application do
       BowserBrain.Bridge,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
       BowserBrain.Loader,
+      BowserBrain.Settings,
       BowserBrain.SiteMods,
       BowserBrain.ModSmith,
       BowserBrain.Engine
