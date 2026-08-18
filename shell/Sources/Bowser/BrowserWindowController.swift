@@ -388,8 +388,21 @@ final class BandScrimView: NSView {
 
     // Page content is transform-shifted below the band, so nothing
     // interactive lives under it — the band can own its clicks and act
-    // as the window's drag handle.
+    // as the window's drag handle. Edge margins stay free for the
+    // window's resize zones (grabbing them here made the shell
+    // unresizable from the top).
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        let margin: CGFloat = 7
+        if local.y >= bounds.height - margin
+            || local.x <= margin
+            || local.x >= bounds.width - margin {
+            return nil // let AppKit's edge-resize zones have it
+        }
+        return super.hitTest(point)
+    }
 
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)
