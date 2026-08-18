@@ -37,6 +37,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.contentView = engineView
 
+        // The chrome band is glass, not paint — same vibrancy material as
+        // the floating palettes (the owner's original ask).
+        let band = NSVisualEffectView()
+        band.material = .hudWindow
+        band.blendingMode = .behindWindow
+        band.state = .active
+        band.translatesAutoresizingMaskIntoConstraints = false
+        engineView.addSubview(band)
+        NSLayoutConstraint.activate([
+            band.topAnchor.constraint(equalTo: engineView.topAnchor),
+            band.leadingAnchor.constraint(equalTo: engineView.leadingAnchor),
+            band.trailingAnchor.constraint(equalTo: engineView.trailingAnchor),
+            band.heightAnchor.constraint(equalToConstant: EngineView.pageTopInset),
+        ])
+
         // The whole chrome: a cloverleaf cluster next to the traffic lights,
         // living in the REAL titlebar view (the traffic lights' superview) —
         // plain view, obeys constraints; page starts below the band so
