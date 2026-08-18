@@ -221,7 +221,9 @@ defmodule BowserBrain.ModSmith do
     "url"=>u|nil, "title"=>t?, "favicon"=>path?}], "active"=>wv? (TOP-LEVEL)}. Live
     favicon updates: "favicon_changed" {webview, path}. Focus/close tabs with
     BowserBrain.Surface.activate_tab(wv) / Surface.close_tab(wv).
-    Chrome.hide_tab_bar/show_tab_bar swap out the native tab strip.
+    There is NO native tab bar: one window holds N in-memory webviews and tab UI
+    is entirely mod-owned. Chrome.open_tab(url, activate: false) makes a tab;
+    Surface.activate_tab(wv) is what puts it on screen.
     IRON RULE: ALL engine/shell-side state (buttons, registered commands, hidden tab
     bar, surfaces, injected scripts) dies when the engine restarts — re-assert ALL of
     it in your "hello" handler, not just in init_mod (init often runs before the

@@ -17,7 +17,7 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
 
         // Launcher semantics: empty field, current URL as placeholder.
         field.stringValue = ""
-        field.placeholderString = controller.engineView.currentURLString
+        field.placeholderString = controller.activeTab?.currentURLString
             ?? "Search, address, or :command"
         updateMode()
 
@@ -94,15 +94,14 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return hide() }
 
-        hide() // first — while the bar is key, it would become the tab host
+        hide() // first — the bar is a panel; give the window back the focus
         if text.hasPrefix(":") {
             ChromeSurface.emit([
                 "op": "event", "event": "omnibar_command", "text": String(text.dropFirst()),
             ])
         } else if let delegate = NSApp.delegate as? AppDelegate {
-            // Launcher semantics: entering a site opens a NEW tab.
-            delegate.openWindow(asTab: true)
-                .loadURL(BrowserWindowController.normalize(text))
+            // Launcher semantics: entering a site opens a NEW tab, switched to.
+            delegate.openTab(url: BrowserWindowController.normalize(text), activate: true)
         }
     }
 

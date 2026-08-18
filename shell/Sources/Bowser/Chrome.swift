@@ -13,7 +13,6 @@ enum ChromeSurface {
     }
 
     private(set) static var buttons: [ModButton] = []
-    private(set) static var tabBarHidden = false
     /// Registered omnibar commands: name → hint (shown while typing).
     private(set) static var commands: [String: String] = [:]
     private static var controllers: [ObjectIdentifier: BrowserWindowController] = [:]
@@ -50,18 +49,18 @@ enum ChromeSurface {
             commands[name] = object["hint"] as? String ?? name
             return
         case "hide_tab_bar", "show_tab_bar":
-            // Persistent policy, not a one-shot: macOS re-shows the tab bar
-            // whenever a new tab joins a group, so we enforce on every
-            // window change too (see enforceTabBarPolicy call sites).
-            tabBarHidden = action == "hide_tab_bar"
-            enforceTabBarPolicy()
+            // Accepted and ignored: there IS no native tab bar any more
+            // (bowser-browser-cdd). Mods written against the old API — the
+            // dock calls hide_tab_bar on every hello — must not break.
             return
         case "open_tab":
             guard let delegate = NSApp.delegate as? AppDelegate else { return }
-            let controller = delegate.openWindow(asTab: true)
-            if let url = object["url"] as? String {
-                controller.loadURL(url)
-            }
+            // Background by default: open_tab creates the webview, the dock
+            // (or an explicit activate_tab) decides what the user sees.
+            delegate.openTab(
+                url: object["url"] as? String,
+                activate: object["activate"] as? Bool ?? false
+            )
             return
         default:
             NSLog("Bowser: unknown chrome op \(action)")
@@ -74,15 +73,5 @@ enum ChromeSurface {
 
     static func emit(_ message: [String: Any]) {
         BrainBridge.shared.send(message)
-    }
-
-    static func enforceTabBarPolicy() {
-        for controller in controllers.values {
-            if let window = controller.window,
-               let group = window.tabGroup,
-               group.isTabBarVisible == tabBarHidden {
-                window.toggleTabBar(nil)
-            }
-        }
     }
 }

@@ -2,14 +2,36 @@ import AppKit
 import SwiftUI
 import WebKit
 
+/// One window, N in-memory webviews (bowser-browser-cdd). There is no native
+/// tab mechanism anywhere: no tab groups, no `addTabbedWindow`, no tab bar to
+/// hide. Every tab is an `EngineView` living in `tabs`; exactly one is mounted
+/// in the content container at a time and the rest sit DETACHED — full DOM,
+/// history and JS state in memory, just not in the view hierarchy. Switching a
+/// tab is a subview swap. The dock (a mod-owned edge surface) is the only tab
+/// UI, and the tab_opened/tab_activated/webview_closed events it consumes are
+/// unchanged.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
-    private(set) var engineView: EngineView!
+    /// Every live window, in creation order. Strong: this is what owns them.
+    private(set) static var all: [BrowserWindowController] = []
+
+    /// The window holding a given webview, if any.
+    static func host(of webviewId: UInt64) -> BrowserWindowController? {
+        all.first { controller in controller.tabs.contains { $0.webviewId == webviewId } }
+    }
+
+    /// Every webview this window owns, in open order — mounted or not.
+    private(set) var tabs: [EngineView] = []
+    /// The mounted one. A window always has a tab: closing the last closes it.
+    private(set) var activeTab: EngineView!
+
+    /// The mount point. The active tab fills it; the chrome band rides on top.
+    private let container = NSView()
+    private var band: NSVisualEffectView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
-    var onClose: (() -> Void)?
 
-    convenience init(configuration: WKWebViewConfiguration? = nil) {
+    convenience init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -22,8 +44,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             window.center()
         }
         window.title = "Bowser"
-        window.tabbingMode = .preferred
-        window.tabbingIdentifier = "bowser-browser"
+        // The whole point: AppKit must never group our windows into tabs.
+        // Without this, ⌘T/window-merge hands us a tab bar we then have to
+        // fight — the whack-a-mole this bead exists to end.
+        window.tabbingMode = .disallowed
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.titleVisibility = .hidden
@@ -34,9 +58,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.standardWindowButton(.zoomButton)?.isHidden = true
         self.init(window: window)
 
-        engineView = EngineView(frame: .zero, configuration: configuration)
         window.delegate = self
-        window.contentView = engineView
+        container.autoresizingMask = [.width, .height]
+        window.contentView = container
 
         // The chrome band is glass, not paint — same vibrancy material as
         // the floating palettes (the owner's original ask).
@@ -46,13 +70,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         band.state = .active
         band.alphaValue = 0.6 // dial: lower = more transparent
         band.translatesAutoresizingMaskIntoConstraints = false
-        engineView.addSubview(band)
+        container.addSubview(band)
         NSLayoutConstraint.activate([
-            band.topAnchor.constraint(equalTo: engineView.topAnchor),
-            band.leadingAnchor.constraint(equalTo: engineView.leadingAnchor),
-            band.trailingAnchor.constraint(equalTo: engineView.trailingAnchor),
+            band.topAnchor.constraint(equalTo: container.topAnchor),
+            band.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            band.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             band.heightAnchor.constraint(equalToConstant: EngineView.pageTopInset),
         ])
+        self.band = band
 
         // The whole chrome: a cloverleaf cluster next to the traffic lights,
         // living in the REAL titlebar view (the traffic lights' superview) —
@@ -81,26 +106,127 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
         clusterHosting = hosting
 
-        engineView.onTitleChange = { [weak self, weak window] title in
-            window?.title = title.isEmpty ? "Bowser" : title
-            self?.titleLabel.stringValue = title
-        }
-        engineView.onURLChange = { _ in }
-        engineView.onThemeColor = { [weak window] color in
-            guard let window else { return }
-            let resolved = color ?? .windowBackgroundColor
-            window.backgroundColor = resolved
-            if let color, let rgb = color.usingColorSpace(.sRGB) {
-                let luminance =
-                    0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
-                window.appearance = NSAppearance(named: luminance < 0.5 ? .darkAqua : .aqua)
-            } else {
-                window.appearance = nil
-            }
-        }
-
+        Self.all.append(self)
         ChromeSurface.register(self)
+
+        // A window is never tabless: it arrives with its first webview.
+        openTab(opener: (NSApp.delegate as? AppDelegate)?.currentWebviewId)
     }
+
+    // MARK: - Tabs
+
+    /// Create a webview owned by this window. It starts DETACHED — the state
+    /// exists, nothing is on screen — and is mounted only if `activate`.
+    @discardableResult
+    func openTab(
+        configuration: WKWebViewConfiguration? = nil,
+        opener: UInt64? = nil,
+        activate shouldActivate: Bool = true
+    ) -> EngineView {
+        // Born at the mount size so a background tab lays out for the real
+        // viewport instead of loading into a 0×0 window.
+        let view = EngineView(frame: container.bounds, configuration: configuration)
+        view.autoresizingMask = [.width, .height]
+        wire(view)
+        tabs.append(view)
+
+        // Emit BEFORE it can be mounted: consumers must see tab_opened
+        // before the first tab_activated for this webview.
+        var opened: [String: Any] = [
+            "op": "event", "event": "tab_opened", "webview": view.webviewId,
+        ]
+        if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
+        BrainBridge.shared.send(opened)
+
+        if shouldActivate { activate(view) }
+        return view
+    }
+
+    /// Mount a tab as the visible content: unmount the old one (it keeps
+    /// living, detached), mount this one under the band.
+    func activate(_ view: EngineView) {
+        guard tabs.contains(where: { $0 === view }) else { return }
+        if activeTab !== view {
+            activeTab?.removeFromSuperview()
+            view.frame = container.bounds
+            container.addSubview(view, positioned: .below, relativeTo: band)
+            activeTab = view
+            // The old first responder just left the hierarchy — hand the
+            // keyboard to the page that's actually on screen.
+            window?.makeFirstResponder(view.webView)
+            adoptChrome(from: view)
+        }
+        BrainBridge.shared.send([
+            "op": "event", "event": "tab_activated", "webview": view.webviewId,
+        ])
+    }
+
+    @discardableResult
+    func activateTab(id: UInt64) -> Bool {
+        guard let view = tabs.first(where: { $0.webviewId == id }) else { return false }
+        activate(view)
+        return true
+    }
+
+    /// Close one tab. The window goes with the last one.
+    func closeTab(_ view: EngineView) {
+        guard let index = tabs.firstIndex(where: { $0 === view }) else { return }
+        tabs.remove(at: index)
+        view.removeFromSuperview()
+        view.tearDown()
+
+        guard !tabs.isEmpty else {
+            window?.close()
+            return
+        }
+        if activeTab === view {
+            activeTab = nil
+            activate(tabs[min(index, tabs.count - 1)])
+        }
+    }
+
+    func closeTab(id: UInt64) {
+        guard let view = tabs.first(where: { $0.webviewId == id }) else { return }
+        closeTab(view)
+    }
+
+    /// Window chrome follows the mounted tab only — background tabs are free
+    /// to retitle and repaint themselves without touching what's on screen.
+    private func wire(_ view: EngineView) {
+        view.onTitleChange = { [weak self, weak view] title in
+            guard let self, let view, self.activeTab === view else { return }
+            self.applyTitle(title)
+        }
+        view.onURLChange = { _ in }
+        view.onThemeColor = { [weak self, weak view] color in
+            guard let self, let view, self.activeTab === view else { return }
+            self.applyThemeColor(color)
+        }
+    }
+
+    private func adoptChrome(from view: EngineView) {
+        applyTitle(view.webView.title ?? "")
+        applyThemeColor(view.themeColor)
+    }
+
+    private func applyTitle(_ title: String) {
+        window?.title = title.isEmpty ? "Bowser" : title
+        titleLabel.stringValue = title
+    }
+
+    private func applyThemeColor(_ color: NSColor?) {
+        guard let window else { return }
+        window.backgroundColor = color ?? .windowBackgroundColor
+        if let color, let rgb = color.usingColorSpace(.sRGB) {
+            let luminance =
+                0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+            window.appearance = NSAppearance(named: luminance < 0.5 ? .darkAqua : .aqua)
+        } else {
+            window.appearance = nil
+        }
+    }
+
+    // MARK: - Chrome
 
     private func clusterView() -> some View {
         CmdCluster(
@@ -108,8 +234,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 guard let self else { return }
                 CommandBar.shared.show(for: self)
             },
-            goBack: { [weak self] in self?.engineView.webView.goBack() },
-            goForward: { [weak self] in self?.engineView.webView.goForward() },
+            goBack: { [weak self] in self?.activeTab?.webView.goBack() },
+            goForward: { [weak self] in self?.activeTab?.webView.goForward() },
             modClick: { id in
                 ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
             }
@@ -125,7 +251,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func loadURL(_ url: String) {
-        engineView.load(urlString: url)
+        activeTab?.load(urlString: url)
     }
 
     /// Mod buttons render inside the hover cluster now; rebuild it.
@@ -141,15 +267,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         return "https://duckduckgo.com/?q=\(query)"
     }
 
+    // MARK: - NSWindowDelegate
+
     func windowWillClose(_ notification: Notification) {
         ChromeSurface.unregister(self)
-        engineView.tearDown()
-        onClose?()
+        Self.all.removeAll { $0 === self }
+        for tab in tabs { tab.tearDown() }
+        tabs = []
+        activeTab = nil
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        guard let id = activeTab?.webviewId else { return }
         BrainBridge.shared.send([
-            "op": "event", "event": "tab_activated", "webview": engineView.webviewId,
+            "op": "event", "event": "tab_activated", "webview": id,
         ])
     }
 

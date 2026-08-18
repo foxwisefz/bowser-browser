@@ -3,12 +3,10 @@ import WebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var controllers: [BrowserWindowController] = []
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         BrainBridge.shared.start()
-        openWindow(asTab: false)
+        openWindow()
         NSApp.activate()
     }
 
@@ -16,61 +14,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    /// The window that owns new tabs: the key/main browser window, else the
+    /// most recent one. Panels (command bar, mod surfaces) are never it —
+    /// that mistake is what used to make the command bar a tab host.
+    var currentController: BrowserWindowController? {
+        let focused = [NSApp.keyWindow, NSApp.mainWindow]
+            .compactMap { $0?.windowController as? BrowserWindowController }
+            .first
+        return focused ?? BrowserWindowController.all.last
+    }
+
+    /// The webview the user is looking at — the opener for anything they open.
+    var currentWebviewId: UInt64? { currentController?.activeTab?.webviewId }
+
     @discardableResult
-    func openWindow(
-        asTab: Bool,
-        configuration: WKWebViewConfiguration? = nil,
-        opener explicitOpener: UInt64? = nil
-    ) -> BrowserWindowController {
-        let opener = explicitOpener
-            ?? (NSApp.keyWindow?.windowController as? BrowserWindowController)?.engineView.webviewId
-        let controller = BrowserWindowController(configuration: configuration)
-        controller.onClose = { [weak self, weak controller] in
-            guard let self, let controller else { return }
-            self.controllers.removeAll { $0 === controller }
-        }
-        // Only ever tab onto a real browser window — the key window can be
-        // a panel (command bar, palettes), which must never host tabs.
-        if asTab {
-            let host = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
-                .first { $0.windowController is BrowserWindowController }
-                ?? NSApp.windows.first { $0.windowController is BrowserWindowController }
-            host?.addTabbedWindow(controller.window!, ordered: .above)
-        }
-        let isFirstWindow = controllers.isEmpty
-        controllers.append(controller)
-
-        // Emit BEFORE the window can become key: consumers must see
-        // tab_opened before the first tab_activated for this webview.
-        var opened: [String: Any] = [
-            "op": "event", "event": "tab_opened",
-            "webview": controller.engineView.webviewId,
-        ]
-        if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
-        BrainBridge.shared.send(opened)
-
+    func openWindow() -> BrowserWindowController {
+        let isFirstWindow = BrowserWindowController.all.isEmpty
+        // The controller brings its own first tab and emits tab_opened.
+        let controller = BrowserWindowController()
         controller.showWindow(nil)
-        // macOS re-shows the tab bar when a tab joins a group; re-apply the
-        // mods' policy after the window settles.
-        DispatchQueue.main.async { ChromeSurface.enforceTabBarPolicy() }
         controller.window?.makeKeyAndOrderFront(nil)
         controller.focusOmnibar()
         // Restore fullscreen for the primary window after a respawn.
-        if isFirstWindow, !asTab, UserDefaults.standard.bool(forKey: "BowserWasFullscreen") {
+        if isFirstWindow, UserDefaults.standard.bool(forKey: "BowserWasFullscreen") {
             DispatchQueue.main.async { [weak controller] in
                 controller?.window?.toggleFullScreen(nil)
             }
         }
-
         return controller
     }
 
+    /// Open a tab in the current window, creating a window if there is none.
+    /// `activate: false` leaves it detached in memory — nothing on screen
+    /// moves, and the dock picks it up from the tab_opened event.
+    @discardableResult
+    func openTab(
+        url: String? = nil,
+        activate: Bool = true,
+        configuration: WKWebViewConfiguration? = nil,
+        opener explicitOpener: UInt64? = nil
+    ) -> EngineView {
+        let opener = explicitOpener ?? currentWebviewId
+        guard let controller = currentController else {
+            let controller = openWindow()
+            if let url { controller.loadURL(url) }
+            return controller.activeTab
+        }
+        let view = controller.openTab(
+            configuration: configuration, opener: opener, activate: activate
+        )
+        if let url { view.load(urlString: url) }
+        return view
+    }
+
+    /// ⌘T: a new webview, switched to at once, omnibar up. No tab group is
+    /// created and no tab bar appears — there is no native tabbing left.
     @objc func newTab(_ sender: Any?) {
-        openWindow(asTab: true)
+        guard let controller = currentController else {
+            openWindow()
+            return
+        }
+        controller.openTab(opener: controller.activeTab?.webviewId, activate: true)
+        controller.focusOmnibar()
     }
 
     @objc func newWindow(_ sender: Any?) {
-        openWindow(asTab: false)
+        openWindow()
+    }
+
+    /// ⌘W closes the TAB now; the window goes with the last one.
+    @objc func closeTab(_ sender: Any?) {
+        guard let controller = currentController, let view = controller.activeTab else { return }
+        controller.closeTab(view)
+    }
+
+    @objc func closeWindow(_ sender: Any?) {
+        currentController?.window?.close()
     }
 
     private func buildMenu() {
@@ -86,7 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newTab(_:)), keyEquivalent: "t")
         fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeTab(_:)), keyEquivalent: "w")
+        let closeWindowItem = fileMenu.addItem(
+            withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w"
+        )
+        closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 

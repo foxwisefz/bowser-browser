@@ -174,8 +174,7 @@ final class BrainBridge {
             return tab
         }
         var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs]
-        let keyController = (NSApp.keyWindow ?? NSApp.mainWindow)?.windowController
-        if let active = (keyController as? BrowserWindowController)?.engineView.webviewId {
+        if let active = (NSApp.delegate as? AppDelegate)?.currentWebviewId {
             hello["active"] = active
         }
         send(hello)
@@ -279,13 +278,16 @@ final class BrainBridge {
             SurfaceManager.shared.handle(message)
 
         case "activate_tab":
-            if let view = EngineView.live[requested] {
-                view.window?.makeKeyAndOrderFront(nil)
+            // Mount it as the window's content — no window ordering games,
+            // the tab has no window of its own any more.
+            if let host = BrowserWindowController.host(of: requested),
+               host.activateTab(id: requested) {
+                host.window?.makeKeyAndOrderFront(nil)
                 NSApp.activate()
             }
 
         case "close_tab":
-            EngineView.live[requested]?.window?.performClose(nil)
+            BrowserWindowController.host(of: requested)?.closeTab(id: requested)
 
         default:
             NSLog("Bowser: unknown brain op \(op)")

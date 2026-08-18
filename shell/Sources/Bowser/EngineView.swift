@@ -50,6 +50,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
 
     private(set) var webviewId: UInt64 = 0
     private(set) var faviconPath: String?
+    /// Last sampled page tint. Cached because a tab can be mounted long
+    /// after it loaded, and the chrome has to catch up on the spot.
+    private(set) var themeColor: NSColor?
     let webView: WKWebView
 
     private let pageRelay = PageRelay()
@@ -327,7 +330,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         webView.evaluateJavaScript(Self.themeProbe) { [weak self] value, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.onThemeColor?(Self.parseCSSColor(value as? String))
+                self.themeColor = Self.parseCSSColor(value as? String)
+                self.onThemeColor?(self.themeColor)
             }
         }
     }
@@ -363,10 +367,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
-        let controller = delegate.openWindow(
-            asTab: true, configuration: configuration, opener: webviewId
+        // The popup belongs to the window this page lives in, not to
+        // whatever happens to be key.
+        guard let host = BrowserWindowController.host(of: webviewId)
+            ?? (NSApp.delegate as? AppDelegate)?.currentController
+        else { return nil }
+        let view = host.openTab(
+            configuration: configuration, opener: webviewId, activate: true
         )
-        return controller.engineView.webView
+        return view.webView
     }
 }

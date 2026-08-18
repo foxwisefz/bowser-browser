@@ -38,9 +38,27 @@ defmodule BowserBrain.Chrome do
     Bridge.cast_msg(%{op: "chrome", chrome: "register_command", name: name, hint: hint})
   end
 
-  @doc "Hide the native tab bar (e.g. when a tabs-mod takes over tab UI)."
+  @doc """
+  Open a tab. `activate: true` switches to it; by default the webview is
+  created detached — it exists, loads, and shows up in tab UI, but what the
+  user is looking at doesn't move. Switch later with `Surface.activate_tab/1`.
+  """
+  def open_tab(url \\ nil, opts \\ []) do
+    Bridge.cast_msg(%{
+      op: "chrome",
+      chrome: "open_tab",
+      url: url,
+      activate: Keyword.get(opts, :activate, false)
+    })
+  end
+
+  @doc """
+  Deprecated no-ops (bowser-browser-cdd): there is no native tab bar any
+  more. One window holds N in-memory webviews and tab UI is entirely a mod's
+  job. Kept so mods written against the old API keep running.
+  """
   def hide_tab_bar, do: Bridge.cast_msg(%{op: "chrome", chrome: "hide_tab_bar"})
 
-  @doc "Bring the native tab bar back."
+  @doc false
   def show_tab_bar, do: Bridge.cast_msg(%{op: "chrome", chrome: "show_tab_bar"})
 end
