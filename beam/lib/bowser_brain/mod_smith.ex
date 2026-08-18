@@ -329,7 +329,7 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  defp extract_json(output) do
+  def extract_json(output) do
     with start when start != nil <- :binary.match(output, "{") |> elem_or_nil(0),
          finish when finish != nil <- last_brace(output),
          {:ok, decoded} <- JSON.decode(binary_part(output, start, finish - start + 1)) do
@@ -349,7 +349,7 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  defp validate(files) do
+  def validate(files) do
     Enum.reduce_while(files, :ok, fn %{"path" => path, "content" => content}, :ok ->
       cond do
         String.contains?(path, "..") ->

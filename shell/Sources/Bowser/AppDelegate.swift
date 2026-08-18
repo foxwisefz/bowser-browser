@@ -8,6 +8,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrainBridge.shared.start()
         openWindow()
         NSApp.activate()
+
+        // WKWebView (as first responder) claims ⌘-key equivalents before the
+        // menu ever sees them — intercept ⌘K/⌘L ahead of window dispatch.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  let key = event.charactersIgnoringModifiers?.lowercased(),
+                  key == "k" || key == "l"
+            else { return event }
+            if let controller = self?.currentController {
+                CommandBar.shared.show(for: controller)
+            }
+            return nil
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

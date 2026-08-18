@@ -10,6 +10,11 @@ let package = Package(
         .executableTarget(
             name: "Bowser",
             path: "Sources/Bowser"
-        )
+        ),
+        .testTarget(
+            name: "BowserTests",
+            dependencies: ["Bowser"],
+            path: "Tests/BowserTests"
+        ),
     ]
 )

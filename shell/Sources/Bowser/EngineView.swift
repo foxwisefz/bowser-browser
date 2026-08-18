@@ -364,7 +364,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private static func parseCSSColor(_ css: String?) -> NSColor? {
+    static func parseCSSColor(_ css: String?) -> NSColor? {
         guard let css else { return nil }
         let numbers = css
             .replacingOccurrences(of: "rgba(", with: "")

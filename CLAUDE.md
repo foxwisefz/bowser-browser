@@ -13,6 +13,17 @@ A completely personalizable browser. One machine, one target: `arm64-apple-macos
 
 `bd` (beads) for ALL tasks — no TodoWrite, no markdown TODOs. Run `bd prime` at session start; `bd ready` for available work. `bd remember` for operational gotchas.
 
+## Build & Test — TDD, non-negotiable
+
+- **Every change ships with tests.** Bug fixes START with a failing test that reproduces the bug; features extend the suites as they're built. "It compiles" is not verification — tonight's history proves both toolchains lie ("Build complete!" on stale binaries, exit codes eaten by pipes).
+- Run before every delivery:
+  ```sh
+  cd beam && mix test          # brain: ExUnit (beam/test/)
+  cd shell && swift test       # shell: XCTest (shell/Tests/BowserTests/)
+  ```
+- Testable-by-design: pure logic lives in `static`/public functions (e.g. `BrowserWindowController.normalize`, `EngineView.parseCSSColor`, `ModSmith.extract_json/validate`). If logic is hard to test, extract it first.
+- UI/behavior that can't run headless gets verified via probe mods (`~/.bowser/mods` is an RPC channel into the running brain) or explicit owner check — never assumed.
+
 ## Hard rules
 
 - Speed regressions are bugs. No cross-platform abstractions. No traditional extension platform.
