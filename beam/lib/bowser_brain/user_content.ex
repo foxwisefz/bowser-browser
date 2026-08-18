@@ -77,6 +77,21 @@ defmodule BowserBrain.UserContent do
   })();
   """
 
+
+  # The chrome band is transparent and the page runs under it. A root-level
+  # transform shifts ALL content (fixed/sticky headers included — transforms
+  # re-anchor them to the page) below the band, while the page background
+  # still paints the full canvas under the chrome. 34 = band height.
+  @band_offset """
+  (function () {
+    if (window.top !== window) return;
+    var s = document.createElement("style");
+    s.id = "bowser-band-offset";
+    s.textContent = "html { transform: translateY(34px); }";
+    (document.head || document.documentElement).appendChild(s);
+  })();
+  """
+
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def put_scripts(owner, scripts, opts \\ []) when is_list(scripts) do
@@ -120,7 +135,7 @@ defmodule BowserBrain.UserContent do
     Bridge.cast_msg(%{
       op: "set_user_content",
       webview: 0,
-      scripts: [@std_preserve | flatten(state.scripts)],
+      scripts: [@std_preserve, @band_offset | flatten(state.scripts)],
       styles: flatten(state.styles),
       reload: reload
     })
