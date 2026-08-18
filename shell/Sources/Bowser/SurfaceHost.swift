@@ -229,10 +229,18 @@ final class SurfaceManager {
         let hidden = width - CGFloat(config.peek)
         let revealed = edgeRevealed.contains(id)
 
-        let x: CGFloat =
-            config.edge == "right"
-            ? (revealed ? reference.maxX - width : reference.maxX - CGFloat(config.peek))
-            : (revealed ? reference.minX : reference.minX - hidden)
+        // Collapsed window-attached surfaces park fully OUTSIDE the window:
+        // overlapping the edge stole the window's resize zone.
+        let x: CGFloat
+        if config.edge == "right" {
+            x = revealed
+                ? reference.maxX - width
+                : (config.attach == "screen" ? reference.maxX - CGFloat(config.peek) : reference.maxX + 1)
+        } else {
+            x = revealed
+                ? reference.minX
+                : (config.attach == "screen" ? reference.minX - hidden : reference.minX - width - 1)
+        }
 
         let frame = NSRect(
             x: x, y: reference.minY,
