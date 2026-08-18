@@ -32,13 +32,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.contentView = engineView
 
         // The whole chrome: a cloverleaf cluster next to the traffic lights.
-        let accessory = NSTitlebarAccessoryViewController()
-        accessory.layoutAttribute = .left
+        // Deliberately NOT a titlebar accessory — AppKit re-lays those out
+        // and discards padding/offset. A constrained subview over the
+        // full-size content view obeys exactly.
         let hosting = NSHostingView(rootView: AnyView(clusterView()))
-        hosting.frame = NSRect(x: 0, y: 0, width: 260, height: 34)
-        accessory.view = hosting
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        engineView.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: engineView.leadingAnchor, constant: 86),
+            hosting.topAnchor.constraint(equalTo: engineView.topAnchor, constant: 6),
+            hosting.heightAnchor.constraint(equalToConstant: 24),
+        ])
         clusterHosting = hosting
-        window.addTitlebarAccessoryViewController(accessory)
 
         engineView.onTitleChange = { [weak window] title in
             window?.title = title.isEmpty ? "Bowser" : title
