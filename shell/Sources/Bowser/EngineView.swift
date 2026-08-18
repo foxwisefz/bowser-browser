@@ -46,6 +46,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
 
     var onTitleChange: ((String) -> Void)?
     var onURLChange: ((String) -> Void)?
+    var onThemeColor: ((NSColor?) -> Void)?
 
     private(set) var webviewId: UInt64 = 0
     let webView: WKWebView
@@ -107,6 +108,11 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
+        // Full Safari impersonation: WKWebView's default UA lacks the
+        // "Version/x Safari/x" suffix and sites like YouTube Music sniff it.
+        webView.customUserAgent =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            + "(KHTML, like Gecko) Version/18.5 Safari/605.1.15"
         webView.autoresizingMask = [.width, .height]
         webView.frame = bounds
         addSubview(webView)
@@ -210,6 +216,52 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         BrainBridge.shared.send([
             "op": "event", "event": "load_status", "webview": webviewId, "status": 2,
         ])
+        sampleThemeColor()
+    }
+
+    // Safari-style chrome tinting: prefer the page's theme-color meta,
+    // fall back to its background; normalize via a computed style so any
+    // CSS color form comes back as rgb()/rgba().
+    private static let themeProbe = """
+    (function () {
+      var m = document.querySelector('meta[name="theme-color"]');
+      var c = (m && m.content) || "";
+      if (!c) {
+        c = getComputedStyle(document.body).backgroundColor;
+        if (!c || c === "rgba(0, 0, 0, 0)")
+          c = getComputedStyle(document.documentElement).backgroundColor;
+      }
+      var d = document.createElement("div");
+      d.style.color = c;
+      document.body.appendChild(d);
+      var out = getComputedStyle(d).color;
+      d.remove();
+      return out;
+    })()
+    """
+
+    private func sampleThemeColor() {
+        webView.evaluateJavaScript(Self.themeProbe) { [weak self] value, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.onThemeColor?(Self.parseCSSColor(value as? String))
+            }
+        }
+    }
+
+    private static func parseCSSColor(_ css: String?) -> NSColor? {
+        guard let css else { return nil }
+        let numbers = css
+            .replacingOccurrences(of: "rgba(", with: "")
+            .replacingOccurrences(of: "rgb(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+            .split(separator: ",")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard numbers.count >= 3 else { return nil }
+        if numbers.count >= 4, numbers[3] == 0 { return nil }
+        return NSColor(
+            srgbRed: numbers[0] / 255, green: numbers[1] / 255, blue: numbers[2] / 255, alpha: 1
+        )
     }
 
     // The chrome/engine split, delivered by WebKit: a page crash kills only

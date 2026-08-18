@@ -53,6 +53,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
+        window.titlebarAppearsTransparent = true
 
         engineView.onTitleChange = { [weak window] title in
             window?.title = title.isEmpty ? "Bowser" : title
@@ -64,6 +65,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             if self.omnibar.currentEditor() == nil {
                 self.omnibar.stringValue = url
                 self.updateOmnibarMode()
+            }
+        }
+
+        engineView.onThemeColor = { [weak window] color in
+            guard let window else { return }
+            // Safari-style: chrome takes the page's color; appearance flips
+            // by luminance so toolbar text/controls stay legible.
+            let resolved = color ?? .windowBackgroundColor
+            window.backgroundColor = resolved
+            if let color, let rgb = color.usingColorSpace(.sRGB) {
+                let luminance =
+                    0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+                window.appearance = NSAppearance(named: luminance < 0.5 ? .darkAqua : .aqua)
+            } else {
+                window.appearance = nil
             }
         }
 
