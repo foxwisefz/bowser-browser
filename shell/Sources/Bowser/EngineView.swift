@@ -81,6 +81,19 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     })();
     """
 
+    /// The page starts this far below the window top — the chrome band's
+    /// breathing room.
+    static let pageTopInset: CGFloat = 34
+
+    override func layout() {
+        super.layout()
+        webView.frame = NSRect(
+            x: 0, y: 0,
+            width: bounds.width,
+            height: max(1, bounds.height - Self.pageTopInset)
+        )
+    }
+
     override convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, configuration: nil)
     }
