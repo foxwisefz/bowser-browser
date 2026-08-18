@@ -189,7 +189,12 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         if (document.getElementById("bowser-band-offset")) return;
         var s = document.createElement("style");
         s.id = "bowser-band-offset";
-        s.textContent = "html { transform: translateY(\(Int(EngineView.pageTopInset))px); }";
+        // margin, NOT transform: a transform re-anchors position:fixed
+        // elements (players, chat bubbles) to the page and strands them.
+        // With margin, flow content starts below the band, fixed UI keeps
+        // its viewport anchors, and sticky headers slide under the band on
+        // scroll — the intended look.
+        s.textContent = "body { margin-top: \(Int(EngineView.pageTopInset))px !important; }";
         (document.head || document.documentElement).appendChild(s);
       }
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply);
