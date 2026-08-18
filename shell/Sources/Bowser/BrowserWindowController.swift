@@ -88,6 +88,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             titleLabel.font = .systemFont(ofSize: 12.5, weight: .medium)
             titleLabel.textColor = .secondaryLabelColor
             titleLabel.lineBreakMode = .byTruncatingTail
+            // A long title must truncate, not dictate the window's minimum
+            // width through compression resistance.
+            titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             titleLabel.alignment = .center
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(titleLabel)
