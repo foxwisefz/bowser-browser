@@ -56,4 +56,20 @@ defmodule BowserBrain.ModSmithTest do
                ])
     end
   end
+
+  describe "timeout_ms/1" do
+    test "defaults to 10 minutes when unset" do
+      assert ModSmith.timeout_ms(nil) == 600_000
+    end
+
+    test "owner override via :set modsmith_timeout_ms" do
+      assert ModSmith.timeout_ms("300000") == 300_000
+    end
+
+    test "garbage or non-positive values fall back to the default" do
+      assert ModSmith.timeout_ms("soon") == 600_000
+      assert ModSmith.timeout_ms("0") == 600_000
+      assert ModSmith.timeout_ms("-5") == 600_000
+    end
+  end
 end

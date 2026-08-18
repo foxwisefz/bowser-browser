@@ -15,7 +15,10 @@ defmodule BowserBrain.ModSmith do
   import BowserBrain.View
   alias BowserBrain.{Page, SiteMods, Surface}
 
-  @timeout_ms 180_000
+  # 180s proved too short: a rate-limited router makes the CLI retry 502s
+  # for minutes, and the whole request died as "claude timed out"
+  # (bowser-browser-3l4). Tune live with `:set modsmith_timeout_ms`.
+  @default_timeout_ms 600_000
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -274,7 +277,9 @@ defmodule BowserBrain.ModSmith do
             )
           end)
 
-        case Task.yield(task, @timeout_ms) || Task.shutdown(task) do
+        timeout = timeout_ms(BowserBrain.Settings.get("modsmith_timeout_ms"))
+
+        case Task.yield(task, timeout) || Task.shutdown(task) do
           {:ok, {output, 0}} ->
             case JSON.decode(output) do
               {:ok, %{"result" => text} = envelope} ->
@@ -288,10 +293,22 @@ defmodule BowserBrain.ModSmith do
             {nil, {:error, "claude exited #{code}: #{String.slice(output, 0, 300)}"}}
 
           nil ->
-            {nil, {:error, "claude timed out"}}
+            {nil, {:error, "claude timed out after #{div(timeout, 1000)}s"}}
         end
     end
   end
+
+  @doc false
+  # Owner-tunable request budget: raw `:set modsmith_timeout_ms` value in,
+  # milliseconds out. Public for tests.
+  def timeout_ms(setting) when is_binary(setting) do
+    case Integer.parse(setting) do
+      {ms, _} when ms > 0 -> ms
+      _ -> @default_timeout_ms
+    end
+  end
+
+  def timeout_ms(_unset), do: @default_timeout_ms
 
   # Route through a custom endpoint (e.g. DodoRouter) when configured:
   #   :set dodorouter_endpoint https://...
