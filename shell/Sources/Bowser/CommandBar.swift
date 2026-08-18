@@ -54,7 +54,8 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
         panel.onDismiss = { [weak self] in self?.hide() }
 
         let effect = NSVisualEffectView(frame: panel.contentLayoutRect)
-        effect.material = .popover
+        effect.material = .hudWindow // glassier than .popover — more of the
+                                     // page shows through the bar
         effect.state = .active
         effect.blendingMode = .behindWindow
         effect.maskImage = Self.roundedMask(radius: 14)
