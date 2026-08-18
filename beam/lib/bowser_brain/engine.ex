@@ -34,11 +34,19 @@ defmodule BowserBrain.Engine do
     state = if port_alive, do: state, else: %{state | port: nil, os_pid: nil}
 
     state =
-      if port_alive or BowserBrain.Bridge.connected?() do
-        state
-      else
-        Logger.info("engine: not running and bridge down — (re)spawning")
-        spawn_engine(state)
+      cond do
+        # A newer binary landed on disk: roll the engine (session restores).
+        port_alive and binary_mtime() > Map.get(state, :spawned_mtime, 0) ->
+          Logger.info("engine: binary updated on disk — rolling respawn")
+          if state.os_pid, do: System.cmd("kill", ["-9", Integer.to_string(state.os_pid)])
+          state
+
+        port_alive or BowserBrain.Bridge.connected?() ->
+          state
+
+        true ->
+          Logger.info("engine: not running and bridge down — (re)spawning")
+          spawn_engine(state)
       end
 
     Process.send_after(self(), :check, @check_ms)
@@ -82,6 +90,13 @@ defmodule BowserBrain.Engine do
 
   def terminate(_reason, _state), do: :ok
 
+  defp binary_mtime do
+    case File.stat(Application.get_env(:bowser_brain, :engine_path, @default_path), time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime
+      _ -> 0
+    end
+  end
+
   defp spawn_engine(state) do
     path = Application.get_env(:bowser_brain, :engine_path, @default_path)
 
@@ -102,7 +117,10 @@ defmodule BowserBrain.Engine do
           _ -> nil
         end
 
-      %{state | port: port, os_pid: os_pid}
+      state
+      |> Map.put(:port, port)
+      |> Map.put(:os_pid, os_pid)
+      |> Map.put(:spawned_mtime, binary_mtime())
     else
       Logger.error("engine: binary not found at #{path} — run swift build")
       state

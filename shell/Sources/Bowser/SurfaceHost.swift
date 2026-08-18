@@ -134,10 +134,12 @@ final class SurfaceManager {
     private func showEdge(
         id: String, edge: String, peek: Double, width: Double, attach: String, tree: [String: Any]
     ) {
+        // A peek under 6px is invisible and unhittable.
+        let peek = max(peek, 6)
         edgeConfigs[id] = (edge, peek, width, attach)
         let cursor = edgeCursor[id] ?? CursorModel()
         edgeCursor[id] = cursor
-        let root = AnyView(SurfaceTreeView(surfaceId: id, node: tree).environmentObject(cursor))
+        let root = Self.edgeRoot(surfaceId: id, edge: edge, tree: tree, cursor: cursor)
 
         if let hosting = overlayHostings[id], let panel = panels[id] {
             hosting.rootView = root
@@ -178,6 +180,26 @@ final class SurfaceManager {
         panels[id] = panel
         overlayHostings[id] = hosting
         positionEdge(id: id, panel: panel, animated: false)
+    }
+
+    /// The mod's tree plus the primitive's own affordance: a drawer-handle
+    /// capsule pinned to the inner edge, so the collapsed sliver is visible
+    /// and inviting. Mod content never needs to know about collapse state.
+    private static func edgeRoot(
+        surfaceId: String, edge: String, tree: [String: Any], cursor: CursorModel
+    ) -> AnyView {
+        AnyView(
+            ZStack(alignment: edge == "right" ? .leading : .trailing) {
+                SurfaceTreeView(surfaceId: surfaceId, node: tree)
+                    .environmentObject(cursor)
+                Capsule()
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 3.5, height: 46)
+                    .padding(edge == "right" ? .leading : .trailing, 1.5)
+                    .shadow(color: .black.opacity(0.3), radius: 2)
+            }
+            .frame(maxHeight: .infinity)
+        )
     }
 
     func setEdgeRevealed(_ id: String, _ revealed: Bool) {
