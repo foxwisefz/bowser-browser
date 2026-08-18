@@ -174,8 +174,15 @@ defmodule BowserBrain.ModSmith do
     BowserBrain.Settings.get("service_api_key") (nil until set; degrade gracefully
     and surface a hint). Never hardcode credentials. Surface.show also takes
     kind: :toolbar_overlay — a click-through effects layer over the browser's real
-    toolbar (pair with particles for chrome effects). Pages can push to mods via
-    window.bowser.emit(payload) in injected JS -> event "page" {payload}.
+    toolbar (pair with particles for chrome effects) — and kind: :edge (edge: :left|:right,
+    peek: px, width: px): a window-edge surface, mostly hidden, sliding into view on
+    cursor proximity. Pair :edge with magnify_strip(items, size:, magnify:, event:) —
+    items are [%{id:, path: (icon file) or symbol:, active:, title:}] and the shell
+    natively handles dock-style proximity magnification, emitting select events
+    (value = item id). Tab data: hello tabs carry "favicon" paths; live updates via
+    "favicon_changed" {webview, path}. Chrome.hide_tab_bar/show_tab_bar swap out the
+    native tab strip. Pages can push to mods via window.bowser.emit(payload) in
+    injected JS -> event "page" {payload}.
 
     CONTEXT:
     Current URL: #{url}

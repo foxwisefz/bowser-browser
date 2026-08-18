@@ -18,9 +18,12 @@ defmodule BowserBrain.Surface do
       op: "surface",
       surface: "show",
       id: to_string(id),
-      # :floating (default) or :toolbar_overlay (click-through effects
-      # layer riding the main window's toolbar region).
+      # :floating (default), :toolbar_overlay (click-through effects layer
+      # over the toolbar), or :edge (window-edge surface, mostly hidden with
+      # a peek sliver, slides into view on cursor proximity — edge:/peek:).
       kind: to_string(Keyword.get(opts, :kind, :floating)),
+      edge: to_string(Keyword.get(opts, :edge, :left)),
+      peek: Keyword.get(opts, :peek, 6),
       title: Keyword.get(opts, :title, to_string(id)),
       anchor: to_string(Keyword.get(opts, :anchor, :right_of_main)),
       width: Keyword.get(opts, :width, 260),

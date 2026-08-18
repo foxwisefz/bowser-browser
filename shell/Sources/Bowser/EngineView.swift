@@ -49,6 +49,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     var onThemeColor: ((NSColor?) -> Void)?
 
     private(set) var webviewId: UInt64 = 0
+    private(set) var faviconPath: String?
     let webView: WKWebView
 
     private let pageRelay = PageRelay()
@@ -217,6 +218,65 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
             "op": "event", "event": "load_status", "webview": webviewId, "status": 2,
         ])
         sampleThemeColor()
+        captureFavicon()
+    }
+
+    // MARK: Favicon pipeline — probe, cache to ~/.bowser/favicons/<host>,
+    // emit favicon_changed. Any tab UI (dock strips, tab trees) reads the
+    // cached file path from events or hello.
+
+    private static var fetchedHosts: Set<String> = []
+
+    private static func faviconFile(for host: String) -> URL {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".bowser/favicons")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safe = host.replacingOccurrences(of: "/", with: "_")
+        return dir.appendingPathComponent("\(safe).img")
+    }
+
+    private func captureFavicon() {
+        guard let host = webView.url?.host else { return }
+        let file = Self.faviconFile(for: host)
+
+        if FileManager.default.fileExists(atPath: file.path) {
+            announceFavicon(file.path)
+            if Self.fetchedHosts.contains(host) { return }
+        }
+        guard !Self.fetchedHosts.contains(host) else { return }
+        Self.fetchedHosts.insert(host)
+
+        let probe = """
+        (function () {
+          var l = document.querySelector('link[rel~="icon"]');
+          return l ? l.href : (location.origin + "/favicon.ico");
+        })()
+        """
+        let id = webviewId
+        webView.evaluateJavaScript(probe) { value, _ in
+            guard let urlString = value as? String, let url = URL(string: urlString) else { return }
+            // Capture only Sendables (id, file); the view is looked up by id
+            // back on the main actor.
+            URLSession.shared.dataTask(with: url) { data, response, _ in
+                guard let data, data.count > 16,
+                      (response as? HTTPURLResponse)?.statusCode ?? 200 < 300
+                else { return }
+                try? data.write(to: file)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        EngineView.live[id]?.announceFavicon(file.path)
+                    }
+                }
+            }.resume()
+        }
+    }
+
+    private func announceFavicon(_ path: String) {
+        faviconPath = path
+        BrainBridge.shared.send([
+            "op": "event", "event": "favicon_changed",
+            "webview": webviewId, "path": path,
+        ])
     }
 
     // Safari-style chrome tinting: prefer the page's theme-color meta,

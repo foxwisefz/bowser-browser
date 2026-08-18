@@ -37,4 +37,10 @@ defmodule BowserBrain.Chrome do
   def register_command(name, hint) do
     Bridge.cast_msg(%{op: "chrome", chrome: "register_command", name: name, hint: hint})
   end
+
+  @doc "Hide the native tab bar (e.g. when a tabs-mod takes over tab UI)."
+  def hide_tab_bar, do: Bridge.cast_msg(%{op: "chrome", chrome: "hide_tab_bar"})
+
+  @doc "Bring the native tab bar back."
+  def show_tab_bar, do: Bridge.cast_msg(%{op: "chrome", chrome: "show_tab_bar"})
 end

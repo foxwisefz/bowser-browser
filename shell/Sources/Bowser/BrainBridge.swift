@@ -168,6 +168,9 @@ final class BrainBridge {
             if let title = EngineView.live[id]?.webView.title, !title.isEmpty {
                 tab["title"] = title
             }
+            if let favicon = EngineView.live[id]?.faviconPath {
+                tab["favicon"] = favicon
+            }
             return tab
         }
         var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs]

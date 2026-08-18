@@ -11,7 +11,7 @@ final class SurfaceManager {
     static let shared = SurfaceManager()
 
     private var panels: [String: NSPanel] = [:]
-    private var hostings: [String: NSHostingView<SurfaceRootView>] = [:]
+    private var hostings: [String: NSHostingView<AnyView>] = [:]
 
     func handle(_ message: [String: Any]) {
         switch message["surface"] as? String {
@@ -20,6 +20,16 @@ final class SurfaceManager {
                   let tree = message["view"] as? [String: Any] else { return }
             if message["kind"] as? String == "toolbar_overlay" {
                 showToolbarOverlay(id: id, tree: tree)
+                return
+            }
+            if message["kind"] as? String == "edge" {
+                showEdge(
+                    id: id,
+                    edge: message["edge"] as? String ?? "left",
+                    peek: message["peek"] as? Double ?? 6,
+                    width: message["width"] as? Double ?? 72,
+                    tree: tree
+                )
                 return
             }
             show(
@@ -46,11 +56,11 @@ final class SurfaceManager {
     // window's toolbar region. Effects (particles etc.) render here, over
     // the real chrome.
 
-    private var overlayHostings: [String: NSHostingView<SurfaceTreeView>] = [:]
+    private var overlayHostings: [String: NSHostingView<AnyView>] = [:]
     private var overlayObserver: Any?
 
     private func showToolbarOverlay(id: String, tree: [String: Any]) {
-        let root = SurfaceTreeView(surfaceId: id, node: tree)
+        let root = AnyView(SurfaceTreeView(surfaceId: id, node: tree))
 
         if let hosting = overlayHostings[id], let panel = panels[id] {
             hosting.rootView = root
@@ -112,8 +122,89 @@ final class SurfaceManager {
         )
     }
 
+    // MARK: - Edge surfaces: a child window hugging a window edge, mostly
+    // hidden (peek), sliding into view on cursor proximity. The slide is
+    // manager physics; whatever renders inside is the mod's tree.
+
+    private var edgeConfigs: [String: (edge: String, peek: Double, width: Double)] = [:]
+    private var edgeRevealed: Set<String> = []
+    private var edgeCursor: [String: CursorModel] = [:]
+
+    private func showEdge(id: String, edge: String, peek: Double, width: Double, tree: [String: Any]) {
+        edgeConfigs[id] = (edge, peek, width)
+        let cursor = edgeCursor[id] ?? CursorModel()
+        edgeCursor[id] = cursor
+        let root = AnyView(SurfaceTreeView(surfaceId: id, node: tree).environmentObject(cursor))
+
+        if let hosting = overlayHostings[id], let panel = panels[id] {
+            hosting.rootView = root
+            positionEdge(id: id, panel: panel, animated: false)
+            return
+        }
+
+        guard let main = NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.windowController is BrowserWindowController })
+        else { return }
+
+        let panel = SurfacePanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isReleasedWhenClosed = false
+
+        let container = EdgeTrackingView(surfaceId: id, cursor: cursor)
+        let hosting = NSHostingView(rootView: root)
+        hosting.autoresizingMask = [.width, .height]
+        hosting.frame = container.bounds
+        container.addSubview(hosting)
+        panel.contentView = container
+
+        main.addChildWindow(panel, ordered: .above)
+        panels[id] = panel
+        overlayHostings[id] = hosting
+        positionEdge(id: id, panel: panel, animated: false)
+    }
+
+    func setEdgeRevealed(_ id: String, _ revealed: Bool) {
+        guard let panel = panels[id] else { return }
+        if revealed { edgeRevealed.insert(id) } else { edgeRevealed.remove(id) }
+        positionEdge(id: id, panel: panel, animated: true)
+    }
+
+    private func positionEdge(id: String, panel: NSPanel, animated: Bool) {
+        guard let parent = panel.parent, let config = edgeConfigs[id] else { return }
+        let width = CGFloat(config.width)
+        let hidden = width - CGFloat(config.peek)
+        let revealed = edgeRevealed.contains(id)
+
+        let x: CGFloat =
+            config.edge == "right"
+            ? (revealed ? parent.frame.maxX - width : parent.frame.maxX - CGFloat(config.peek))
+            : (revealed ? parent.frame.minX : parent.frame.minX - hidden)
+
+        let frame = NSRect(
+            x: x, y: parent.frame.minY,
+            width: width, height: parent.frame.height - 40
+        )
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            panel.setFrame(frame, display: true)
+        }
+    }
+
     private func show(id: String, title: String, anchor: String, width: Double, tree: [String: Any]) {
-        let root = SurfaceRootView(surfaceId: id, title: title, node: tree)
+        let root = AnyView(SurfaceRootView(surfaceId: id, title: title, node: tree))
 
         if let panel = panels[id], let hosting = hostings[id] {
             // Update in place: SwiftUI diffs the tree; replacing the view
@@ -201,6 +292,58 @@ final class SurfaceManager {
 /// stealing focus).
 private final class SurfacePanel: NSPanel {
     override var canBecomeKey: Bool { true }
+}
+
+// MARK: - Cursor plumbing for proximity widgets (magnify_strip etc.)
+
+/// Cursor position within an edge surface, in the hosting view's coordinate
+/// space (nil = cursor outside). Widgets read it via @EnvironmentObject.
+final class CursorModel: ObservableObject {
+    @Published var point: CGPoint?
+}
+
+/// AppKit tracking host: .activeAlways tracking areas deliver mouseMoved
+/// reliably even in never-key panels (the reason SwiftUI onHover was banned
+/// here). Feeds CursorModel and drives the manager's reveal/collapse slide.
+final class EdgeTrackingView: NSView {
+    private let surfaceId: String
+    private let cursor: CursorModel
+
+    init(surfaceId: String, cursor: CursorModel) {
+        self.surfaceId = surfaceId
+        self.cursor = cursor
+        super.init(frame: .zero)
+        autoresizingMask = [.width, .height]
+    }
+
+    // Top-origin so cursor coordinates match SwiftUI's space directly.
+    override var isFlipped: Bool { true }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        SurfaceManager.shared.setEdgeRevealed(surfaceId, true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        cursor.point = nil
+        SurfaceManager.shared.setEdgeRevealed(surfaceId, false)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        cursor.point = convert(event.locationInWindow, from: nil)
+    }
 }
 
 // MARK: - Root chrome (title + tree)
@@ -313,6 +456,8 @@ struct SurfaceTreeView: View {
             )
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
+        case "magnify_strip":
+            return AnyView(MagnifyStripView(node: node, emit: emit))
         case "particles":
             return AnyView(ParticlesNodeView(
                 chars: node["chars"] as? [String] ?? ["♪", "♫", "♩", "♬"],
@@ -320,6 +465,12 @@ struct SurfaceTreeView: View {
                 active: node["active"] as? Bool ?? true
             ))
         case "image":
+            if let path = node["path"] as? String, let image = ImageCache.load(path) {
+                let size = node["size"] as? Double ?? 16
+                return AnyView(
+                    Image(nsImage: image).resizable().frame(width: size, height: size)
+                )
+            }
             let symbol = node["symbol"] as? String ?? "questionmark"
             return AnyView(Image(systemName: symbol))
         case let unknown:
@@ -386,6 +537,87 @@ private struct PaletteRowStyle: ButtonStyle {
             }
             .opacity(configuration.isPressed && active ? 0.85 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+@MainActor
+enum ImageCache {
+    private static var cache: [String: NSImage] = [:]
+
+    static func load(_ path: String) -> NSImage? {
+        if let cached = cache[path] { return cached }
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        cache[path] = image
+        return image
+    }
+}
+
+/// Proximity-magnification icon strip — the physics half of dock-like UIs.
+/// Mods supply items (icons + ids); this widget owns cursor tracking and
+/// distance-falloff scaling natively, emitting only discrete select events.
+/// Reads cursor position from the edge surface's CursorModel.
+private struct MagnifyStripView: View {
+    let node: [String: Any]
+    let emit: (String, Any?) -> Void
+
+    @EnvironmentObject var cursor: CursorModel
+
+    private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
+    private var baseSize: CGFloat { CGFloat(node["size"] as? Double ?? 28) }
+    private var magnify: CGFloat { CGFloat(node["magnify"] as? Double ?? 1.9) }
+    private var eventId: String { node["event"] as? String ?? "select" }
+    private let spacing: CGFloat = 8
+    private let topPad: CGFloat = 12
+
+    private func scale(forRow index: Int) -> CGFloat {
+        guard let point = cursor.point else { return 1 }
+        let slot = baseSize + spacing
+        let center = topPad + CGFloat(index) * slot + baseSize / 2
+        let distance = abs(point.y - center)
+        let radius = baseSize * 2.6
+        guard distance < radius else { return 1 }
+        return 1 + (magnify - 1) * (1 - distance / radius)
+    }
+
+    var body: some View {
+        VStack(spacing: spacing) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                let s = scale(forRow: index)
+                let active = item["active"] as? Bool ?? false
+                Button(action: { emit(eventId, item["id"]) }) {
+                    ZStack(alignment: .bottom) {
+                        icon(for: item)
+                            .frame(width: baseSize * s, height: baseSize * s)
+                            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                        if active {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 4, height: 4)
+                                .offset(y: 5)
+                        }
+                    }
+                    .frame(height: baseSize * s)
+                }
+                .buttonStyle(.plain)
+                .help(item["title"] as? String ?? "")
+                .animation(.easeOut(duration: 0.09), value: cursor.point)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, topPad)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func icon(for item: [String: Any]) -> some View {
+        if let path = item["path"] as? String, let image = ImageCache.load(path) {
+            Image(nsImage: image).resizable().interpolation(.high)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        } else {
+            Image(systemName: item["symbol"] as? String ?? "globe")
+                .resizable().scaledToFit()
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

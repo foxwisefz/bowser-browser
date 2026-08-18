@@ -48,6 +48,16 @@ enum ChromeSurface {
             guard let name = object["name"] as? String else { return }
             commands[name] = object["hint"] as? String ?? name
             return
+        case "hide_tab_bar", "show_tab_bar":
+            let hide = action == "hide_tab_bar"
+            for controller in controllers.values {
+                if let window = controller.window,
+                   let group = window.tabGroup,
+                   group.isTabBarVisible == hide {
+                    window.toggleTabBar(nil)
+                }
+            }
+            return
         case "open_tab":
             guard let delegate = NSApp.delegate as? AppDelegate else { return }
             let controller = delegate.openWindow(asTab: true)

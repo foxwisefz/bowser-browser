@@ -82,5 +82,39 @@ defmodule BowserBrain.View do
 
   def divider, do: %{t: "divider"}
   def spacer(opts \\ []), do: %{t: "spacer", min: Keyword.get(opts, :min, 0)}
-  def image(symbol), do: %{t: "image", symbol: to_string(symbol)}
+
+  @doc "image(\"sf.symbol\") or image(path: \"/abs/file.png\", size: 16)"
+  def image(symbol) when is_binary(symbol) or is_atom(symbol),
+    do: %{t: "image", symbol: to_string(symbol)}
+
+  def image(opts) when is_list(opts) do
+    %{
+      t: "image",
+      path: Keyword.get(opts, :path),
+      symbol: Keyword.get(opts, :symbol),
+      size: Keyword.get(opts, :size, 16)
+    }
+  end
+
+  @doc """
+  Proximity-magnification icon strip — the physics half of dock-like UIs.
+  The shell owns cursor tracking + distance-falloff scaling; you supply
+  items and receive only discrete select events (value = item id).
+
+      magnify_strip(
+        [%{id: 1, path: favicon_path, active: true, title: "YT Music"},
+         %{id: 2, symbol: "globe", active: false}],
+        size: 28, magnify: 2.0, event: :select)
+
+  Best inside kind: :edge surfaces (which add peek/reveal sliding).
+  """
+  def magnify_strip(items, opts \\ []) when is_list(items) do
+    %{
+      t: "magnify_strip",
+      items: items,
+      size: Keyword.get(opts, :size, 28),
+      magnify: Keyword.get(opts, :magnify, 1.9),
+      event: to_string(Keyword.get(opts, :event, :select))
+    }
+  end
 end
