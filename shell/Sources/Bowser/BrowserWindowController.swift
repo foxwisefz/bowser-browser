@@ -96,6 +96,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 // titlebar view is 28pt but the band is 34 — +3 centers in the band
                 hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
+                // Fixed width: a content-sized hosting view GROWS under the
+                // cursor on hover, flipping hover off/on in a jank loop and
+                // moving the chevrons mid-click.
+                hosting.widthAnchor.constraint(equalToConstant: 340),
                 titleLabel.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
                 titleLabel.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
                 titleLabel.widthAnchor.constraint(
@@ -352,8 +356,8 @@ private struct CmdCluster: View {
         }
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     private func clusterButton(_ symbol: String, action: @escaping () -> Void) -> some View {
