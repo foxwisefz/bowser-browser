@@ -17,3 +17,4 @@ A completely personalizable browser. One machine, one target: `arm64-apple-macos
 
 - Speed regressions are bugs. No cross-platform abstractions. No traditional extension platform.
 - VCS is **jj (jujutsu)**, colocated with git — use `jj st`, `jj describe`, `jj commit`, `jj new`; never raw git for commits. Conservative profile: don't commit/push unless asked.
+- **One workspace: this one.** Never create a per-bead jj workspace or git worktree. The brain supervises `shell/.build/debug/Bowser` at this path only — a build in a side workspace is never delivered and reads as "the change did nothing".

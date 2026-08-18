@@ -27,7 +27,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     /// The mount point. The active tab fills it; the chrome band rides on top.
     private let container = NSView()
-    private var band: NSVisualEffectView!
+    private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
 
@@ -62,13 +62,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         container.autoresizingMask = [.width, .height]
         window.contentView = container
 
-        // The chrome band is glass, not paint — same vibrancy material as
-        // the floating palettes (the owner's original ask).
-        let band = NSVisualEffectView()
-        band.material = .hudWindow
-        band.blendingMode = .behindWindow
-        band.state = .active
-        band.alphaValue = 0.6 // dial: lower = more transparent
+        // The chrome band: a click-through scrim OVER the page — the page's
+        // own background (and content scrolling up) shows through. True
+        // blur-over-webview isn't possible (WKWebView renders out of
+        // process), so a translucent adaptive wash is the mechanism.
+        let band = BandScrimView()
         band.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(band)
         NSLayoutConstraint.activate([
@@ -368,4 +366,25 @@ private struct CmdCluster: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+/// Translucent adaptive wash over the page top; fully click-through so the
+/// page under it stays interactive. Alpha is the transparency dial.
+final class BandScrimView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func updateLayer() {
+        layer?.backgroundColor =
+            NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
