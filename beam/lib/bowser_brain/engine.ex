@@ -33,18 +33,20 @@ defmodule BowserBrain.Engine do
     port_alive = state.port != nil and Port.info(state.port) != nil
     state = if port_alive, do: state, else: %{state | port: nil, os_pid: nil}
 
+    binary_newer = binary_mtime() > Map.get(state, :spawned_mtime, 0)
+
     state =
-      cond do
-        # A newer binary landed on disk: roll the engine (session restores).
-        port_alive and binary_mtime() > Map.get(state, :spawned_mtime, 0) ->
+      case check_action(port_alive, binary_newer, BowserBrain.Bridge.connected?()) do
+        :roll ->
+          # A newer binary landed on disk: roll the engine (session restores).
           Logger.info("engine: binary updated on disk — rolling respawn")
-          if state.os_pid, do: System.cmd("kill", ["-9", Integer.to_string(state.os_pid)])
+          if state.os_pid, do: System.cmd("kill", roll_kill_args(state.os_pid))
           state
 
-        port_alive or BowserBrain.Bridge.connected?() ->
+        :keep ->
           state
 
-        true ->
+        :spawn ->
           Logger.info("engine: not running and bridge down — (re)spawning")
           spawn_engine(state)
       end
@@ -89,6 +91,24 @@ defmodule BowserBrain.Engine do
   end
 
   def terminate(_reason, _state), do: :ok
+
+  @doc false
+  # Pure decision for the liveness check. Public for tests.
+  def check_action(port_alive?, binary_newer?, bridge_connected?) do
+    cond do
+      port_alive? and binary_newer? -> :roll
+      port_alive? or bridge_connected? -> :keep
+      true -> :spawn
+    end
+  end
+
+  @doc false
+  # os_pid is the WRAPPER's pid, and its trap only runs on catchable
+  # signals: TERM forwards to the browser child and the wrapper exits with
+  # its status, closing the port. SIGKILL here orphans the browser and the
+  # watcher — they keep the port pipe open, no exit_status ever arrives,
+  # and the roll loops on a dead pid forever (bowser-browser-p7l).
+  def roll_kill_args(os_pid), do: ["-TERM", Integer.to_string(os_pid)]
 
   defp binary_mtime do
     case File.stat(Application.get_env(:bowser_brain, :engine_path, @default_path), time: :posix) do

@@ -305,6 +305,81 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         captureFavicon()
     }
 
+    // A load that dies before commit used to vanish: the KVO url had already
+    // told the brain the new URL, the webview stayed on about:blank, and the
+    // session re-persisted a tab that never existed (bowser-browser-p7l).
+    // Failures now emit load_status 3 and paint an inline error page whose
+    // baseURL is the failed URL — the tab shows what went wrong, and the
+    // brain's mirror stays consistent with what's on screen.
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        handleLoadFailure(error, provisional: true)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        handleLoadFailure(error, provisional: false)
+    }
+
+    private func handleLoadFailure(_ error: Error, provisional: Bool) {
+        let nsError = error as NSError
+        let failedURL = (nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String)
+            ?? webView.url?.absoluteString ?? ""
+        BrainBridge.shared.send([
+            "op": "event", "event": "load_status", "webview": webviewId, "status": 3,
+            "url": failedURL, "error": nsError.localizedDescription,
+        ])
+        // A committed page that errors keeps its pixels; only a provisional
+        // failure leaves the tab blank and needs the error page.
+        guard provisional,
+              Self.shouldShowErrorPage(domain: nsError.domain, code: nsError.code)
+        else { return }
+        webView.loadHTMLString(
+            Self.errorPageHTML(url: failedURL, message: nsError.localizedDescription),
+            baseURL: URL(string: failedURL)
+        )
+    }
+
+    /// Cancellation (-999) means a newer load won the race; WebKit 102 means
+    /// the navigation became a download or app handoff. Everything else left
+    /// the user staring at a blank tab.
+    static func shouldShowErrorPage(domain: String, code: Int) -> Bool {
+        if domain == NSURLErrorDomain && code == NSURLErrorCancelled { return false }
+        if domain == "WebKitErrorDomain" && code == 102 { return false }
+        return true
+    }
+
+    static func errorPageHTML(url: String, message: String) -> String {
+        let safeURL = htmlEscape(url)
+        let safeMessage = htmlEscape(message)
+        return """
+        <!doctype html><html><head><meta charset="utf-8">
+        <style>
+          :root { color-scheme: light dark; }
+          body { font: 15px -apple-system, sans-serif; display: flex;
+                 min-height: 90vh; align-items: center; justify-content: center; }
+          main { max-width: 34em; text-align: center; }
+          h1 { font-size: 1.2em; }
+          .url { word-break: break-all; opacity: 0.7; }
+        </style></head><body><main>
+          <h1>This page didn&rsquo;t load</h1>
+          <p class="url">\(safeURL)</p>
+          <p>\(safeMessage)</p>
+          <p><a href="\(safeURL)">Try again</a></p>
+        </main></body></html>
+        """
+    }
+
+    static func htmlEscape(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
     // MARK: Favicon pipeline — probe, cache to ~/.bowser/favicons/<host>,
     // emit favicon_changed. Any tab UI (dock strips, tab trees) reads the
     // cached file path from events or hello.

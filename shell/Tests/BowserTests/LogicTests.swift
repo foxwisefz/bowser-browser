@@ -39,6 +39,45 @@ final class CSSColorTests: XCTestCase {
     }
 }
 
+final class LoadFailureTests: XCTestCase {
+    // A cancelled navigation (-999) is routine — a new load superseded the
+    // old one — and WebKit 102 is "this became a download/app link". Neither
+    // is an error the user should see a page for.
+    @MainActor func testCancelledNavigationShowsNoErrorPage() {
+        XCTAssertFalse(EngineView.shouldShowErrorPage(domain: NSURLErrorDomain,
+                                                      code: NSURLErrorCancelled))
+    }
+
+    @MainActor func testFrameLoadInterruptedShowsNoErrorPage() {
+        XCTAssertFalse(EngineView.shouldShowErrorPage(domain: "WebKitErrorDomain", code: 102))
+    }
+
+    @MainActor func testDNSFailureShowsErrorPage() {
+        XCTAssertTrue(EngineView.shouldShowErrorPage(domain: NSURLErrorDomain,
+                                                     code: NSURLErrorCannotFindHost))
+    }
+
+    @MainActor func testErrorPageNamesTheURLAndError() {
+        let html = EngineView.errorPageHTML(
+            url: "https://meetings.google.com/",
+            message: "A server with the specified hostname could not be found."
+        )
+        XCTAssertTrue(html.contains("https://meetings.google.com/"))
+        XCTAssertTrue(html.contains("hostname could not be found"))
+        // The URL doubles as the retry link.
+        XCTAssertTrue(html.contains("href=\"https://meetings.google.com/\""))
+    }
+
+    @MainActor func testErrorPageEscapesHTML() {
+        let html = EngineView.errorPageHTML(
+            url: "https://x.example/<script>alert(1)</script>",
+            message: "<b>bad</b>"
+        )
+        XCTAssertFalse(html.contains("<script>"))
+        XCTAssertFalse(html.contains("<b>bad</b>"))
+    }
+}
+
 final class InjectedHookTests: XCTestCase {
     // The hooks are JS strings with Swift interpolation — keep the constants
     // and the scripts from drifting apart.
