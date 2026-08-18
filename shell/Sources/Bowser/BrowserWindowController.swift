@@ -69,11 +69,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(titleLabel)
             NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 12),
-                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 15),
+                // titlebar view is 28pt but the band is 34 — +3 centers in the band
+                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
                 titleLabel.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
-                titleLabel.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+                titleLabel.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
                 titleLabel.widthAnchor.constraint(
                     lessThanOrEqualTo: titlebar.widthAnchor, multiplier: 0.45),
             ])
