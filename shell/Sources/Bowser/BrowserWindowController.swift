@@ -43,6 +43,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         band.material = .hudWindow
         band.blendingMode = .behindWindow
         band.state = .active
+        band.alphaValue = 0.6 // dial: lower = more transparent
         band.translatesAutoresizingMaskIntoConstraints = false
         engineView.addSubview(band)
         NSLayoutConstraint.activate([
