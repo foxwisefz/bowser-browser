@@ -222,7 +222,16 @@ final class BrainBridge {
             let scripts = message["scripts"] as? [String]
             let styles = message["styles"] as? [String]
             let reload = message["reload"] as? Bool ?? true
-            resolve(requested)?.applyUserContent(scripts: scripts, styles: styles, reload: reload)
+            // webview 0 = ALL tabs: injected content is conceptually global
+            // (site payloads + mod scripts self-guard by hostname). Targeting
+            // only the lowest-id tab left every other tab unmodded.
+            if requested == 0 {
+                for view in EngineView.live.values {
+                    view.applyUserContent(scripts: scripts, styles: styles, reload: reload)
+                }
+            } else {
+                resolve(requested)?.applyUserContent(scripts: scripts, styles: styles, reload: reload)
+            }
 
         case "get_cookies":
             guard let id = message["id"] as? Int else { return }
