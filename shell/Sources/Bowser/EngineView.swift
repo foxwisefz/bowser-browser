@@ -209,7 +209,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     // (a restart, not a revisit), seek and resume. Feels like a hiccup, not
     // a loss.
     static let mediaResumeWindowSeconds = 120
-    private static let mediaHook = """
+    static let mediaHook = """
     (function () {
       if (window.top !== window) return;
       var KEY = "bowser-media:" + location.host + location.pathname;
@@ -228,7 +228,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
             }
           } catch (e) {}
         }
-        if (!m.paused || m.currentTime > 0) {
+        // Gated on restored: during player cold-start the element reads
+        // paused=false at t=0, and writing then would clobber the very
+        // resume point the restore branch is about to use.
+        if (restored && (!m.paused || m.currentTime > 0)) {
           try {
             localStorage.setItem(KEY, JSON.stringify(
               { t: m.currentTime, paused: m.paused, at: Date.now() }));

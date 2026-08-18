@@ -166,6 +166,36 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         ])
     }
 
+    /// Mount a background tab UNDER the active one for a short window, then
+    /// unmount. Invisible to the user (the active tab fully covers it), but
+    /// WebKit tracks view-in-window — not sibling occlusion — so the page
+    /// gets rAF and media pipeline work. Enough for a media site to rebuild
+    /// its stream after a respawn (bowser-browser-hj1); once audio plays,
+    /// unmounting doesn't stop it.
+    func warmTab(id: UInt64, ms: Int?) {
+        guard let view = tabs.first(where: { $0.webviewId == id }),
+              view !== activeTab, view.superview == nil
+        else { return }
+        view.frame = container.bounds
+        if let active = activeTab, active.superview === container {
+            container.addSubview(view, positioned: .below, relativeTo: active)
+        } else {
+            container.addSubview(view, positioned: .below, relativeTo: band)
+        }
+        let duration = Self.warmDuration(ms)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(duration)) {
+            [weak self, weak view] in
+            guard let self, let view, view !== self.activeTab else { return }
+            view.removeFromSuperview()
+        }
+    }
+
+    /// Warm window in ms: clamped so a bad op can't pin a hidden webview to
+    /// the hierarchy forever (rendering cost) or blink it uselessly.
+    static func warmDuration(_ requested: Int?) -> Int {
+        min(max(requested ?? 8000, 1000), 30000)
+    }
+
     @discardableResult
     func activateTab(id: UInt64) -> Bool {
         guard let view = tabs.first(where: { $0.webviewId == id }) else { return false }

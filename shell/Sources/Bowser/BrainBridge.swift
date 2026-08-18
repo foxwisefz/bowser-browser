@@ -289,6 +289,13 @@ final class BrainBridge {
         case "close_tab":
             BrowserWindowController.host(of: requested)?.closeTab(id: requested)
 
+        case "warm_tab":
+            // Invisible short mount so a background page can cold-start its
+            // media pipeline (bowser-browser-hj1). No focus, nothing on
+            // screen moves.
+            BrowserWindowController.host(of: requested)?
+                .warmTab(id: requested, ms: message["ms"] as? Int)
+
         default:
             NSLog("Bowser: unknown brain op \(op)")
         }
