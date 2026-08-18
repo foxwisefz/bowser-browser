@@ -35,7 +35,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .left
         let hosting = NSHostingView(rootView: AnyView(clusterView()))
-        hosting.frame = NSRect(x: 0, y: 0, width: 220, height: 34)
+        hosting.frame = NSRect(x: 0, y: 0, width: 260, height: 34)
         accessory.view = hosting
         clusterHosting = hosting
         window.addTitlebarAccessoryViewController(accessory)
@@ -175,9 +175,10 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 26)
-        .padding(.top, 7)
         .frame(maxHeight: .infinity)
+        // Titlebar accessories ignore layout padding (AppKit owns their
+        // frame negotiation) — offset is post-layout translation and sticks.
+        .offset(x: 24, y: 3)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
