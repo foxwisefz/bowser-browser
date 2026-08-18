@@ -144,12 +144,18 @@ private struct CmdCluster: View {
     var body: some View {
         HStack(spacing: 7) {
             Button(action: openBar) {
-                Text("⌘K")
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                // Keycap-style badge: outlined, rounded face, like a
+                // keyboard shortcut printed on the chrome.
+                Text("⌘+K")
+                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                    .kerning(0.8)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .frame(height: 20)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.07)))
+                    .padding(.horizontal, 7)
+                    .frame(height: 21)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1)
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -166,8 +172,8 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 13)
-        .padding(.top, 3)
+        .padding(.leading, 18)
+        .padding(.top, 4)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
