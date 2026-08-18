@@ -74,6 +74,7 @@ defmodule BowserBrain.ModSmith do
   # ---------------------------------------------------------------------
 
   defp start_request(request, state) do
+    Logger.info("modsmith: request received: #{request}")
     url = state.urls[state.active] || state.urls |> Map.values() |> List.first() || ""
     host = URI.parse(url).host || "unknown"
     digest = page_digest(state.active)
@@ -104,7 +105,16 @@ defmodule BowserBrain.ModSmith do
     })
     """
 
-    case Page.eval(probe, webview: webview) do
+    # Best-effort: a slow/hung page must not crash ModSmith (a GenServer.call
+    # timeout exits the caller — this is how requests were silently lost).
+    result =
+      try do
+        Page.eval(probe, webview: webview)
+      catch
+        :exit, _ -> {:error, :timeout}
+      end
+
+    case result do
       {:ok, json} when is_binary(json) -> json
       _ -> "{}"
     end
