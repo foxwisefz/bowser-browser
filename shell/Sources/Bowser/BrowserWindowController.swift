@@ -11,7 +11,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     convenience init(configuration: WKWebViewConfiguration? = nil) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -25,6 +25,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.tabbingIdentifier = "bowser-browser"
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        window.titleVisibility = .hidden
         self.init(window: window)
 
         engineView = EngineView(frame: .zero, configuration: configuration)
