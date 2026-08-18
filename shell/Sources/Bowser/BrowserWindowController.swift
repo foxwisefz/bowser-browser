@@ -143,8 +143,17 @@ private struct CmdCluster: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            clusterButton("command", action: openBar)
-                .help("Command bar (⌘K)")
+            Button(action: openBar) {
+                Text("⌘K")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.07)))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Command bar (⌘K)")
             if hovering {
                 clusterButton("chevron.left", action: goBack)
                 clusterButton("chevron.right", action: goForward)
@@ -157,7 +166,8 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 8)
+        .padding(.leading, 13)
+        .padding(.top, 3)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
