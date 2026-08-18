@@ -296,8 +296,19 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     // CSS color form comes back as rgb()/rgba().
     private static let themeProbe = """
     (function () {
-      var m = document.querySelector('meta[name="theme-color"]');
-      var c = (m && m.content) || "";
+      // The chrome band sits directly above the page top — match what's
+      // actually rendered there: the topmost element's effective background.
+      var c = "";
+      var el = document.elementFromPoint(window.innerWidth / 2, 2);
+      while (el && el !== document.documentElement) {
+        var bg = getComputedStyle(el).backgroundColor;
+        if (bg && bg !== "rgba(0, 0, 0, 0)" && !/rgba\\(.*, 0\\)$/.test(bg)) { c = bg; break; }
+        el = el.parentElement;
+      }
+      if (!c) {
+        var m = document.querySelector('meta[name="theme-color"]');
+        c = (m && m.content) || "";
+      }
       if (!c) {
         c = getComputedStyle(document.body).backgroundColor;
         if (!c || c === "rgba(0, 0, 0, 0)")
