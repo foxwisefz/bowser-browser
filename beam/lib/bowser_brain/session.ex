@@ -24,7 +24,10 @@ defmodule BowserBrain.Session do
     # from the living engine, replayed into a fresh one BEFORE tabs navigate,
     # so restored pages load already logged in. Brain memory only: secrets
     # never touch disk (ADR 0004 territory).
-    {:ok, %{tabs: %{}, cookies: %{}}}
+    # disk: URLs persisted at ~/.bowser/session.json so a FULL-stack restart
+    # (brain + engine dying together) still restores tabs. Logins survive
+    # via WebKit's own on-disk store, so urls are all we need.
+    {:ok, %{tabs: %{}, cookies: %{}, disk: load_disk()}}
   end
 
   @impl true
@@ -34,11 +37,11 @@ defmodule BowserBrain.Session do
 
   @impl true
   def handle_info({:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}}, state) do
-    {:noreply, %{state | tabs: Map.put(state.tabs, wv, url)}}
+    {:noreply, persist(%{state | tabs: Map.put(state.tabs, wv, url)})}
   end
 
   def handle_info({:browser_event, %{"event" => "webview_closed", "webview" => wv}}, state) do
-    {:noreply, %{state | tabs: Map.delete(state.tabs, wv)}}
+    {:noreply, persist(%{state | tabs: Map.delete(state.tabs, wv)})}
   end
 
   # Page finished loading: snapshot its origin's cookie jar.
@@ -63,7 +66,16 @@ defmodule BowserBrain.Session do
         adopted =
           for %{"id" => id, "url" => u} <- engine_tabs, real_url?(u), into: %{}, do: {id, u}
 
-        {:noreply, %{state | tabs: adopted}}
+        {:noreply, persist(%{state | tabs: adopted})}
+
+      # Full-stack restart: brain memory is empty but disk remembers.
+      remembered == [] and engine_urls == [] and state.disk != [] ->
+        Logger.info("session: full-stack restart — restoring #{length(state.disk)} tabs from disk")
+        [first | rest] = state.disk
+        first_webview = engine_tabs |> Enum.map(& &1["id"]) |> Enum.min(fn -> 0 end)
+        Browser.navigate(first, first_webview)
+        for url <- rest, do: Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url})
+        {:noreply, state}
 
       remembered != [] ->
         cookie_count =
@@ -100,6 +112,23 @@ defmodule BowserBrain.Session do
   end
 
   defp real_url?(u), do: is_binary(u) and String.starts_with?(u, "http")
+
+  defp disk_path, do: Path.join(System.user_home!(), ".bowser/session.json")
+
+  defp load_disk do
+    with {:ok, raw} <- File.read(disk_path()),
+         {:ok, urls} when is_list(urls) <- JSON.decode(raw) do
+      Enum.filter(urls, &real_url?/1)
+    else
+      _ -> []
+    end
+  end
+
+  defp persist(state) do
+    urls = ordered_urls(state.tabs)
+    if urls != [], do: File.write(disk_path(), JSON.encode!(urls))
+    state
+  end
 
   defp origin_of(url) do
     case URI.parse(url) do
