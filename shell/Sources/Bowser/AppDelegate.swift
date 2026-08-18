@@ -96,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let goMenuItem = NSMenuItem()
         let goMenu = NSMenu(title: "Go")
+        goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
