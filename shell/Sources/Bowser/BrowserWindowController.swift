@@ -11,7 +11,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     convenience init(configuration: WKWebViewConfiguration? = nil) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -31,18 +31,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.contentView = engineView
 
-        // The whole chrome: a cloverleaf cluster next to the traffic lights.
-        // Deliberately NOT a titlebar accessory — AppKit re-lays those out
-        // and discards padding/offset. A constrained subview over the
-        // full-size content view obeys exactly.
+        // The whole chrome: a cloverleaf cluster next to the traffic lights,
+        // living in the REAL titlebar view (the traffic lights' superview) —
+        // plain view, obeys constraints; page starts below the band so
+        // nothing ever collides. The band still takes the page's theme tint.
         let hosting = NSHostingView(rootView: AnyView(clusterView()))
         hosting.translatesAutoresizingMaskIntoConstraints = false
-        engineView.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: engineView.leadingAnchor, constant: 86),
-            hosting.topAnchor.constraint(equalTo: engineView.topAnchor, constant: 6),
-            hosting.heightAnchor.constraint(equalToConstant: 24),
-        ])
+        if let titlebar = window.standardWindowButton(.closeButton)?.superview {
+            titlebar.addSubview(hosting)
+            NSLayoutConstraint.activate([
+                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 84),
+                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+                hosting.heightAnchor.constraint(equalToConstant: 24),
+            ])
+        }
         clusterHosting = hosting
 
         engineView.onTitleChange = { [weak window] title in
