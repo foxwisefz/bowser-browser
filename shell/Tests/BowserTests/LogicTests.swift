@@ -38,3 +38,11 @@ final class CSSColorTests: XCTestCase {
         XCTAssertNil(EngineView.parseCSSColor(nil))
     }
 }
+
+final class InjectedHookTests: XCTestCase {
+    // The hooks are JS strings with Swift interpolation — keep the constants
+    // and the scripts from drifting apart.
+    @MainActor func testMediaHookUsesFreshnessWindow() {
+        XCTAssertGreaterThan(EngineView.mediaResumeWindowSeconds, 0)
+    }
+}

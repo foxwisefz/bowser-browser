@@ -108,6 +108,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
             c.websiteDataStore = .default() // cookies/storage persist
             return c
         }()
+        // Media resume after a respawn needs programmatic play().
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         webView = WKWebView(frame: .zero, configuration: configuration)
 
         super.init(frame: frameRect)
@@ -202,6 +204,40 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     })();
     """
 
+    // Media position survives engine death: snapshot currentTime/paused into
+    // localStorage (WebKit persists it); on load, if the snapshot is FRESH
+    // (a restart, not a revisit), seek and resume. Feels like a hiccup, not
+    // a loss.
+    static let mediaResumeWindowSeconds = 120
+    private static let mediaHook = """
+    (function () {
+      if (window.top !== window) return;
+      var KEY = "bowser-media:" + location.host + location.pathname;
+      var restored = false;
+      function media() { return document.querySelector("video, audio"); }
+      setInterval(function () {
+        var m = media();
+        if (!m || !m.duration) return;
+        if (!restored) {
+          restored = true;
+          try {
+            var d = JSON.parse(localStorage.getItem(KEY) || "null");
+            if (d && Date.now() - d.at < \(mediaResumeWindowSeconds) * 1000) {
+              m.currentTime = d.t;
+              if (!d.paused) m.play().catch(function () {});
+            }
+          } catch (e) {}
+        }
+        if (!m.paused || m.currentTime > 0) {
+          try {
+            localStorage.setItem(KEY, JSON.stringify(
+              { t: m.currentTime, paused: m.paused, at: Date.now() }));
+          } catch (e) {}
+        }
+      }, 500);
+    })();
+    """
+
     private func rebuildUserScripts() {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
@@ -213,6 +249,11 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         controller.addUserScript(WKUserScript(
             source: Self.bandOffsetHook,
             injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        controller.addUserScript(WKUserScript(
+            source: Self.mediaHook,
+            injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))
         for css in currentStyles {
