@@ -29,8 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let controller else { return }
             self.controllers.removeAll { $0 === controller }
         }
-        if asTab, let keyWindow = NSApp.keyWindow ?? NSApp.mainWindow {
-            keyWindow.addTabbedWindow(controller.window!, ordered: .above)
+        // Only ever tab onto a real browser window — the key window can be
+        // a panel (command bar, palettes), which must never host tabs.
+        if asTab {
+            let host = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+                .first { $0.windowController is BrowserWindowController }
+                ?? NSApp.windows.first { $0.windowController is BrowserWindowController }
+            host?.addTabbedWindow(controller.window!, ordered: .above)
         }
         let isFirstWindow = controllers.isEmpty
         controllers.append(controller)

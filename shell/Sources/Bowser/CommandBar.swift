@@ -94,6 +94,7 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
         let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return hide() }
 
+        hide() // first — while the bar is key, it would become the tab host
         if text.hasPrefix(":") {
             ChromeSurface.emit([
                 "op": "event", "event": "omnibar_command", "text": String(text.dropFirst()),
@@ -103,7 +104,6 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
             delegate.openWindow(asTab: true)
                 .loadURL(BrowserWindowController.normalize(text))
         }
-        hide()
     }
 
     func controlTextDidChange(_ obj: Notification) { updateMode() }
