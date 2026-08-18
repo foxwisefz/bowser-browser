@@ -22,12 +22,13 @@ defmodule BowserBrain.ModSmith do
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
-    {:ok, %{active: 0, urls: %{}, busy: nil}}
+    {:ok, %{active: 0, urls: %{}, busy: nil, session: nil, last_summary: nil}}
   end
 
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
-    BowserBrain.Chrome.register_command("do", "ModSmith")
+    BowserBrain.Chrome.register_command("do", "ModSmith — new request")
+    BowserBrain.Chrome.register_command("do+", "ModSmith — refine the last one")
     {:noreply, state}
   end
 
@@ -37,6 +38,26 @@ defmodule BowserBrain.ModSmith do
 
   def handle_info({:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}}, state) do
     {:noreply, %{state | urls: Map.put(state.urls, wv, url)}}
+  end
+
+  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do+ " <> request}}, state) do
+    request = String.trim(request)
+
+    cond do
+      state.busy != nil ->
+        status(["Busy with:", state.busy], :caption)
+        {:noreply, state}
+
+      state.session == nil ->
+        status(["No previous ModSmith session —", "use :do to start one"], :caption)
+        {:noreply, state}
+
+      request == "" ->
+        {:noreply, state}
+
+      true ->
+        {:noreply, start_request(request, state, resume: state.session)}
+    end
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do " <> request}}, state) do
@@ -51,42 +72,58 @@ defmodule BowserBrain.ModSmith do
         {:noreply, state}
 
       true ->
-        {:noreply, start_request(request, state)}
+        {:noreply, start_request(request, state, [])}
     end
   end
 
-  def handle_info({:smith_done, request, result}, state) do
+  def handle_info({:smith_done, request, session, result}, state) do
+    state = if session, do: %{state | session: session}, else: state
+
     case result do
       {:ok, summary, installed} ->
         Logger.info("modsmith: #{summary} — installed #{Enum.join(installed, ", ")}")
-        status(["Done: #{summary}"] ++ installed, :caption)
+        status(["Done: #{summary}"] ++ installed ++ ["(refine with :do+ …)"], :caption)
+        {:noreply, %{state | busy: nil, last_summary: summary}}
 
       {:error, reason} ->
         Logger.error("modsmith: #{request} failed: #{reason}")
         status(["Failed:", reason], :caption)
+        {:noreply, %{state | busy: nil}}
     end
-
-    {:noreply, %{state | busy: nil}}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
   # ---------------------------------------------------------------------
 
-  defp start_request(request, state) do
-    Logger.info("modsmith: request received: #{request}")
+  defp start_request(request, state, opts) do
+    resume = Keyword.get(opts, :resume)
+    Logger.info("modsmith: request received#{if resume, do: " (follow-up)"}: #{request}")
     url = state.urls[state.active] || state.urls |> Map.values() |> List.first() || ""
     host = URI.parse(url).host || "unknown"
-    digest = page_digest(state.active)
-    existing = SiteMods.payloads_for(host)
+
+    prompt =
+      if resume do
+        # The session already holds the contract, cheatsheet, and its own
+        # prior envelope — just refresh the volatile context.
+        """
+        FOLLOW-UP on your previous work (same envelope contract — reply with
+        ONLY the JSON envelope; return full updated file contents for any
+        file you change).
+        Current URL: #{url}
+        Settings now: #{BowserBrain.Settings.summary()}
+        REFINEMENT REQUEST: #{request}
+        """
+      else
+        build_prompt(request, url, host, page_digest(state.active), SiteMods.payloads_for(host))
+      end
 
     status(["Working on:", request], :caption)
-    prompt = build_prompt(request, url, host, digest, existing)
     parent = self()
 
     Task.start(fn ->
-      result = run_claude(prompt)
-      send(parent, {:smith_done, request, result && install(result, host)})
+      {session, result} = run_claude(prompt, resume)
+      send(parent, {:smith_done, request, session, result && install(result, host)})
     end)
 
     %{state | busy: request}
@@ -204,19 +241,23 @@ defmodule BowserBrain.ModSmith do
     """
   end
 
-  defp run_claude(prompt) do
+  defp run_claude(prompt, resume) do
     case System.find_executable("claude") do
       nil ->
-        {:error, "claude CLI not found on PATH"}
+        {nil, {:error, "claude CLI not found on PATH"}}
 
       claude ->
         env = claude_env()
-        args = ["-p", prompt] ++ model_args()
+
+        args =
+          ["-p", prompt, "--output-format", "json"] ++
+            model_args() ++
+            if(resume, do: ["--resume", resume], else: [])
 
         Logger.info(
-          "modsmith: exec #{claude} -p <#{byte_size(prompt)}B prompt> " <>
-            "#{Enum.join(model_args(), " ")} | env: #{Enum.map_join(env, ",", &elem(&1, 0))} " <>
-            "| model flag #{if model_args() == [], do: "ABSENT — CLI default applies (set modsmith_model)", else: "set"}"
+          "modsmith: exec claude <#{byte_size(prompt)}B prompt> " <>
+            "#{Enum.join(model_args(), " ")}#{if resume, do: " --resume #{resume}"} " <>
+            "| env: #{Enum.map_join(env, ",", &elem(&1, 0))}"
         )
 
         task =
@@ -232,9 +273,20 @@ defmodule BowserBrain.ModSmith do
           end)
 
         case Task.yield(task, @timeout_ms) || Task.shutdown(task) do
-          {:ok, {output, 0}} -> {:output, output}
-          {:ok, {output, code}} -> {:error, "claude exited #{code}: #{String.slice(output, 0, 300)}"}
-          nil -> {:error, "claude timed out"}
+          {:ok, {output, 0}} ->
+            case JSON.decode(output) do
+              {:ok, %{"result" => text} = envelope} ->
+                {envelope["session_id"], {:output, text}}
+
+              _ ->
+                {nil, {:output, output}}
+            end
+
+          {:ok, {output, code}} ->
+            {nil, {:error, "claude exited #{code}: #{String.slice(output, 0, 300)}"}}
+
+          nil ->
+            {nil, {:error, "claude timed out"}}
         end
     end
   end

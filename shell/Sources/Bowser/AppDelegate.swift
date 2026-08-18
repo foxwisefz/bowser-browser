@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrainBridge.shared.send(opened)
 
         controller.showWindow(nil)
+        // macOS re-shows the tab bar when a tab joins a group; re-apply the
+        // mods' policy after the window settles.
+        DispatchQueue.main.async { ChromeSurface.enforceTabBarPolicy() }
         controller.window?.makeKeyAndOrderFront(nil)
         controller.focusOmnibar()
         // Restore fullscreen for the primary window after a respawn.

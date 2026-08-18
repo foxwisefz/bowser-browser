@@ -13,6 +13,7 @@ enum ChromeSurface {
     }
 
     private(set) static var buttons: [ModButton] = []
+    private(set) static var tabBarHidden = false
     /// Registered omnibar commands: name → hint (shown while typing).
     private(set) static var commands: [String: String] = [:]
     private static var controllers: [ObjectIdentifier: BrowserWindowController] = [:]
@@ -49,14 +50,11 @@ enum ChromeSurface {
             commands[name] = object["hint"] as? String ?? name
             return
         case "hide_tab_bar", "show_tab_bar":
-            let hide = action == "hide_tab_bar"
-            for controller in controllers.values {
-                if let window = controller.window,
-                   let group = window.tabGroup,
-                   group.isTabBarVisible == hide {
-                    window.toggleTabBar(nil)
-                }
-            }
+            // Persistent policy, not a one-shot: macOS re-shows the tab bar
+            // whenever a new tab joins a group, so we enforce on every
+            // window change too (see enforceTabBarPolicy call sites).
+            tabBarHidden = action == "hide_tab_bar"
+            enforceTabBarPolicy()
             return
         case "open_tab":
             guard let delegate = NSApp.delegate as? AppDelegate else { return }
@@ -76,5 +74,15 @@ enum ChromeSurface {
 
     static func emit(_ message: [String: Any]) {
         BrainBridge.shared.send(message)
+    }
+
+    static func enforceTabBarPolicy() {
+        for controller in controllers.values {
+            if let window = controller.window,
+               let group = window.tabGroup,
+               group.isTabBarVisible == tabBarHidden {
+                window.toggleTabBar(nil)
+            }
+        }
     }
 }
