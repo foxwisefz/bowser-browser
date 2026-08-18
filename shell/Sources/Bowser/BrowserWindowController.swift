@@ -35,7 +35,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .left
         let hosting = NSHostingView(rootView: AnyView(clusterView()))
-        hosting.frame = NSRect(x: 0, y: 0, width: 200, height: 28)
+        hosting.frame = NSRect(x: 0, y: 0, width: 220, height: 34)
         accessory.view = hosting
         clusterHosting = hosting
         window.addTitlebarAccessoryViewController(accessory)
@@ -154,7 +154,10 @@ private struct CmdCluster: View {
                     .frame(height: 21)
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Color.secondary.opacity(0.55), lineWidth: 1)
+                            .strokeBorder(
+                                Color(red: 0.83, green: 0.65, blue: 0.13).opacity(0.95),
+                                lineWidth: 1.2
+                            )
                     )
                     .contentShape(Rectangle())
             }
@@ -172,8 +175,8 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.leading, 18)
-        .padding(.top, 4)
+        .padding(.leading, 26)
+        .padding(.top, 7)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
