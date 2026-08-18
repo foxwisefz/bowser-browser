@@ -15,8 +15,10 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
         target = controller
         let panel = ensurePanel()
 
-        // Prefill with the current URL, selected — type to replace.
-        field.stringValue = controller.engineView.currentURLString ?? ""
+        // Launcher semantics: empty field, current URL as placeholder.
+        field.stringValue = ""
+        field.placeholderString = controller.engineView.currentURLString
+            ?? "Search, address, or :command"
         updateMode()
 
         guard let window = controller.window else { return }
@@ -95,8 +97,10 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
             ChromeSurface.emit([
                 "op": "event", "event": "omnibar_command", "text": String(text.dropFirst()),
             ])
-        } else {
-            target?.loadURL(BrowserWindowController.normalize(text))
+        } else if let delegate = NSApp.delegate as? AppDelegate {
+            // Launcher semantics: entering a site opens a NEW tab.
+            delegate.openWindow(asTab: true)
+                .loadURL(BrowserWindowController.normalize(text))
         }
         hide()
     }
