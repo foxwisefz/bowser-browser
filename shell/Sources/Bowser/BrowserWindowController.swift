@@ -26,6 +26,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.titleVisibility = .hidden
+        // Owner's call: no traffic lights — ⌘+K takes the corner. Close via
+        // Cmd+W/Cmd+Q as usual.
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         self.init(window: window)
 
         engineView = EngineView(frame: .zero, configuration: configuration)
@@ -41,7 +46,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         if let titlebar = window.standardWindowButton(.closeButton)?.superview {
             titlebar.addSubview(hosting)
             NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 84),
+                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 12),
                 hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
             ])
@@ -158,8 +163,12 @@ private struct CmdCluster: View {
                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     .kerning(0.8)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .frame(height: 21)
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(
