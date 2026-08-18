@@ -176,9 +176,6 @@ private struct CmdCluster: View {
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
-        // Titlebar accessories ignore layout padding (AppKit owns their
-        // frame negotiation) — offset is post-layout translation and sticks.
-        .offset(x: 24, y: 3)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
