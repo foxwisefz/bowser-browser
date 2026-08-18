@@ -1,13 +1,20 @@
 defmodule BowserBrain.Settings do
   @moduledoc """
-  Flat key/value settings at ~/.bowser/settings.json — hand-editable like
-  everything else, or from the omnibar:
+  Flat key/value settings at ~/.bowser/settings.json — hand-editable, or:
 
       :set dodorouter_endpoint https://router.example.com
-      :set dodorouter_api_key sk-...
-      :settings                      # show all (secrets masked)
+      :set some_key                  # no value = delete
+      :settings                      # editable palette, secrets masked
 
-  The file is read fresh on every get, so hand edits apply immediately.
+  MODS DECLARE THEIR SETTINGS (bowser-browser-3hs): a mod needing an API key
+  calls, in init_mod/hello:
+
+      Settings.declare("elevenlabs_api_key",
+        secret: true, about: "ElevenLabs TTS — used by :read")
+
+  Declared keys appear in the :settings palette (set or not) with their
+  description and an inline textfield — type a value and press Enter to
+  save. Read with Settings.get("elevenlabs_api_key").
   """
   use GenServer
   require Logger
@@ -46,16 +53,27 @@ defmodule BowserBrain.Settings do
     :ok
   end
 
+  @doc "Declare a setting so it shows (with purpose) in the :settings palette."
+  def declare(key, opts \\ []) do
+    GenServer.cast(__MODULE__, {:declare, to_string(key),
+      %{secret: Keyword.get(opts, :secret, false), about: Keyword.get(opts, :about)}})
+  end
+
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
-    {:ok, %{}}
+    {:ok, %{declared: %{}}}
+  end
+
+  @impl true
+  def handle_cast({:declare, key, meta}, state) do
+    {:noreply, %{state | declared: Map.put(state.declared, key, meta)}}
   end
 
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     BowserBrain.Chrome.register_command("set", "Settings — :set <key> <value>")
-    BowserBrain.Chrome.register_command("settings", "Settings — show all")
+    BowserBrain.Chrome.register_command("settings", "Settings — editable panel")
     {:noreply, state}
   end
 
@@ -63,40 +81,85 @@ defmodule BowserBrain.Settings do
     case String.split(String.trim(rest), " ", parts: 2) do
       [key, value] ->
         put(key, value)
-        Logger.info("settings: #{key} = #{mask(key, value)}")
-        show_all()
+        Logger.info("settings: #{key} = #{mask(key, value, state.declared)}")
+        show_all(state.declared)
 
       [key] when key != "" ->
         delete(key)
         Logger.info("settings: #{key} deleted")
-        show_all()
+        show_all(state.declared)
 
       _ ->
-        show_all()
+        show_all(state.declared)
     end
 
     {:noreply, state}
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "settings"}}, state) do
-    show_all()
+    show_all(state.declared)
+    {:noreply, state}
+  end
+
+  # Inline edits from the :settings palette textfields.
+  def handle_info(
+        {:browser_event, %{"event" => "surface", "surface" => "settings", "id" => key, "value" => value}},
+        state
+      ) do
+    value = String.trim(to_string(value))
+
+    if value == "" do
+      delete(key)
+      Logger.info("settings: #{key} cleared from panel")
+    else
+      put(key, value)
+      Logger.info("settings: #{key} updated from panel")
+    end
+
+    show_all(state.declared)
     {:noreply, state}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp show_all do
+  defp show_all(declared) do
+    stored = all()
+    keys = (Map.keys(declared) ++ Map.keys(stored)) |> Enum.uniq() |> Enum.sort()
+
     rows =
-      case Enum.sort(all()) do
-        [] -> [text("empty — :set <key> <value>", style: :caption)]
-        entries -> for {k, v} <- entries, do: text("#{k} = #{mask(k, v)}", style: :caption)
+      if keys == [] do
+        [text("empty — :set <key> <value>, or mods declare keys", style: :caption)]
+      else
+        Enum.flat_map(keys, fn key ->
+          meta = Map.get(declared, key, %{})
+          about = meta[:about]
+
+          current =
+            case Map.fetch(stored, key) do
+              {:ok, value} -> mask(key, value, declared)
+              :error -> "not set"
+            end
+
+          [
+            text(if(about, do: "#{key} — #{about}", else: key), style: :caption),
+            textfield(key, placeholder: current)
+          ]
+        end)
       end
 
-    Surface.show(:settings, vstack(rows), title: "Settings", anchor: :right_of_main, width: 280)
+    Surface.show(:settings, vstack(rows, spacing: 5),
+      title: "Settings",
+      anchor: :right_of_main,
+      width: 300
+    )
   end
 
-  defp mask(key, value) do
-    if String.match?(key, ~r/key|token|secret|password/i) do
+  defp mask(key, value, declared) do
+    secret? =
+      get_in(declared, [key, :secret]) == true or
+        String.match?(key, ~r/key|token|secret|password/i)
+
+    if secret? do
       String.slice(to_string(value), 0, 6) <> "…"
     else
       to_string(value)

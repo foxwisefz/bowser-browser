@@ -167,7 +167,12 @@ defmodule BowserBrain.ModSmith do
     button(label, event:, payload:, active:, symbol:, indent:), slider(event, min:, max:,
     value:, label:), textfield(event, placeholder:), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
-    %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}. Surface.show also takes
+    %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    SETTINGS (for API keys etc.): in init_mod declare what you need —
+    BowserBrain.Settings.declare("service_api_key", secret: true, about: "why/what for")
+    — the owner fills it in the :settings panel; read with
+    BowserBrain.Settings.get("service_api_key") (nil until set; degrade gracefully
+    and surface a hint). Never hardcode credentials. Surface.show also takes
     kind: :toolbar_overlay — a click-through effects layer over the browser's real
     toolbar (pair with particles for chrome effects). Pages can push to mods via
     window.bowser.emit(payload) in injected JS -> event "page" {payload}.
