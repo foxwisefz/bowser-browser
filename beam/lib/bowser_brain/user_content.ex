@@ -32,22 +32,28 @@ defmodule BowserBrain.UserContent do
           return !!(el.name || el.id);
         });
     }
+    // localStorage (not sessionStorage): survives engine kills and full
+    // restarts. The freshness window keeps a restart-from-minutes-ago
+    // restoring scroll without haunting next week's visit.
+    var MAX_AGE_MS = 6 * 60 * 60 * 1000;
     function save() {
       // Merge-write: never erase a stored value with an empty field (a mod
       // rewriting the DOM mid-tick would otherwise wipe the snapshot).
       var data = null;
-      try { data = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
+      try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
       if (!data) data = { y: 0, f: {} };
       if (window.scrollY) data.y = window.scrollY;
       fields().forEach(function (el) {
         if (el.value) data.f[el.name || el.id] = el.value;
       });
-      try { sessionStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+      data.at = Date.now();
+      try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
     }
     function restore() {
       var data = null;
-      try { data = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
+      try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
       if (!data) return;
+      if (data.at && Date.now() - data.at > MAX_AGE_MS) return;
       fields().forEach(function (el) {
         var v = data.f[el.name || el.id];
         if (v && !el.value) el.value = v;
