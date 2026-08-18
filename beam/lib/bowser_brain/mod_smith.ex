@@ -165,8 +165,12 @@ defmodule BowserBrain.ModSmith do
     BowserBrain.Surface.show(id, view, title: "T", anchor: :right_of_main) with
     import BowserBrain.View: vstack/hstack(list, opts), text(v, style: :title|:caption),
     button(label, event:, payload:, active:, symbol:, indent:), slider(event, min:, max:,
-    value:, label:), textfield(event, placeholder:), divider(). Surface events arrive as
-    %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    value:, label:), textfield(event, placeholder:), divider(), particles(chars: ["♪"],
+    rate: 3.0, active: bool). Surface events arrive as
+    %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}. Surface.show also takes
+    kind: :toolbar_overlay — a click-through effects layer over the browser's real
+    toolbar (pair with particles for chrome effects). Pages can push to mods via
+    window.bowser.emit(payload) in injected JS -> event "page" {payload}.
 
     CONTEXT:
     Current URL: #{url}

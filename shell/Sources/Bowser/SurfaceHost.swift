@@ -18,6 +18,10 @@ final class SurfaceManager {
         case "show":
             guard let id = message["id"] as? String,
                   let tree = message["view"] as? [String: Any] else { return }
+            if message["kind"] as? String == "toolbar_overlay" {
+                showToolbarOverlay(id: id, tree: tree)
+                return
+            }
             show(
                 id: id,
                 title: message["title"] as? String ?? id,
@@ -28,10 +32,84 @@ final class SurfaceManager {
         case "close":
             guard let id = message["id"] as? String else { return }
             hostings.removeValue(forKey: id)
-            panels.removeValue(forKey: id)?.close()
+            overlayHostings.removeValue(forKey: id)
+            if let panel = panels.removeValue(forKey: id) {
+                panel.parent?.removeChildWindow(panel)
+                panel.close()
+            }
         default:
             NSLog("Bowser: unknown surface op")
         }
+    }
+
+    // MARK: - Toolbar overlay: a click-through child window riding the main
+    // window's toolbar region. Effects (particles etc.) render here, over
+    // the real chrome.
+
+    private var overlayHostings: [String: NSHostingView<SurfaceTreeView>] = [:]
+    private var overlayObserver: Any?
+
+    private func showToolbarOverlay(id: String, tree: [String: Any]) {
+        let root = SurfaceTreeView(surfaceId: id, node: tree)
+
+        if let hosting = overlayHostings[id], let panel = panels[id] {
+            hosting.rootView = root
+            positionOverlay(panel)
+            return
+        }
+
+        guard let main = NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.windowController is BrowserWindowController })
+        else { return }
+
+        let panel = SurfacePanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.isReleasedWhenClosed = false
+
+        let hosting = NSHostingView(rootView: root)
+        hosting.autoresizingMask = [.width, .height]
+        panel.contentView = hosting
+
+        main.addChildWindow(panel, ordered: .above)
+        positionOverlay(panel)
+        panels[id] = panel
+        overlayHostings[id] = hosting
+
+        if overlayObserver == nil {
+            overlayObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: nil, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    for (oid, _) in SurfaceManager.shared.overlayHostings {
+                        if let p = SurfaceManager.shared.panels[oid] {
+                            SurfaceManager.shared.positionOverlay(p)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func positionOverlay(_ panel: NSPanel) {
+        guard let parent = panel.parent else { return }
+        let height: CGFloat = 64
+        panel.setFrame(
+            NSRect(
+                x: parent.frame.minX,
+                y: parent.frame.maxY - height,
+                width: parent.frame.width,
+                height: height
+            ),
+            display: true
+        )
     }
 
     private func show(id: String, title: String, anchor: String, width: Double, tree: [String: Any]) {
@@ -235,6 +313,12 @@ struct SurfaceTreeView: View {
             )
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
+        case "particles":
+            return AnyView(ParticlesNodeView(
+                chars: node["chars"] as? [String] ?? ["♪", "♫", "♩", "♬"],
+                rate: node["rate"] as? Double ?? 2.5,
+                active: node["active"] as? Bool ?? true
+            ))
         case "image":
             let symbol = node["symbol"] as? String ?? "questionmark"
             return AnyView(Image(systemName: symbol))
@@ -302,6 +386,61 @@ private struct PaletteRowStyle: ButtonStyle {
             }
             .opacity(configuration.isPressed && active ? 0.85 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// Floating-particle emitter (e.g. music notes rising from the toolbar).
+/// Stateless: each spawn "slot" k (k = floor(t·rate)) derives its particle
+/// deterministically from a hash of k, so the Canvas just draws every slot
+/// whose particle is currently mid-flight — no per-frame state churn.
+private struct ParticlesNodeView: View {
+    let chars: [String]
+    let rate: Double
+    let active: Bool
+
+    private static let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func hash(_ k: Int, _ salt: Double) -> Double {
+        let x = sin(Double(k) * 12.9898 + salt * 78.233) * 43758.5453
+        return x - floor(x)
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active)) { timeline in
+            Canvas { context, size in
+                guard active, !chars.isEmpty else { return }
+                let now = timeline.date.timeIntervalSince(Self.epoch)
+                let maxDuration = 3.5
+                let firstSlot = Int((now - maxDuration) * rate)
+                let lastSlot = Int(now * rate)
+
+                for slot in firstSlot...lastSlot {
+                    let born = Double(slot) / rate + hash(slot, 5) * (1 / rate)
+                    let duration = 2.0 + hash(slot, 1) * 1.5
+                    let t = (now - born) / duration
+                    guard t > 0, t < 1 else { continue }
+
+                    let x = hash(slot, 2) * size.width
+                    let drift = (hash(slot, 3) - 0.5) * 60
+                    let y = size.height - t * (size.height + 24)
+                    let opacity = t < 0.15 ? t / 0.15 : 1 - t
+                    let char = chars[abs(slot) % chars.count]
+                    let fontSize = 11 + hash(slot, 4) * 10
+
+                    let text = Text(verbatim: char)
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundStyle(Color(
+                            hue: hash(slot, 6), saturation: 0.75, brightness: 0.95
+                        ))
+                    var ctx = context
+                    ctx.opacity = opacity
+                    ctx.translateBy(x: x + drift * t, y: y)
+                    ctx.rotate(by: .degrees((hash(slot, 7) - 0.5) * 40 * t))
+                    ctx.draw(ctx.resolve(text), at: .zero)
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

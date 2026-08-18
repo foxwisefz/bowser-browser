@@ -65,6 +65,21 @@ defmodule BowserBrain.View do
     }
   end
 
+  @doc """
+  Floating-particle emitter (rising characters with drift/fade). Use inside
+  a :toolbar_overlay surface for chrome effects.
+
+      particles(chars: ["♪", "♫"], rate: 3.0, active: state.playing)
+  """
+  def particles(opts \\ []) do
+    %{
+      t: "particles",
+      chars: Keyword.get(opts, :chars, ["♪", "♫", "♩", "♬"]),
+      rate: Keyword.get(opts, :rate, 2.5),
+      active: Keyword.get(opts, :active, true)
+    }
+  end
+
   def divider, do: %{t: "divider"}
   def spacer(opts \\ []), do: %{t: "spacer", min: Keyword.get(opts, :min, 0)}
   def image(symbol), do: %{t: "image", symbol: to_string(symbol)}
