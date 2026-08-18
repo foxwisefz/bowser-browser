@@ -386,5 +386,12 @@ final class BandScrimView: NSView {
             NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    // Page content is transform-shifted below the band, so nothing
+    // interactive lives under it — the band can own its clicks and act
+    // as the window's drag handle.
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
 }
