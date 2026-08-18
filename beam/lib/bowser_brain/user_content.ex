@@ -77,16 +77,6 @@ defmodule BowserBrain.UserContent do
   })();
   """
 
-
-  (function () {
-    if (window.top !== window) return;
-    var s = document.createElement("style");
-    s.id = "bowser-band-offset";
-    s.textContent = "html { transform: translateY(34px); }";
-    (document.head || document.documentElement).appendChild(s);
-  })();
-  """
-
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def put_scripts(owner, scripts, opts \\ []) when is_list(scripts) do
