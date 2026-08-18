@@ -6,6 +6,7 @@ import WebKit
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var engineView: EngineView!
     private var clusterHosting: NSHostingView<AnyView>?
+    private let titleLabel = NSTextField(labelWithString: "")
     var onClose: (() -> Void)?
 
     convenience init(configuration: WKWebViewConfiguration? = nil) {
@@ -61,16 +62,27 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         hosting.translatesAutoresizingMaskIntoConstraints = false
         if let titlebar = window.standardWindowButton(.closeButton)?.superview {
             titlebar.addSubview(hosting)
+            titleLabel.font = .systemFont(ofSize: 12.5, weight: .medium)
+            titleLabel.textColor = .secondaryLabelColor
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.alignment = .center
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            titlebar.addSubview(titleLabel)
             NSLayoutConstraint.activate([
                 hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 12),
                 hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
+                titleLabel.centerXAnchor.constraint(equalTo: titlebar.centerXAnchor),
+                titleLabel.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+                titleLabel.widthAnchor.constraint(
+                    lessThanOrEqualTo: titlebar.widthAnchor, multiplier: 0.45),
             ])
         }
         clusterHosting = hosting
 
-        engineView.onTitleChange = { [weak window] title in
+        engineView.onTitleChange = { [weak self, weak window] title in
             window?.title = title.isEmpty ? "Bowser" : title
+            self?.titleLabel.stringValue = title
         }
         engineView.onURLChange = { _ in }
         engineView.onThemeColor = { [weak window] color in
