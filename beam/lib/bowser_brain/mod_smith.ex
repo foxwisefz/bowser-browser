@@ -194,6 +194,9 @@ defmodule BowserBrain.ModSmith do
     CONTEXT:
     Current URL: #{url}
     Page digest: #{digest}
+    Existing settings (REUSE these key names where relevant instead of
+    inventing new ones; declare + prompt for anything missing):
+    #{BowserBrain.Settings.summary()}
     Existing payloads for #{host}:
     #{existing_block}
 

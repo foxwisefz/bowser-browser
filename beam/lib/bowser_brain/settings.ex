@@ -59,6 +59,35 @@ defmodule BowserBrain.Settings do
       %{secret: Keyword.get(opts, :secret, false), about: Keyword.get(opts, :about)}})
   end
 
+  def declarations, do: GenServer.call(__MODULE__, :declarations)
+
+  @doc """
+  Text summary of all settings for LLM context: key names, descriptions,
+  set/unset — secret VALUES are masked and never leave the machine.
+  """
+  def summary do
+    declared = declarations()
+    stored = all()
+    keys = (Map.keys(declared) ++ Map.keys(stored)) |> Enum.uniq() |> Enum.sort()
+
+    if keys == [] do
+      "none configured"
+    else
+      Enum.map_join(keys, "\n", fn key ->
+        meta = Map.get(declared, key, %{})
+        about = if meta[:about], do: " — #{meta[:about]}", else: ""
+
+        status =
+          case Map.fetch(stored, key) do
+            {:ok, value} -> "set: #{mask(key, value, declared)}"
+            :error -> "declared, NOT set"
+          end
+
+        "- #{key} (#{status})#{about}"
+      end)
+    end
+  end
+
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
@@ -69,6 +98,9 @@ defmodule BowserBrain.Settings do
   def handle_cast({:declare, key, meta}, state) do
     {:noreply, %{state | declared: Map.put(state.declared, key, meta)}}
   end
+
+  @impl true
+  def handle_call(:declarations, _from, state), do: {:reply, state.declared, state}
 
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
