@@ -41,8 +41,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         if let titlebar = window.standardWindowButton(.closeButton)?.superview {
             titlebar.addSubview(hosting)
             NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 84),
-                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor),
+                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 100),
+                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 1),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
             ])
         }
