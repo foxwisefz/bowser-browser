@@ -24,6 +24,8 @@ defmodule BowserBrain.Surface do
       kind: to_string(Keyword.get(opts, :kind, :floating)),
       edge: to_string(Keyword.get(opts, :edge, :left)),
       peek: Keyword.get(opts, :peek, 6),
+      # :window (follows the browser window) or :screen (macOS-Dock style).
+      attach: to_string(Keyword.get(opts, :attach, :window)),
       title: Keyword.get(opts, :title, to_string(id)),
       anchor: to_string(Keyword.get(opts, :anchor, :right_of_main)),
       width: Keyword.get(opts, :width, 260),

@@ -175,14 +175,17 @@ defmodule BowserBrain.ModSmith do
     and surface a hint). Never hardcode credentials. Surface.show also takes
     kind: :toolbar_overlay — a click-through effects layer over the browser's real
     toolbar (pair with particles for chrome effects) — and kind: :edge (edge: :left|:right,
-    peek: px, width: px): a window-edge surface, mostly hidden, sliding into view on
-    cursor proximity. Pair :edge with magnify_strip(items, size:, magnify:, event:) —
-    items are [%{id:, path: (icon file) or symbol:, active:, title:}] and the shell
-    natively handles dock-style proximity magnification, emitting select events
-    (value = item id). Tab data: hello tabs carry "favicon" paths; live updates via
-    "favicon_changed" {webview, path}. Chrome.hide_tab_bar/show_tab_bar swap out the
-    native tab strip. Pages can push to mods via window.bowser.emit(payload) in
-    injected JS -> event "page" {payload}.
+    peek: px, width: px, attach: :window|:screen — :screen = macOS-Dock style): an edge
+    surface, mostly hidden, sliding into view on cursor proximity. Pair :edge with
+    magnify_strip(items, size: px, magnify: SCALE MULTIPLIER like 2.0 (NOT pixels),
+    event:) — items are [%{id:, path: (icon file) or symbol:, active:, title:}]; the
+    shell natively handles dock-style proximity magnification, emitting select events
+    (value = item id). EXACT hello shape: %{"event"=>"hello", "tabs"=>[%{"id"=>wv,
+    "url"=>u|nil, "title"=>t?, "favicon"=>path?}], "active"=>wv? (TOP-LEVEL)}. Live
+    favicon updates: "favicon_changed" {webview, path}. Focus/close tabs with
+    BowserBrain.Surface.activate_tab(wv) / Surface.close_tab(wv).
+    Chrome.hide_tab_bar/show_tab_bar swap out the native tab strip. Pages can push to
+    mods via window.bowser.emit(payload) in injected JS -> event "page" {payload}.
 
     CONTEXT:
     Current URL: #{url}

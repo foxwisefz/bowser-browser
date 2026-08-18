@@ -28,6 +28,7 @@ final class SurfaceManager {
                     edge: message["edge"] as? String ?? "left",
                     peek: message["peek"] as? Double ?? 6,
                     width: message["width"] as? Double ?? 72,
+                    attach: message["attach"] as? String ?? "window",
                     tree: tree
                 )
                 return
@@ -126,12 +127,14 @@ final class SurfaceManager {
     // hidden (peek), sliding into view on cursor proximity. The slide is
     // manager physics; whatever renders inside is the mod's tree.
 
-    private var edgeConfigs: [String: (edge: String, peek: Double, width: Double)] = [:]
+    private var edgeConfigs: [String: (edge: String, peek: Double, width: Double, attach: String)] = [:]
     private var edgeRevealed: Set<String> = []
     private var edgeCursor: [String: CursorModel] = [:]
 
-    private func showEdge(id: String, edge: String, peek: Double, width: Double, tree: [String: Any]) {
-        edgeConfigs[id] = (edge, peek, width)
+    private func showEdge(
+        id: String, edge: String, peek: Double, width: Double, attach: String, tree: [String: Any]
+    ) {
+        edgeConfigs[id] = (edge, peek, width, attach)
         let cursor = edgeCursor[id] ?? CursorModel()
         edgeCursor[id] = cursor
         let root = AnyView(SurfaceTreeView(surfaceId: id, node: tree).environmentObject(cursor))
@@ -165,7 +168,13 @@ final class SurfaceManager {
         container.addSubview(hosting)
         panel.contentView = container
 
-        main.addChildWindow(panel, ordered: .above)
+        if attach == "screen" {
+            // Screen-edge dock: independent of any window; just float.
+            panel.level = .floating
+            panel.orderFront(nil)
+        } else {
+            main.addChildWindow(panel, ordered: .above)
+        }
         panels[id] = panel
         overlayHostings[id] = hosting
         positionEdge(id: id, panel: panel, animated: false)
@@ -178,19 +187,34 @@ final class SurfaceManager {
     }
 
     private func positionEdge(id: String, panel: NSPanel, animated: Bool) {
-        guard let parent = panel.parent, let config = edgeConfigs[id] else { return }
+        guard let config = edgeConfigs[id] else { return }
+
+        // Reference frame: the parent window, or the screen for a
+        // macOS-Dock-style screen-edge surface.
+        let reference: NSRect
+        let topInset: CGFloat
+        if config.attach == "screen" {
+            guard let screen = panel.screen ?? NSScreen.main else { return }
+            reference = screen.visibleFrame
+            topInset = 0
+        } else {
+            guard let parent = panel.parent else { return }
+            reference = parent.frame
+            topInset = 40
+        }
+
         let width = CGFloat(config.width)
         let hidden = width - CGFloat(config.peek)
         let revealed = edgeRevealed.contains(id)
 
         let x: CGFloat =
             config.edge == "right"
-            ? (revealed ? parent.frame.maxX - width : parent.frame.maxX - CGFloat(config.peek))
-            : (revealed ? parent.frame.minX : parent.frame.minX - hidden)
+            ? (revealed ? reference.maxX - width : reference.maxX - CGFloat(config.peek))
+            : (revealed ? reference.minX : reference.minX - hidden)
 
         let frame = NSRect(
-            x: x, y: parent.frame.minY,
-            width: width, height: parent.frame.height - 40
+            x: x, y: reference.minY,
+            width: width, height: reference.height - topInset
         )
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -564,7 +588,9 @@ private struct MagnifyStripView: View {
 
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
     private var baseSize: CGFloat { CGFloat(node["size"] as? Double ?? 28) }
-    private var magnify: CGFloat { CGFloat(node["magnify"] as? Double ?? 1.9) }
+    // Clamped: it's a scale MULTIPLIER (2.0 = double size), and a mod
+    // passing pixels here (it happened) must not explode the layout.
+    private var magnify: CGFloat { min(3.0, max(1.0, CGFloat(node["magnify"] as? Double ?? 1.9))) }
     private var eventId: String { node["event"] as? String ?? "select" }
     private let spacing: CGFloat = 8
     private let topPad: CGFloat = 12
