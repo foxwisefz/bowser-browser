@@ -178,11 +178,35 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         if reload { webView.reload() }
     }
 
+    // The chrome band is transparent and the page runs under it; a root
+    // transform shifts ALL content (fixed/sticky included — transforms
+    // re-anchor them to the page) below the band. Shell-owned because the
+    // band height is a shell concept.
+    private static let bandOffsetHook = """
+    (function () {
+      if (window.top !== window) return;
+      function apply() {
+        if (document.getElementById("bowser-band-offset")) return;
+        var s = document.createElement("style");
+        s.id = "bowser-band-offset";
+        s.textContent = "html { transform: translateY(\(Int(EngineView.pageTopInset))px); }";
+        (document.head || document.documentElement).appendChild(s);
+      }
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply);
+      apply();
+    })();
+    """
+
     private func rebuildUserScripts() {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(
             source: Self.consoleHook,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        controller.addUserScript(WKUserScript(
+            source: Self.bandOffsetHook,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
