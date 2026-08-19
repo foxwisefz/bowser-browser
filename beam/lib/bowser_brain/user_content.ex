@@ -58,10 +58,37 @@ defmodule BowserBrain.UserContent do
         var v = data.f[el.name || el.id];
         if (v && !el.value) el.value = v;
       });
-      if (data.y) window.scrollTo(0, data.y);
+    }
+    // Scroll restore is a CAMPAIGN, not a shot: virtualized/slow pages
+    // (x.com, YT Music) are not tall enough at load, scrollTo clamps to ~0
+    // and the position was lost — and the save loop then overwrote the
+    // stored y with the clamped value (bowser-browser-l8r). Retry until the
+    // page can host the target; the target lives in this closure so
+    // mid-restore saves cannot corrupt it. The owner scrolling cancels.
+    function restoreScroll() {
+      var data = null;
+      try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+      if (!data || !data.y) return;
+      if (data.at && Date.now() - data.at > MAX_AGE_MS) return;
+      var target = data.y;
+      var deadline = Date.now() + 15000;
+      var cancelled = false;
+      function cancel() { cancelled = true; }
+      window.addEventListener("wheel", cancel, { once: true, passive: true });
+      window.addEventListener("keydown", cancel, { once: true });
+      (function attempt() {
+        if (cancelled || Date.now() > deadline) return;
+        var se = document.scrollingElement || document.documentElement;
+        if (se.scrollHeight - window.innerHeight >= target - 4) {
+          window.scrollTo(0, target);
+          if (Math.abs(window.scrollY - target) < 8) return; // landed
+        }
+        setTimeout(attempt, 250);
+      })();
     }
     function boot() {
       restore();
+      restoreScroll();
       setTimeout(restore, 50);
       setTimeout(restore, 400);
       // Listeners where Servo delivers them...
