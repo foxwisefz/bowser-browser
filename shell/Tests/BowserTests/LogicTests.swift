@@ -135,6 +135,19 @@ final class MenuItemTests: XCTestCase {
 
 import WebKit
 
+final class ResurrectFrameTests: XCTestCase {
+    // The freeze-frame only helps when it shows the RECENT past — a frame
+    // from hours ago (manual quit, laptop closed) would flash misleading
+    // content (bowser-browser-9qr).
+    @MainActor func testFreshnessWindow() {
+        let now = Date()
+        XCTAssertTrue(ResurrectFrame.shouldShow(fileDate: now.addingTimeInterval(-5), now: now))
+        XCTAssertTrue(ResurrectFrame.shouldShow(fileDate: now.addingTimeInterval(-100), now: now))
+        XCTAssertFalse(ResurrectFrame.shouldShow(fileDate: now.addingTimeInterval(-200), now: now))
+        XCTAssertFalse(ResurrectFrame.shouldShow(fileDate: nil, now: now))
+    }
+}
+
 final class TrackingPreventionTests: XCTestCase {
     // Embedded players (YouTube on fabstation.com) need third-party cookie
     // access to see the owner's login; ITP partitions them away

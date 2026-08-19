@@ -111,11 +111,68 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
         clusterHosting = hosting
 
+        let isFirstWindow = Self.all.isEmpty
         Self.all.append(self)
         ChromeSurface.register(self)
 
         // A window is never tabless: it arrives with its first webview.
         openTab(opener: (NSApp.delegate as? AppDelegate)?.currentWebviewId)
+
+        // Freeze-frame resurrection (bowser-browser-9qr): the first window
+        // of a fresh instance wears the previous life's last frame until
+        // the restored active tab paints — respawn looks like a blink.
+        if isFirstWindow { installResurrectOverlay() }
+
+        // Continuous capture so the NEXT death has a fresh frame.
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.window?.isKeyWindow == true,
+                      self.resurrectOverlay == nil,
+                      let webView = self.activeTab?.webView else { return }
+                ResurrectFrame.capture(webView)
+            }
+        }
+    }
+
+    // MARK: - Freeze-frame resurrection
+
+    private var resurrectOverlay: ResurrectOverlayView?
+    private var snapshotTimer: Timer?
+
+    private func installResurrectOverlay() {
+        guard let image = ResurrectFrame.loadImage() else { return }
+        let overlay = ResurrectOverlayView(frame: container.bounds)
+        overlay.image = image
+        overlay.imageScaling = .scaleProportionallyUpOrDown
+        overlay.imageAlignment = .alignCenter
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        overlay.autoresizingMask = [.width, .height]
+        overlay.onDismiss = { [weak self] in self?.dismissResurrectOverlay() }
+        container.addSubview(overlay, positioned: .above, relativeTo: band)
+        resurrectOverlay = overlay
+        // The frame must never outstay its welcome: if the restore is slow
+        // or the paint signal is missed, drop it anyway.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            self?.dismissResurrectOverlay()
+        }
+    }
+
+    private func dismissResurrectOverlay() {
+        guard let overlay = resurrectOverlay else { return }
+        resurrectOverlay = nil
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            overlay.animator().alphaValue = 0
+        }, completionHandler: {
+            overlay.removeFromSuperview()
+        })
+    }
+
+    /// A webview finished painting; if it's the one on screen, the past can
+    /// yield to the present.
+    func engineDidPaint(_ view: EngineView) {
+        if view === activeTab { dismissResurrectOverlay() }
     }
 
     // MARK: - Tabs
@@ -160,6 +217,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             // keyboard to the page that's actually on screen.
             window?.makeFirstResponder(view.webView)
             adoptChrome(from: view)
+            // Refresh the resurrect frame soon after the switch paints, so
+            // a death right after a tab change resurrects the right tab.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self, weak view] in
+                guard let self, let view, view === self.activeTab,
+                      self.resurrectOverlay == nil else { return }
+                ResurrectFrame.capture(view.webView)
+            }
         }
         BrainBridge.shared.send([
             "op": "event", "event": "tab_activated", "webview": view.webviewId,

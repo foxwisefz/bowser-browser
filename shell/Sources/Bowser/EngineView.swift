@@ -373,6 +373,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         BrainBridge.shared.send([
             "op": "event", "event": "load_status", "webview": webviewId, "status": 2,
         ])
+        // The freeze-frame overlay yields once the on-screen tab has real
+        // pixels again (bowser-browser-9qr).
+        BrowserWindowController.host(of: webviewId)?.engineDidPaint(self)
         sampleThemeColor()
         captureFavicon()
     }
