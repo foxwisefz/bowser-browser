@@ -39,9 +39,22 @@ defmodule BowserBrain.Engine do
     state =
       case check_action(port_alive, binary_newer, BowserBrain.Bridge.connected?()) do
         :roll ->
-          # A newer binary landed on disk: roll the engine (session restores).
-          Logger.info("engine: binary updated on disk — rolling respawn")
-          if state.os_pid, do: System.cmd("kill", roll_kill_args(state.os_pid))
+          # Blue-green-lite (bowser-browser-ekd): an upgrade must never look
+          # like a restart. Spawn the NEW instance first — its window appears
+          # at the same saved frame wearing the freeze-frame, pixel-perfect
+          # over the old one — then retire the old wrapper once the new
+          # window has had time to paint. The old port's exit_status no
+          # longer matches state.port, so it can't trigger a double respawn;
+          # the bridge follows on its own (old connection dies -> reconnect
+          # lands on the new listener -> hello -> restore).
+          Logger.info("engine: binary updated on disk — blue-green roll")
+          old_os_pid = state.os_pid
+          state = spawn_engine(state)
+
+          if old_os_pid != nil and state.os_pid != old_os_pid do
+            Process.send_after(self(), {:retire, old_os_pid}, 1_200)
+          end
+
           state
 
         :keep ->
@@ -74,6 +87,13 @@ defmodule BowserBrain.Engine do
 
   def handle_info(:respawn, %{enabled: true, port: nil} = state) do
     {:noreply, spawn_engine(state)}
+  end
+
+  # The old instance of a blue-green roll: its replacement is already on
+  # screen, so this is a quiet retirement, not a death worth reacting to.
+  def handle_info({:retire, os_pid}, state) do
+    System.cmd("kill", roll_kill_args(os_pid))
+    {:noreply, state}
   end
 
   # Engine output: surface our own diagnostics, drop the GL probing spam.
