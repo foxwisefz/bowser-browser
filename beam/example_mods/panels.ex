@@ -34,12 +34,35 @@ defmodule PanelsMod do
 
   def handle_info(other, state), do: super(other, state)
 
+  @doc """
+  Menu labels, with title collisions disambiguated by the owning mod (or the
+  panel id): two mods both calling their panel "Tabs" must not produce two
+  identical menu entries. Public for tests.
+  """
+  def menu_titles(entries) do
+    counts = Enum.frequencies_by(entries, &String.downcase(&1.title))
+
+    Map.new(entries, fn e ->
+      title =
+        if counts[String.downcase(e.title)] > 1 do
+          "#{e.title} (#{e.owner || e.id})"
+        else
+          e.title
+        end
+
+      {e.id, title}
+    end)
+  end
+
   # Diff-based: only cast add/remove when an item's presence or checkmark
   # actually changed — the menu rebuild in the shell is not free.
   defp sync(state) do
+    entries = Surface.list()
+    titles = menu_titles(entries)
+
     desired =
-      for e <- Surface.list(), into: %{} do
-        {"panel:" <> e.id, %{title: e.title, checked: not e.closed}}
+      for e <- entries, into: %{} do
+        {"panel:" <> e.id, %{title: titles[e.id], checked: not e.closed}}
       end
 
     for {id, item} <- desired, state.menu[id] != item do

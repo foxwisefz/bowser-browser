@@ -117,8 +117,8 @@ defmodule TabsMod do
       |> roots(state.tabs)
       |> Enum.flat_map(&rows_for(&1, 0, state))
 
-    Surface.show(:tabs, vstack([text("Tabs", style: :title) | rows]),
-      title: "Tabs",
+    Surface.show(:tabs, vstack([text("Tab Tree", style: :title) | rows]),
+      title: "Tab Tree",
       anchor: :left_of_main,
       width: 230
     )
