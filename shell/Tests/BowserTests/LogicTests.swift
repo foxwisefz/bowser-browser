@@ -133,6 +133,28 @@ final class MenuItemTests: XCTestCase {
     }
 }
 
+final class PanelClampTests: XCTestCase {
+    // Off-screen rescue math (bowser-browser-gpi): anchored/child panels
+    // must land inside the visible frame, whatever the window did.
+    @MainActor func testClampsIntoVisibleFrame() {
+        let visible = NSRect(x: 0, y: 0, width: 1000, height: 800)
+        let size = NSSize(width: 260, height: 300)
+        // Way off right (fullscreen right_of_main case).
+        let rescued = SurfaceManager.clamped(NSPoint(x: 1014, y: 460), size: size, in: visible)
+        XCTAssertEqual(rescued.x, 1000 - 260 - 8)
+        XCTAssertEqual(rescued.y, 460)
+        // Way off bottom-left.
+        let corner = SurfaceManager.clamped(NSPoint(x: -900, y: -900), size: size, in: visible)
+        XCTAssertEqual(corner, NSPoint(x: 8, y: 8))
+        // Already on screen: untouched.
+        let fine = SurfaceManager.clamped(NSPoint(x: 300, y: 300), size: size, in: visible)
+        XCTAssertEqual(fine, NSPoint(x: 300, y: 300))
+        // Headless (no screen): pass-through.
+        let headless = SurfaceManager.clamped(NSPoint(x: 5000, y: 5000), size: size, in: nil)
+        XCTAssertEqual(headless, NSPoint(x: 5000, y: 5000))
+    }
+}
+
 final class UserContentStoreTests: XCTestCase {
     // New webviews must be born with the brain's last-pushed content —
     // set_user_content only reaches tabs alive at push time, so without the

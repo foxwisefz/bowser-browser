@@ -320,15 +320,33 @@ final class SurfaceManager {
     /// Focus follows the main window: re-front every live surface and adopt
     /// orphans (their parent window was closed). Screen-attached edges are
     /// deliberately independent (macOS-Dock style) — front them, never
-    /// re-parent them.
+    /// re-parent them. Child panels translate with every parent move
+    /// (fullscreen jumps included), so any panel that drifted off every
+    /// screen gets rescued back beside the parent (bowser-browser-gpi).
     func orderAllFront(parent: NSWindow) {
         for (id, panel) in panels where panel !== parent {
             let screenAttached = edgeConfigs[id]?.attach == "screen"
             if !screenAttached, panel.parent == nil {
                 parent.addChildWindow(panel, ordered: .above)
             }
+            if !screenAttached,
+               !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(panel.frame) }) {
+                panel.setFrameOrigin(Self.clamped(panel.frame.origin,
+                                                  size: panel.frame.size,
+                                                  in: parent.screen?.visibleFrame))
+            }
             panel.orderFront(nil)
         }
+    }
+
+    /// Keep a panel origin on the screen, with a small margin. Nil visible
+    /// frame (headless) passes the origin through.
+    static func clamped(_ origin: NSPoint, size: NSSize, in visible: NSRect?) -> NSPoint {
+        guard let visible else { return origin }
+        return NSPoint(
+            x: min(max(origin.x, visible.minX + 8), max(visible.minX + 8, visible.maxX - size.width - 8)),
+            y: min(max(origin.y, visible.minY + 8), max(visible.minY + 8, visible.maxY - size.height - 8))
+        )
     }
 
     private static func roundedMask(radius: CGFloat) -> NSImage {
@@ -351,14 +369,20 @@ final class SurfaceManager {
         let frame = main.frame
         let size = panel.frame.size
         let drop = 40 + CGFloat(panels.count) * (size.height + 20)
+        // Anchors beside a fullscreen (or screen-hugging) window land past
+        // the screen edge — clamp into the visible frame, overlapping the
+        // window rather than vanishing (bowser-browser-gpi).
+        let origin: NSPoint
         switch anchor {
         case "left_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.minX - size.width - 14, y: frame.maxY - size.height - drop))
+            origin = NSPoint(x: frame.minX - size.width - 14, y: frame.maxY - size.height - drop)
         case "right_of_main":
-            panel.setFrameOrigin(NSPoint(x: frame.maxX + 14, y: frame.maxY - size.height - drop))
+            origin = NSPoint(x: frame.maxX + 14, y: frame.maxY - size.height - drop)
         default:
             panel.center()
+            return
         }
+        panel.setFrameOrigin(Self.clamped(origin, size: size, in: main.screen?.visibleFrame))
     }
 }
 
