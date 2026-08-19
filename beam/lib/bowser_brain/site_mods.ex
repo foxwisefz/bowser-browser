@@ -39,8 +39,12 @@ defmodule BowserBrain.SiteMods do
 
   @impl true
   def init(nil) do
-    File.mkdir_p!(sites_dir())
-    send(self(), {:scan, false})
+    # Off in hermetic tests (bowser-browser-is4).
+    if Application.get_env(:bowser_brain, :watch_sites, true) do
+      File.mkdir_p!(sites_dir())
+      send(self(), {:scan, false})
+    end
+
     {:ok, %{mtimes: %{}}}
   end
 

@@ -21,7 +21,9 @@ defmodule BowserBrain.Engine do
   @impl true
   def init(nil) do
     Process.flag(:trap_exit, true)
-    enabled = System.get_env("BOWSER_NO_SPAWN") == nil
+    enabled =
+      System.get_env("BOWSER_NO_SPAWN") == nil and
+        Application.get_env(:bowser_brain, :spawn_engine, true)
     if enabled, do: Process.send_after(self(), :check, 1_500)
     {:ok, %{port: nil, os_pid: nil, enabled: enabled}}
   end

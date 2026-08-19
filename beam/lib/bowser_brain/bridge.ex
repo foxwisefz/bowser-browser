@@ -39,7 +39,10 @@ defmodule BowserBrain.Bridge do
 
   @impl true
   def init(nil) do
-    send(self(), :connect)
+    # Hermetic tests never touch the live engine (bowser-browser-is4): a
+    # test VM once won the socket race during an engine roll and test casts
+    # navigated the owner's real tabs.
+    if Application.get_env(:bowser_brain, :connect_bridge, true), do: send(self(), :connect)
     {:ok, %{sock: nil, pending: %{}, next_id: 1}}
   end
 

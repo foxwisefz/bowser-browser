@@ -19,9 +19,13 @@ defmodule BowserBrain.Loader do
 
   @impl true
   def init(nil) do
-    File.mkdir_p!(mods_dir())
-    Code.put_compiler_option(:ignore_module_conflict, true)
-    send(self(), :scan)
+    # Hermetic tests do not compile the owner's live mods (bowser-browser-is4).
+    if Application.get_env(:bowser_brain, :load_user_mods, true) do
+      File.mkdir_p!(mods_dir())
+      Code.put_compiler_option(:ignore_module_conflict, true)
+      send(self(), :scan)
+    end
+
     {:ok, %{mtimes: %{}}}
   end
 

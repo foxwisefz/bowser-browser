@@ -16,8 +16,12 @@ defmodule BowserBrain.LibReloader do
 
   @impl true
   def init(nil) do
-    Code.put_compiler_option(:ignore_module_conflict, true)
-    send(self(), {:scan, :baseline})
+    # Off in hermetic tests (bowser-browser-is4).
+    if Application.get_env(:bowser_brain, :watch_lib, true) do
+      Code.put_compiler_option(:ignore_module_conflict, true)
+      send(self(), {:scan, :baseline})
+    end
+
     {:ok, %{mtimes: %{}}}
   end
 
