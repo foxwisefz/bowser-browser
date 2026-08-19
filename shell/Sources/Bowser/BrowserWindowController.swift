@@ -163,6 +163,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// double-switch (first tab loads urls[0] before activation).
     private var pendingRestorePaint: UInt64?
 
+    /// This launch is a resurrection: a restore is incoming and nothing
+    /// should pop over the freeze-frame (bowser-browser-xl8).
+    var isResurrecting: Bool { resurrectOverlay != nil }
+
     func restoreDidComplete(id: UInt64) {
         guard resurrectOverlay != nil else { return }
         guard let view = tabs.first(where: { $0.webviewId == id }) else {

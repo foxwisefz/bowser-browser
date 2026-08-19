@@ -66,7 +66,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = BrowserWindowController()
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
-        controller.focusOmnibar()
+        // The omnibar greets a COLD start (blank tab, nothing to show); a
+        // resurrecting window is about to display the restored session and
+        // the palette popping over the freeze-frame breaks the illusion
+        // (bowser-browser-xl8).
+        if !controller.isResurrecting { controller.focusOmnibar() }
         // Restore fullscreen for the primary window after a respawn.
         if isFirstWindow, UserDefaults.standard.bool(forKey: "BowserWasFullscreen") {
             DispatchQueue.main.async { [weak controller] in
