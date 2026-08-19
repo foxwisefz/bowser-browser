@@ -62,26 +62,40 @@ defmodule BowserBrain.UserContent do
     // Scroll restore is a CAMPAIGN, not a shot: virtualized/slow pages
     // (x.com, YT Music) are not tall enough at load, scrollTo clamps to ~0
     // and the position was lost — and the save loop then overwrote the
-    // stored y with the clamped value (bowser-browser-l8r). Retry until the
-    // page can host the target; the target lives in this closure so
-    // mid-restore saves cannot corrupt it. The owner scrolling cancels.
+    // stored y with the clamped value (bowser-browser-l8r). And on
+    // infinite-scroll sites waiting is not enough: content only grows when
+    // something presses toward the bottom, so the campaign WALKS the loader
+    // back to depth (bowser-browser-uuy) — DOM save/reinject was rejected:
+    // serialized HTML without its JS heap is a corpse. The target lives in
+    // this closure so mid-restore saves cannot corrupt it; a stall (no
+    // growth for 4s) or the owner scrolling ends the campaign.
     function restoreScroll() {
       var data = null;
       try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
       if (!data || !data.y) return;
       if (data.at && Date.now() - data.at > MAX_AGE_MS) return;
       var target = data.y;
-      var deadline = Date.now() + 15000;
+      var deadline = Date.now() + 25000;
       var cancelled = false;
+      var lastH = 0, lastGrowthAt = Date.now();
       function cancel() { cancelled = true; }
       window.addEventListener("wheel", cancel, { once: true, passive: true });
       window.addEventListener("keydown", cancel, { once: true });
       (function attempt() {
         if (cancelled || Date.now() > deadline) return;
         var se = document.scrollingElement || document.documentElement;
-        if (se.scrollHeight - window.innerHeight >= target - 4) {
+        if (se.scrollHeight !== lastH) { lastH = se.scrollHeight; lastGrowthAt = Date.now(); }
+        var maxY = se.scrollHeight - window.innerHeight;
+        if (maxY >= target - 4) {
           window.scrollTo(0, target);
           if (Math.abs(window.scrollY - target) < 8) return; // landed
+        } else {
+          // Not tall enough yet: press against the bottom so the infinite
+          // loader fetches — but a page that stops growing was never going
+          // to reach the target (finite page, feed end): stay where the
+          // content ran out rather than pinning the bottom forever.
+          if (Date.now() - lastGrowthAt > 4000) return;
+          window.scrollTo(0, Math.max(0, maxY));
         }
         setTimeout(attempt, 250);
       })();
