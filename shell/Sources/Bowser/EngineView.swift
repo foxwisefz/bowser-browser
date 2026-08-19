@@ -12,8 +12,14 @@ private final class PageRelay: NSObject, WKScriptMessageHandler {
     ) {
         let name = message.name
         let body = message.body
+        let sender = message.webView
         MainActor.assumeIsolated {
-            guard let id = view?.webviewId else { return }
+            // Attribute by the message's own webView: when a popup shares
+            // the opener's content controller, only ONE relay is registered
+            // and it must credit whichever tab actually sent the message.
+            guard let id = EngineView.live.first(where: { $0.value.webView === sender })?.key
+                ?? view?.webviewId
+            else { return }
             switch name {
             case "bowserConsole":
                 guard let dict = body as? [String: Any] else { return }
@@ -133,8 +139,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         Self.live[webviewId] = self
 
         pageRelay.view = self
-        configuration.userContentController.add(pageRelay, name: "bowserConsole")
-        configuration.userContentController.add(pageRelay, name: "bowserEmit")
+        registerRelay()
         currentScripts = Self.sharedScripts
         currentStyles = Self.sharedStyles
         rebuildUserScripts()
@@ -309,6 +314,20 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    /// Popups arrive with the OPENER's configuration — its controller
+    /// already has these handlers, and a duplicate add() throws an uncaught
+    /// NSException: every target=_blank link click aborted the app
+    /// (bowser-browser-pi1). Remove-before-add is idempotent, and PageRelay
+    /// attributes by message.webView so a shared controller still credits
+    /// the right tab.
+    private func registerRelay() {
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: "bowserConsole")
+        controller.removeScriptMessageHandler(forName: "bowserEmit")
+        controller.add(pageRelay, name: "bowserConsole")
+        controller.add(pageRelay, name: "bowserEmit")
+    }
+
     func tearDown() {
         EngineView.live.removeValue(forKey: webviewId)
         BrainBridge.shared.send([
@@ -316,8 +335,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         ])
         urlObservation = nil
         titleObservation = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "bowserConsole")
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "bowserEmit")
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: "bowserConsole")
+        controller.removeScriptMessageHandler(forName: "bowserEmit")
+        // A sibling sharing this controller (popup lineage) must keep
+        // receiving page messages after this tab dies.
+        EngineView.live.values
+            .first(where: { $0.webView.configuration.userContentController === controller })?
+            .registerRelay()
     }
 
     // MARK: WKNavigationDelegate

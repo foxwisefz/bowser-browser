@@ -133,6 +133,21 @@ final class MenuItemTests: XCTestCase {
     }
 }
 
+final class PopupConfigurationTests: XCTestCase {
+    // The link-click crash (bowser-browser-pi1): createWebViewWith hands us
+    // the OPENER's configuration — its user content controller already has
+    // our message handlers, and a duplicate add() throws an uncaught
+    // NSException. Constructing a second EngineView from the first one's
+    // configuration reproduces the popup path exactly.
+    @MainActor func testPopupSharingOpenerConfigurationDoesNotThrow() {
+        let opener = EngineView(frame: .zero, configuration: nil)
+        let popup = EngineView(frame: .zero, configuration: opener.webView.configuration)
+        XCTAssertNotEqual(opener.webviewId, popup.webviewId)
+        popup.tearDown()
+        opener.tearDown()
+    }
+}
+
 final class StripCenteringTests: XCTestCase {
     // Dock icons center vertically; the same offset feeds the proximity
     // magnification math so hover targets stay aligned (bowser-browser-2c8).
