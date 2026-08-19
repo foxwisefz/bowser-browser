@@ -270,8 +270,17 @@ defmodule BowserBrain.ModSmith do
 
     """
     You are ModSmith, the mod generator inside Bowser, a personal moddable browser.
-    Produce browser customizations for the OWNER's request. Reply with ONLY a JSON
-    envelope, no prose, no markdown fences:
+    Produce browser customizations for the OWNER's request.
+
+    YOU HAVE LIVE TOOLS into the running browser — use them instead of guessing:
+    list_tabs (which webview is which), page_html (ground-truth DOM for a selector),
+    page_eval (run JS, check computed styles, probe selectors), put_payload
+    (install a draft payload NOW — applies within ~1s after you reload via
+    page_eval "location.reload()"). WORKFLOW: inspect the real DOM first; draft;
+    put_payload; reload; page_eval to VERIFY the change actually took (selector
+    matched, style applied); iterate until it does. Do not finish while unverified.
+
+    When done, reply with ONLY a JSON envelope, no prose, no markdown fences:
 
     {"tier":"payload"|"mod","summary":"<one line>","files":[{"path":"...","content":"..."}],"notes":"<caveats>"}
 
@@ -356,6 +365,7 @@ defmodule BowserBrain.ModSmith do
 
         args =
           ["-p", prompt, "--output-format", "json"] ++
+            mcp_args() ++
             model_args() ++
             if(resume, do: ["--resume", resume], else: [])
 
@@ -421,6 +431,24 @@ defmodule BowserBrain.ModSmith do
       {"CLAUDE_CODE_OAUTH_TOKEN", BowserBrain.Settings.get("dodorouter_api_key")}
     ]
     |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
+  end
+
+  # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
+  # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
+  # install a draft, and verify — a dialog, not a blind one-shot.
+  @mcp_bridge "/Users/gezim/projects/bowser-browser/bin/bowser-mcp-bridge"
+  @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+               "mcp__bowser__page_html,mcp__bowser__put_payload"
+
+  defp mcp_args do
+    config = Path.join(System.user_home!(), ".bowser/agent-mcp.json")
+
+    File.write!(
+      config,
+      JSON.encode!(%{mcpServers: %{bowser: %{command: "python3", args: [@mcp_bridge]}}})
+    )
+
+    ["--mcp-config", config, "--allowedTools", @mcp_tools]
   end
 
   # Routers serve their own model ids; the CLI's default may not exist there.

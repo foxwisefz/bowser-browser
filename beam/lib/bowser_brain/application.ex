@@ -17,6 +17,7 @@ defmodule BowserBrain.Application do
       BowserBrain.Session,
       BowserBrain.UserContent,
       BowserBrain.Bridge,
+      BowserBrain.AgentPort,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
       BowserBrain.Loader,
       BowserBrain.LibReloader,

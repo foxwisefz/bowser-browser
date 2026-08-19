@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""MCP stdio bridge into the running Bowser brain (bowser-browser-4uw).
+
+Speaks Model Context Protocol (JSON-RPC over stdio) to the claude CLI and
+relays every tools/call as one line of JSON to ~/.bowser/agent.sock. No
+dependencies — stdlib only. ModSmith wires this in via --mcp-config so the
+model can inspect the live page, install a draft payload, and verify it.
+"""
+import json
+import os
+import socket
+import sys
+
+SOCK = os.path.expanduser("~/.bowser/agent.sock")
+
+TOOLS = [
+    {
+        "name": "list_tabs",
+        "description": "List open tabs (webview id + url) and which is active.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "page_eval",
+        "description": "Evaluate JavaScript in a tab and return the result. "
+                       "webview 0 = first tab; use list_tabs ids to target.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "js": {"type": "string"},
+                "webview": {"type": "integer"},
+            },
+            "required": ["js"],
+        },
+    },
+    {
+        "name": "page_html",
+        "description": "outerHTML of the first element matching a CSS selector "
+                       "(truncated at 20kB). Ground truth for what's really in the DOM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "selector": {"type": "string"},
+                "webview": {"type": "integer"},
+            },
+            "required": ["selector"],
+        },
+    },
+    {
+        "name": "put_payload",
+        "description": "Install (or overwrite) a persistent site payload at "
+                       "sites/<host>/<name>.css|.js — applies within ~1s after a page "
+                       "reload. Use to TEST a draft live, then verify with page_eval.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "name": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["host", "name", "content"],
+        },
+    },
+]
+
+
+def call_brain(tool, args):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(30)
+            s.connect(SOCK)
+            s.sendall((json.dumps({"tool": tool, "args": args}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        return json.loads(buf.decode() or "{}")
+    except Exception as e:  # noqa: BLE001 — every failure must reach the model
+        return {"ok": False, "error": f"agent.sock unreachable: {e}"}
+
+
+def reply(msg_id, result):
+    out = {"jsonrpc": "2.0", "id": msg_id, "result": result}
+    sys.stdout.write(json.dumps(out) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        method, msg_id = msg.get("method"), msg.get("id")
+        if method == "initialize":
+            reply(msg_id, {
+                "protocolVersion": msg.get("params", {}).get("protocolVersion", "2024-11-05"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "bowser", "version": "1.0"},
+            })
+        elif method == "tools/list":
+            reply(msg_id, {"tools": TOOLS})
+        elif method == "tools/call":
+            params = msg.get("params", {})
+            result = call_brain(params.get("name"), params.get("arguments", {}))
+            reply(msg_id, {
+                "content": [{"type": "text", "text": json.dumps(result)}],
+                "isError": not result.get("ok", False),
+            })
+        elif msg_id is not None:
+            reply(msg_id, {})
+
+
+if __name__ == "__main__":
+    main()
