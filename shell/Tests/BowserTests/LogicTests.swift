@@ -133,6 +133,21 @@ final class MenuItemTests: XCTestCase {
     }
 }
 
+final class StripCenteringTests: XCTestCase {
+    // Dock icons center vertically; the same offset feeds the proximity
+    // magnification math so hover targets stay aligned (bowser-browser-2c8).
+    @MainActor func testCentersAndClampsToTopWhenOverflowing() {
+        // 4 icons of 28 + 8 spacing = 136 content in an 800 view → centered.
+        let top = MagnifyStripView.centeredTop(viewHeight: 800, count: 4, size: 28, spacing: 8, minPad: 12)
+        XCTAssertEqual(top, (800 - 136) / 2, accuracy: 0.01)
+        // Content taller than the view: fall back to top-aligned.
+        let overflow = MagnifyStripView.centeredTop(viewHeight: 200, count: 20, size: 28, spacing: 8, minPad: 12)
+        XCTAssertEqual(overflow, 12)
+        // No items: harmless.
+        XCTAssertEqual(MagnifyStripView.centeredTop(viewHeight: 800, count: 0, size: 28, spacing: 8, minPad: 12), 400)
+    }
+}
+
 final class PanelClampTests: XCTestCase {
     // Off-screen rescue math (bowser-browser-gpi): anchored/child panels
     // must land inside the visible frame, whatever the window did.

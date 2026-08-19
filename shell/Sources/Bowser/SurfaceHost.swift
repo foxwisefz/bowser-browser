@@ -655,7 +655,7 @@ enum ImageCache {
 /// Mods supply items (icons + ids); this widget owns cursor tracking and
 /// distance-falloff scaling natively, emitting only discrete select events.
 /// Reads cursor position from the edge surface's CursorModel.
-private struct MagnifyStripView: View {
+struct MagnifyStripView: View {
     let node: [String: Any]
     let emit: (String, Any?) -> Void
 
@@ -670,10 +670,21 @@ private struct MagnifyStripView: View {
     private let spacing: CGFloat = 8
     private let topPad: CGFloat = 12
 
-    private func scale(forRow index: Int) -> CGFloat {
+    /// Vertical origin of the icon block: centered in the view, clamping
+    /// back to top-aligned when the strip overflows (bowser-browser-2c8).
+    /// The SAME value feeds layout and the magnification row centers so
+    /// hover targets stay aligned.
+    static func centeredTop(
+        viewHeight: CGFloat, count: Int, size: CGFloat, spacing: CGFloat, minPad: CGFloat
+    ) -> CGFloat {
+        let content = max(0, CGFloat(count) * (size + spacing) - spacing)
+        return max(minPad, (viewHeight - content) / 2)
+    }
+
+    private func scale(forRow index: Int, top: CGFloat) -> CGFloat {
         guard let point = cursor.point else { return 1 }
         let slot = baseSize + spacing
-        let center = topPad + CGFloat(index) * slot + baseSize / 2
+        let center = top + CGFloat(index) * slot + baseSize / 2
         let distance = abs(point.y - center)
         let radius = baseSize * 2.6
         guard distance < radius else { return 1 }
@@ -681,32 +692,37 @@ private struct MagnifyStripView: View {
     }
 
     var body: some View {
-        VStack(spacing: spacing) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                let s = scale(forRow: index)
-                let active = item["active"] as? Bool ?? false
-                Button(action: { emit(eventId, item["id"]) }) {
-                    ZStack(alignment: .bottom) {
-                        icon(for: item)
-                            .frame(width: baseSize * s, height: baseSize * s)
-                            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                        if active {
-                            Circle()
-                                .fill(Color.accentColor)
-                                .frame(width: 4, height: 4)
-                                .offset(y: 5)
+        GeometryReader { geo in
+            let top = Self.centeredTop(
+                viewHeight: geo.size.height, count: items.count,
+                size: baseSize, spacing: spacing, minPad: topPad
+            )
+            VStack(spacing: spacing) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    let s = scale(forRow: index, top: top)
+                    let active = item["active"] as? Bool ?? false
+                    Button(action: { emit(eventId, item["id"]) }) {
+                        ZStack(alignment: .bottom) {
+                            icon(for: item)
+                                .frame(width: baseSize * s, height: baseSize * s)
+                                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                            if active {
+                                Circle()
+                                    .fill(Color.accentColor)
+                                    .frame(width: 4, height: 4)
+                                    .offset(y: 5)
+                            }
                         }
+                        .frame(height: baseSize * s)
                     }
-                    .frame(height: baseSize * s)
+                    .buttonStyle(.plain)
+                    .help(item["title"] as? String ?? "")
+                    .animation(.easeOut(duration: 0.09), value: cursor.point)
                 }
-                .buttonStyle(.plain)
-                .help(item["title"] as? String ?? "")
-                .animation(.easeOut(duration: 0.09), value: cursor.point)
             }
-            Spacer(minLength: 0)
+            .padding(.top, top)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .padding(.top, topPad)
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
