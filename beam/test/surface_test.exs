@@ -37,6 +37,32 @@ defmodule BowserBrain.SurfaceTest do
     assert {:error, :unknown} = Surface.reshow("st_never_shown")
   end
 
+  test "hello marks every panel closed — they die with the engine" do
+    Surface.show(:st_roll, vstack([text("x")]), title: "Roll")
+    send(Process.whereis(Surface), {:browser_event, %{"event" => "hello"}})
+    # Synchronize on the mailbox with a call.
+    _ = Surface.list()
+    assert %{closed: true} = Enum.find(Surface.list(), &(&1.id == "st_roll"))
+  end
+
+  test "toggle suppresses a visible panel and shows drop while suppressed" do
+    Surface.show(:st_tog, vstack([text("v1")]), title: "Tog")
+    assert {:ok, :hidden} = Surface.toggle("st_tog")
+    assert %{closed: true, suppressed: true} = Enum.find(Surface.list(), &(&1.id == "st_tog"))
+
+    # An event-driven mod re-shows while suppressed: recorded, not surfaced.
+    Surface.show(:st_tog, vstack([text("v2")]), title: "Tog v2")
+    assert %{closed: true, suppressed: true, title: "Tog v2"} =
+             Enum.find(Surface.list(), &(&1.id == "st_tog"))
+
+    assert {:ok, :shown} = Surface.toggle("st_tog")
+    assert %{closed: false, suppressed: false} = Enum.find(Surface.list(), &(&1.id == "st_tog"))
+  end
+
+  test "toggling an unknown id errors" do
+    assert {:error, :unknown} = Surface.toggle("st_ghost")
+  end
+
   # Suppress unused alias warning for View (import used above).
   test "view import sanity" do
     assert is_map(vstack([text("x")]))

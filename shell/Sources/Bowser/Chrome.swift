@@ -16,6 +16,8 @@ enum ChromeSurface {
         let id: String
         let title: String
         let key: String?
+        /// nil = plain action item; true/false = stateful toggle with checkmark.
+        let checked: Bool?
     }
 
     private(set) static var buttons: [ModButton] = []
@@ -59,7 +61,8 @@ enum ChromeSurface {
             menuItems.append(ModMenuItem(
                 id: id,
                 title: object["title"] as? String ?? id,
-                key: object["key"] as? String
+                key: object["key"] as? String,
+                checked: object["checked"] as? Bool
             ))
             // NSApplication.shared, not NSApp: NSApp is nil in headless tests.
             (NSApplication.shared.delegate as? AppDelegate)?.rebuildModMenuItems()

@@ -1,80 +1,55 @@
-# The panel directory (bowser-browser-27l): `:panels` in the omnibar (or
-# View menu → Panels) lists every panel the brain has seen this lifetime —
-# tabs dock, twitter nav, ModSmith, whatever mods conjured — and one click
-# brings any of them back. Solves "I can't see or know which panel views
-# are available to me": surfaces die with engine rolls or only appear on
-# events, and before this there was no way to enumerate or resurrect them.
+# Panel toggles in the View menu (bowser-browser-fh5): every panel the brain
+# has seen gets a checkable menu item — click to hide (suppressed: even
+# event-driven mods like the dock can't re-show it) or bring it back from
+# the registry's stored view. Replaced the earlier panels-panel ("a panel to
+# manage panels", rightly mocked).
 defmodule PanelsMod do
   use BowserBrain.Mod
 
-  import BowserBrain.View
-
   alias BowserBrain.{Chrome, Surface}
 
+  @sync_ms 2_000
+
   def init_mod(_opts) do
-    assert_chrome()
-    %{}
+    Process.send_after(self(), :sync, @sync_ms)
+    %{menu: %{}}
   end
 
-  # IRON RULE: shell-side chrome dies with the engine — re-assert on hello.
-  def handle_event(%{"event" => "hello"}, state) do
-    assert_chrome()
-    state
-  end
+  # Menu items are shell state and die with the engine; the sync tick
+  # rebuilds them, so hello just resets our bookkeeping.
+  def handle_event(%{"event" => "hello"}, state), do: %{state | menu: %{}}
 
-  def handle_event(%{"event" => "omnibar_command", "text" => "panels"}, state) do
-    render()
-    state
-  end
-
-  def handle_event(%{"event" => "chrome_click", "id" => "panels"}, state) do
-    render()
-    state
-  end
-
-  # Directory click: re-show that panel from the registry.
-  def handle_event(
-        %{"event" => "surface", "surface" => "panels", "id" => "open", "value" => id},
-        state
-      ) do
-    Surface.reshow(id)
-    render()
-    state
+  def handle_event(%{"event" => "chrome_click", "id" => "panel:" <> sid}, state) do
+    Surface.toggle(sid)
+    sync(state)
   end
 
   def handle_event(_event, state), do: state
 
-  defp assert_chrome do
-    Chrome.register_command("panels", "List every available panel")
-    Chrome.add_menu_item("panels", "Panels")
+  def handle_info(:sync, state) do
+    state = sync(state)
+    Process.send_after(self(), :sync, @sync_ms)
+    {:noreply, state}
   end
 
-  defp render do
-    entries = Surface.list() |> Enum.reject(&(&1.id == "panels"))
+  def handle_info(other, state), do: super(other, state)
 
-    rows =
-      case entries do
-        [] ->
-          [text("No panels seen yet — they appear here as mods show them.", style: :caption)]
-
-        entries ->
-          Enum.map(entries, fn e ->
-            label = "#{e.title}#{if e.closed, do: " (closed)"}"
-            hint = [e.owner, e.kind] |> Enum.reject(&is_nil/1) |> Enum.join(" · ")
-
-            vstack([
-              button(label, event: "open", payload: e.id),
-              text(hint, style: :caption)
-            ])
-          end)
+  # Diff-based: only cast add/remove when an item's presence or checkmark
+  # actually changed — the menu rebuild in the shell is not free.
+  defp sync(state) do
+    desired =
+      for e <- Surface.list(), into: %{} do
+        {"panel:" <> e.id, %{title: e.title, checked: not e.closed}}
       end
 
-    Surface.show(
-      :panels,
-      vstack([text("Panels", style: :title)] ++ rows ++ [divider(), text(":panels reopens this", style: :caption)]),
-      title: "Panels",
-      anchor: :right_of_main,
-      width: 260
-    )
+    for {id, item} <- desired, state.menu[id] != item do
+      Chrome.add_menu_item(id, item.title, checked: item.checked)
+    end
+
+    for {id, _} <- state.menu, not Map.has_key?(desired, id) do
+      Chrome.remove_menu_item(id)
+    end
+
+    %{state | menu: desired}
   end
 end

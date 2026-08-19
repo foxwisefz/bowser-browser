@@ -23,10 +23,20 @@ defmodule BowserBrain.Surface do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def show(id, view, opts \\ []) when is_map(view) do
-    # Record first (registry may be down on an old brain: cast is a no-op),
-    # then drive the engine.
-    GenServer.cast(__MODULE__, {:shown, to_string(id), view, opts, self()})
-    Bridge.cast_msg(show_msg(id, view, opts))
+    # The registry decides whether the engine sees this show: a SUPPRESSED
+    # panel (toggled off in the View menu) records the fresh view but drops
+    # the cast — otherwise event-driven mods like the dock re-show
+    # themselves seconds after every toggle-off. Registry down (old brain):
+    # degrade to always-show.
+    suppressed? =
+      try do
+        GenServer.call(__MODULE__, {:shown, to_string(id), view, opts, self()}, 1_000)
+      catch
+        :exit, _ -> false
+      end
+
+    unless suppressed?, do: Bridge.cast_msg(show_msg(id, view, opts))
+    :ok
   end
 
   def close(id) do
@@ -48,6 +58,17 @@ defmodule BowserBrain.Surface do
     :exit, _ -> {:error, :registry_down}
   end
 
+  @doc """
+  View-menu toggle: a visible panel is suppressed and closed (shows keep
+  recording but stop reaching the engine); a hidden one is unsuppressed and
+  re-shown from its stored view. Returns {:ok, :hidden | :shown}.
+  """
+  def toggle(id) do
+    GenServer.call(__MODULE__, {:toggle, to_string(id)})
+  catch
+    :exit, _ -> {:error, :registry_down}
+  end
+
   @doc "Bring a tab's window to front."
   def activate_tab(webview), do: Bridge.cast_msg(%{op: "activate_tab", webview: webview})
 
@@ -57,10 +78,30 @@ defmodule BowserBrain.Surface do
   # ---------------------------------------------------------------------
 
   @impl true
-  def init(nil), do: {:ok, %{}}
+  def init(nil) do
+    {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
+    {:ok, %{panels: %{}, suppressed: MapSet.new()}}
+  end
+
+  # Engine hello = fresh engine = every panel is gone until re-shown. The
+  # dispatch reaches us before any mod's re-show cast can, so ordering holds.
+  @impl true
+  def handle_info({:browser_event, %{"event" => "hello"}}, state) do
+    panels = Map.new(state.panels, fn {id, e} -> {id, %{e | closed: true}} end)
+    {:noreply, %{state | panels: panels}}
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
-  def handle_cast({:shown, id, view, opts, owner_pid}, state) do
+  def handle_cast({:closed, id}, state) do
+    {:noreply, update_entry(state, id, &%{&1 | closed: true})}
+  end
+
+  @impl true
+  def handle_call({:shown, id, view, opts, owner_pid}, _from, state) do
+    suppressed? = MapSet.member?(state.suppressed, id)
+
     entry = %{
       id: id,
       title: Keyword.get(opts, :title, id),
@@ -69,39 +110,60 @@ defmodule BowserBrain.Surface do
       view: view,
       opts: opts,
       shown_at: System.system_time(:millisecond),
-      closed: false
+      closed: suppressed?
     }
 
-    {:noreply, Map.put(state, id, entry)}
+    {:reply, suppressed?, put_in(state.panels[id], entry)}
   end
 
-  def handle_cast({:closed, id}, state) do
-    {:noreply,
-     case state do
-       %{^id => entry} -> Map.put(state, id, %{entry | closed: true})
-       _ -> state
-     end}
-  end
-
-  @impl true
   def handle_call(:list, _from, state) do
     entries =
-      state
+      state.panels
       |> Map.values()
       |> Enum.sort_by(& &1.shown_at, :desc)
-      |> Enum.map(&Map.take(&1, [:id, :title, :kind, :owner, :closed, :shown_at]))
+      |> Enum.map(fn e ->
+        e
+        |> Map.take([:id, :title, :kind, :owner, :closed, :shown_at])
+        |> Map.put(:suppressed, MapSet.member?(state.suppressed, e.id))
+      end)
 
     {:reply, entries, state}
   end
 
   def handle_call({:reshow, id}, _from, state) do
-    case state do
+    case state.panels do
       %{^id => entry} ->
         Bridge.cast_msg(show_msg(id, entry.view, entry.opts))
-        {:reply, :ok, Map.put(state, id, %{entry | closed: false})}
+        state = %{state | suppressed: MapSet.delete(state.suppressed, id)}
+        {:reply, :ok, update_entry(state, id, &%{&1 | closed: false})}
 
       _ ->
         {:reply, {:error, :unknown}, state}
+    end
+  end
+
+  def handle_call({:toggle, id}, _from, state) do
+    case state.panels do
+      %{^id => entry} ->
+        if entry.closed or MapSet.member?(state.suppressed, id) do
+          Bridge.cast_msg(show_msg(id, entry.view, entry.opts))
+          state = %{state | suppressed: MapSet.delete(state.suppressed, id)}
+          {:reply, {:ok, :shown}, update_entry(state, id, &%{&1 | closed: false})}
+        else
+          Bridge.cast_msg(%{op: "surface", surface: "close", id: id})
+          state = %{state | suppressed: MapSet.put(state.suppressed, id)}
+          {:reply, {:ok, :hidden}, update_entry(state, id, &%{&1 | closed: true})}
+        end
+
+      _ ->
+        {:reply, {:error, :unknown}, state}
+    end
+  end
+
+  defp update_entry(state, id, fun) do
+    case state.panels do
+      %{^id => entry} -> put_in(state.panels[id], fun.(entry))
+      _ -> state
     end
   end
 

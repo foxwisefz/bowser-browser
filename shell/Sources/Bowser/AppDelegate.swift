@@ -155,6 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             menuItem.tag = Self.modItemTag
             menuItem.representedObject = item.id
+            if let checked = item.checked {
+                menuItem.state = checked ? .on : .off
+            }
             viewMenu.addItem(menuItem)
         }
     }

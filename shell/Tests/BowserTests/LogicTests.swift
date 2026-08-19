@@ -122,6 +122,15 @@ final class MenuItemTests: XCTestCase {
         ChromeSurface.handle(["chrome": "remove_menu_item", "id": "m1"])
         XCTAssertTrue(ChromeSurface.menuItems.isEmpty)
     }
+
+    // Panel toggles need a visible checkmark state (bowser-browser-fh5).
+    @MainActor func testCheckedStateRoundTrips() {
+        ChromeSurface.handle(["chrome": "add_menu_item", "id": "t1", "title": "Dock", "checked": true])
+        XCTAssertEqual(ChromeSurface.menuItems.last?.checked, true)
+        ChromeSurface.handle(["chrome": "add_menu_item", "id": "t1", "title": "Dock", "checked": false])
+        XCTAssertEqual(ChromeSurface.menuItems.last?.checked, false)
+        ChromeSurface.handle(["chrome": "remove_menu_item", "id": "t1"])
+    }
 }
 
 final class UserContentStoreTests: XCTestCase {

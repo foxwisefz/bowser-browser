@@ -41,7 +41,9 @@ defmodule BowserBrain.Chrome do
       chrome: "add_menu_item",
       id: id,
       title: title,
-      key: Keyword.get(opts, :key)
+      key: Keyword.get(opts, :key),
+      # nil = plain action item; true/false = checkable toggle.
+      checked: Keyword.get(opts, :checked)
     })
   end
 
