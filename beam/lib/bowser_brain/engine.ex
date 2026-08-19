@@ -12,7 +12,6 @@ defmodule BowserBrain.Engine do
   require Logger
 
   @check_ms 3_000
-  @respawn_delay_ms 500
   @default_path "/Users/gezim/projects/bowser-browser/shell/.build/debug/Bowser"
   @wrapper "/Users/gezim/projects/bowser-browser/bin/engine-wrapper"
 
@@ -65,8 +64,11 @@ defmodule BowserBrain.Engine do
   end
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
-    Logger.warning("engine: exited with status #{status} — respawning")
-    Process.send_after(self(), :respawn, @respawn_delay_ms)
+    delay =
+      respawn_delay(Map.get(state, :last_spawn_at, 0), System.system_time(:millisecond))
+
+    Logger.warning("engine: exited with status #{status} — respawning in #{delay}ms")
+    Process.send_after(self(), :respawn, delay)
     {:noreply, %{state | port: nil, os_pid: nil}}
   end
 
@@ -102,6 +104,15 @@ defmodule BowserBrain.Engine do
       port_alive? or bridge_connected? -> :keep
       true -> :spawn
     end
+  end
+
+  @doc false
+  # The window-gone gap on a crash is respawn delay + app launch; the delay
+  # part should be as close to zero as safety allows (bowser-browser-r48).
+  # A spawn within the last 10s means we may be crash-looping — back off so
+  # a broken binary can't respawn-storm the machine.
+  def respawn_delay(last_spawn_at_ms, now_ms) do
+    if now_ms - last_spawn_at_ms < 10_000, do: 2_000, else: 100
   end
 
   @doc false
@@ -143,6 +154,7 @@ defmodule BowserBrain.Engine do
       |> Map.put(:port, port)
       |> Map.put(:os_pid, os_pid)
       |> Map.put(:spawned_mtime, binary_mtime())
+      |> Map.put(:last_spawn_at, System.system_time(:millisecond))
     else
       Logger.error("engine: binary not found at #{path} — run swift build")
       state

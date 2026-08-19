@@ -25,6 +25,25 @@ defmodule BowserBrain.EngineTest do
     end
   end
 
+  describe "respawn_delay/2" do
+    test "respawns nearly instantly in the normal case" do
+      # Last spawn long ago: the window-gone gap should be as short as the
+      # OS allows (bowser-browser-r48).
+      assert Engine.respawn_delay(1_000_000, 2_000_000) == 100
+    end
+
+    test "backs off when the last spawn was seconds ago — crash-loop guard" do
+      now = 2_000_000
+      assert Engine.respawn_delay(now - 5_000, now) == 2_000
+      assert Engine.respawn_delay(now - 9_999, now) == 2_000
+      assert Engine.respawn_delay(now - 10_001, now) == 100
+    end
+
+    test "no previous spawn: instant" do
+      assert Engine.respawn_delay(0, 2_000_000) == 100
+    end
+  end
+
   describe "roll_kill_args/1" do
     test "rolls with TERM so the wrapper's trap can forward to the browser" do
       # kill -9 here orphans the browser: SIGKILL skips the wrapper's trap,
