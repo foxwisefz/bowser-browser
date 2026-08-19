@@ -21,6 +21,11 @@
     var m = document.querySelector("video, audio");
     if (m && m.duration) { clearInterval(iv); return; } // stream is up — the media hook takes over
     if (++tries > 120) { clearInterval(iv); return; }   // give up after ~60s
+    // NEVER click while a play is in flight (m exists, paused=false, no
+    // duration yet — the stream is attaching): the play/pause control
+    // TOGGLES, and a second click flips the resume back off. That race
+    // parity decided whether music came back (bowser-browser-8i6).
+    if (m && !m.paused) return;
     var b = document.querySelector("#play-pause-button");
     if (b) b.click();
   }, 500);
