@@ -57,6 +57,50 @@ defmodule BowserBrain.ModSmithTest do
     end
   end
 
+  describe "parse_followup/1" do
+    test "bare refinement targets the latest session" do
+      assert ModSmith.parse_followup(" make it smaller") == {:latest, "make it smaller"}
+    end
+
+    test "digit glued to do+ selects a session by number" do
+      assert ModSmith.parse_followup("2 make it smaller") == {2, "make it smaller"}
+    end
+
+    test "a request starting with a number is NOT a selector (space after do+)" do
+      assert ModSmith.parse_followup(" 2x faster panning") == {:latest, "2x faster panning"}
+    end
+
+    test "selector with no request peeks at that session" do
+      assert ModSmith.parse_followup("3") == {3, ""}
+    end
+
+    test "empty input is a noop" do
+      assert ModSmith.parse_followup("") == {:latest, ""}
+    end
+  end
+
+  describe "remember_session/2" do
+    defp entry(id, at \\ 0), do: %{id: id, request: "r", summary: "s", host: "h", at: at}
+
+    test "a new session is prepended" do
+      assert [%{id: "b"}, %{id: "a"}] =
+               ModSmith.remember_session([entry("a")], entry("b"))
+    end
+
+    test "a refinement replaces its lineage entry and moves it to the front" do
+      sessions = [entry("a"), entry("b"), entry("c")]
+      updated = %{id: "b2", request: "r2", summary: "s2", host: "h", at: 1, refined: "b"}
+      assert [%{id: "b2"}, %{id: "a"}, %{id: "c"}] =
+               ModSmith.remember_session(sessions, updated)
+    end
+
+    test "history is capped at 8" do
+      sessions = for i <- 1..8, do: entry("s#{i}")
+      assert length(ModSmith.remember_session(sessions, entry("new"))) == 8
+      assert [%{id: "new"} | _] = ModSmith.remember_session(sessions, entry("new"))
+    end
+  end
+
   describe "timeout_ms/1" do
     test "defaults to 10 minutes when unset" do
       assert ModSmith.timeout_ms(nil) == 600_000

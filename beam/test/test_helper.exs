@@ -8,4 +8,10 @@ Application.put_env(
   Path.join(System.tmp_dir!(), "bowser-test-session.json")
 )
 
+Application.put_env(
+  :bowser_brain,
+  :modsmith_sessions_path,
+  Path.join(System.tmp_dir!(), "bowser-test-modsmith-sessions.json")
+)
+
 ExUnit.start()

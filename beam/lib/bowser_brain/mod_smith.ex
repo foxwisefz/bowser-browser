@@ -25,13 +25,18 @@ defmodule BowserBrain.ModSmith do
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
-    {:ok, %{active: 0, urls: %{}, busy: nil, session: nil, last_summary: nil}}
+    # sessions: numbered refinement history, newest first, persisted to disk —
+    # the claude CLI keeps its transcripts on disk, so --resume stays valid
+    # across brain AND engine restarts (bowser-browser-lv4).
+    {:ok, %{active: 0, urls: %{}, busy: nil, sessions: load_sessions(), last_status: "Ready."}}
   end
 
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     BowserBrain.Chrome.register_command("do", "ModSmith — new request")
-    BowserBrain.Chrome.register_command("do+", "ModSmith — refine the last one")
+    BowserBrain.Chrome.register_command("do+", "ModSmith — refine (do+N picks a session)")
+    # IRON RULE: the panel is shell state and died with the engine — re-show.
+    render(state)
     {:noreply, state}
   end
 
@@ -43,23 +48,36 @@ defmodule BowserBrain.ModSmith do
     {:noreply, %{state | urls: Map.put(state.urls, wv, url)}}
   end
 
-  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do+ " <> request}}, state) do
-    request = String.trim(request)
+  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do+" <> rest}}, state) do
+    {target, request} = parse_followup(rest)
 
     cond do
       state.busy != nil ->
-        status(["Busy with:", state.busy], :caption)
+        render(state, "Busy with: #{state.busy}")
         {:noreply, state}
 
-      state.session == nil ->
-        status(["No previous ModSmith session —", "use :do to start one"], :caption)
-        {:noreply, state}
-
-      request == "" ->
+      state.sessions == [] ->
+        render(state, "No sessions yet — :do to start one")
         {:noreply, state}
 
       true ->
-        {:noreply, start_request(request, state, resume: state.session)}
+        case fetch_session(state.sessions, target) do
+          nil ->
+            render(state, "No session ##{target} — panel lists what exists")
+            {:noreply, state}
+
+          _session when request == "" and is_integer(target) ->
+            # `:do+N` alone: peek at what that number refers to.
+            {n, s} = {target, Enum.at(state.sessions, target - 1)}
+            render(state, "##{n}: #{s.request} → #{s.summary}")
+            {:noreply, state}
+
+          _session when request == "" ->
+            {:noreply, state}
+
+          session ->
+            {:noreply, start_request(request, state, resume: session.id)}
+        end
     end
   end
 
@@ -68,7 +86,7 @@ defmodule BowserBrain.ModSmith do
 
     cond do
       state.busy != nil ->
-        status(["Busy with:", state.busy], :caption)
+        render(state, "Busy with: #{state.busy}")
         {:noreply, state}
 
       request == "" ->
@@ -79,19 +97,37 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  def handle_info({:smith_done, request, session, result}, state) do
-    state = if session, do: %{state | session: session}, else: state
-
+  def handle_info({:smith_done, request, session, resumed, host, result}, state) do
     case result do
       {:ok, summary, installed} ->
         Logger.info("modsmith: #{summary} — installed #{Enum.join(installed, ", ")}")
-        status(["Done: #{summary}"] ++ installed ++ ["(refine with :do+ …)"], :caption)
-        {:noreply, %{state | busy: nil, last_summary: summary}}
+
+        sessions =
+          if session do
+            # A --resume produces a NEW session id continuing the old
+            # lineage: the refined entry is replaced, not duplicated.
+            remember_session(state.sessions, %{
+              id: session,
+              request: request,
+              summary: summary,
+              host: host,
+              at: System.system_time(:millisecond),
+              refined: resumed
+            })
+          else
+            state.sessions
+          end
+
+        persist_sessions(sessions)
+        state = %{state | busy: nil, sessions: sessions, last_status: "Done: #{summary}"}
+        render(state)
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.error("modsmith: #{request} failed: #{reason}")
-        status(["Failed:", reason], :caption)
-        {:noreply, %{state | busy: nil}}
+        state = %{state | busy: nil, last_status: "Failed: #{String.slice(reason, 0, 120)}"}
+        render(state)
+        {:noreply, state}
     end
   end
 
@@ -121,16 +157,76 @@ defmodule BowserBrain.ModSmith do
         build_prompt(request, url, host, page_digest(state.active), SiteMods.payloads_for(host))
       end
 
-    status(["Working on:", request], :caption)
+    render(%{state | busy: request}, "Working on: #{request}")
     parent = self()
 
     Task.start(fn ->
       {session, result} = run_claude(prompt, resume)
-      send(parent, {:smith_done, request, session, result && install(result, host)})
+      send(parent, {:smith_done, request, session, resume, host, result && install(result, host)})
     end)
 
     %{state | busy: request}
   end
+
+  @doc """
+  Parse the text after `:do+`. A digit GLUED to the plus selects a session
+  (`do+2 tighter cards` → `{2, "tighter cards"}`); with a space it's just a
+  request that happens to start with a number (`do+ 2x faster` → latest).
+  `do+N` alone peeks. Public for tests.
+  """
+  def parse_followup(rest) do
+    case Integer.parse(rest) do
+      {n, remainder} when n > 0 and (remainder == "" or binary_part(remainder, 0, 1) == " ") ->
+        {n, String.trim(remainder)}
+
+      _ ->
+        {:latest, String.trim(rest)}
+    end
+  end
+
+  @doc """
+  Add a finished run to the history: replaces its own id and the id it
+  refined (lineage), newest first, capped at 8. Public for tests.
+  """
+  def remember_session(sessions, entry) do
+    lineage = Map.get(entry, :refined)
+    entry = Map.delete(entry, :refined)
+
+    sessions
+    |> Enum.reject(fn s -> s.id == entry.id or (lineage != nil and s.id == lineage) end)
+    |> then(&[entry | &1])
+    |> Enum.take(8)
+  end
+
+  defp fetch_session(sessions, :latest), do: List.first(sessions)
+  defp fetch_session(sessions, n) when is_integer(n), do: Enum.at(sessions, n - 1)
+
+  defp sessions_path do
+    Application.get_env(
+      :bowser_brain,
+      :modsmith_sessions_path,
+      Path.join(System.user_home!(), ".bowser/modsmith-sessions.json")
+    )
+  end
+
+  defp load_sessions do
+    with {:ok, raw} <- File.read(sessions_path()),
+         {:ok, list} when is_list(list) <- JSON.decode(raw) do
+      for %{"id" => id} = s <- list do
+        %{
+          id: id,
+          request: Map.get(s, "request", "?"),
+          summary: Map.get(s, "summary", "?"),
+          host: Map.get(s, "host", "?"),
+          at: Map.get(s, "at", 0)
+        }
+      end
+    else
+      _ -> []
+    end
+  end
+
+  defp persist_sessions(sessions), do: File.write(sessions_path(), JSON.encode!(sessions))
 
   defp page_digest(webview) do
     probe = """
@@ -398,10 +494,27 @@ defmodule BowserBrain.ModSmith do
     path
   end
 
-  defp status(lines, style) do
+  # The panel is persistent chrome now: headline (current activity or last
+  # outcome) + the numbered session history that :do+N indexes into.
+  defp render(state, headline \\ nil) do
+    session_lines =
+      state.sessions
+      |> Enum.with_index(1)
+      |> Enum.map(fn {s, i} ->
+        text("#{i}. #{String.slice(s.summary, 0, 44)} — #{s.host}", style: :caption)
+      end)
+
     Surface.show(
       :modsmith,
-      vstack([text("ModSmith", style: :title)] ++ Enum.map(lines, &text(&1, style: style))),
+      vstack(
+        [
+          text("ModSmith", style: :title),
+          text(headline || state.last_status, style: :caption),
+          divider()
+        ] ++
+          session_lines ++
+          [text(":do new · :do+ refine last · :do+N refine #N", style: :caption)]
+      ),
       title: "ModSmith",
       anchor: :right_of_main,
       width: 260
