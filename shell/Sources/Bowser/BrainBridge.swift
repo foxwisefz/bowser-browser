@@ -292,6 +292,11 @@ final class BrainBridge {
         case "close_tab":
             BrowserWindowController.host(of: requested)?.closeTab(id: requested)
 
+        case "restore_done":
+            // Session finished restoring and this webview is the active one:
+            // the freeze-frame yields when IT paints (bowser-browser-6fa).
+            BrowserWindowController.host(of: requested)?.restoreDidComplete(id: requested)
+
         case "warm_tab":
             // Invisible short mount so a background page can cold-start its
             // media pipeline (bowser-browser-hj1). No focus, nothing on

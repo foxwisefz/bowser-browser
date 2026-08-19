@@ -67,6 +67,10 @@ defmodule BowserBrain.Session do
       0 ->
         Logger.info("session: restore complete — activating webview #{wv}")
         Surface.activate_tab(wv)
+        # The shell's freeze-frame holds until the RESTORED ACTIVE tab
+        # paints — dismissing on any earlier paint shows a mid-restore
+        # double-switch (bowser-browser-6fa).
+        Bridge.cast_msg(%{op: "restore_done", webview: wv})
         {:noreply, %{state | restore: nil}}
 
       left ->
@@ -140,8 +144,14 @@ defmodule BowserBrain.Session do
     for url <- rest, do: Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url})
 
     case min(active_idx, length(rest)) do
-      0 -> nil
-      n -> %{remaining: n}
+      0 ->
+        # The visible first tab IS the active one: restore is complete the
+        # moment it paints.
+        Bridge.cast_msg(%{op: "restore_done", webview: first_webview})
+        nil
+
+      n ->
+        %{remaining: n}
     end
   end
 

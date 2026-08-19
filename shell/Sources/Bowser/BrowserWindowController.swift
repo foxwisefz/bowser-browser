@@ -153,8 +153,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         resurrectOverlay = overlay
         // The frame must never outstay its welcome: if the restore is slow
         // or the paint signal is missed, drop it anyway.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
             self?.dismissResurrectOverlay()
+        }
+    }
+
+    /// Which webview's paint releases the freeze-frame: set by the brain's
+    /// restore_done. Dismissing on any earlier paint shows the mid-restore
+    /// double-switch (first tab loads urls[0] before activation).
+    private var pendingRestorePaint: UInt64?
+
+    func restoreDidComplete(id: UInt64) {
+        guard resurrectOverlay != nil else { return }
+        guard let view = tabs.first(where: { $0.webviewId == id }) else {
+            dismissResurrectOverlay()
+            return
+        }
+        if view.webView.isLoading {
+            pendingRestorePaint = id
+        } else {
+            dismissResurrectOverlay()
         }
     }
 
@@ -169,10 +187,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         })
     }
 
-    /// A webview finished painting; if it's the one on screen, the past can
-    /// yield to the present.
+    /// A webview finished painting; if it's the restore's designated active
+    /// tab, the past can yield to the present.
     func engineDidPaint(_ view: EngineView) {
-        if view === activeTab { dismissResurrectOverlay() }
+        if view.webviewId == pendingRestorePaint {
+            pendingRestorePaint = nil
+            dismissResurrectOverlay()
+        }
     }
 
     // MARK: - Tabs

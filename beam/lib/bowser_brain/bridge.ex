@@ -10,7 +10,9 @@ defmodule BowserBrain.Bridge do
   use GenServer
   require Logger
 
-  @reconnect_ms 1_000
+  # Fast reconnect: during a blue-green roll this delay is dead time between
+  # the old engine dying and restore/panels reappearing in the new one.
+  @reconnect_ms 250
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
