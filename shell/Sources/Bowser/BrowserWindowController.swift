@@ -285,6 +285,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         min(max(requested ?? 8000, 1000), 30000)
     }
 
+    /// ⌘⇧←/→: cycle the window's tab order, wrapping at the ends.
+    func activateAdjacentTab(offset: Int) {
+        guard tabs.count > 1, let active = activeTab,
+              let index = tabs.firstIndex(where: { $0 === active })
+        else { return }
+        activate(tabs[Self.wrappedIndex(index + offset, count: tabs.count)])
+    }
+
+    static func wrappedIndex(_ index: Int, count: Int) -> Int {
+        ((index % count) + count) % count
+    }
+
     @discardableResult
     func activateTab(id: UInt64) -> Bool {
         guard let view = tabs.first(where: { $0.webviewId == id }) else { return false }

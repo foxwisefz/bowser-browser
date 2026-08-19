@@ -15,7 +15,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // WKWebView (as first responder) claims ⌘-key equivalents before the
         // menu ever sees them — intercept ours ahead of window dispatch.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // ⌘⇧[ / ⌘⇧] cycle tabs (Safari muscle memory; arrows would
+            // collide with select-to-line-edge in text fields).
+            if flags == [.command, .shift] {
+                switch event.charactersIgnoringModifiers {
+                case "[":
+                    self?.currentController?.activateAdjacentTab(offset: -1)
+                    return nil
+                case "]":
+                    self?.currentController?.activateAdjacentTab(offset: 1)
+                    return nil
+                default:
+                    return event
+                }
+            }
+            guard flags == .command,
                   let key = event.charactersIgnoringModifiers?.lowercased()
             else { return event }
             switch key {
@@ -132,6 +147,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentController?.activeTab?.webView.reload()
     }
 
+    @objc func previousTab(_ sender: Any?) { currentController?.activateAdjacentTab(offset: -1) }
+    @objc func nextTabInOrder(_ sender: Any?) { currentController?.activateAdjacentTab(offset: 1) }
+
     @objc func zoomIn(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 1) }
     @objc func zoomOut(_ sender: Any?) { currentController?.activeTab?.zoom(direction: -1) }
     @objc func actualSize(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 0) }
@@ -222,6 +240,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let goMenu = NSMenu(title: "Go")
         goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
+        goMenu.addItem(.separator())
+        let previousItem = goMenu.addItem(
+            withTitle: "Previous Tab", action: #selector(previousTab(_:)), keyEquivalent: "["
+        )
+        previousItem.keyEquivalentModifierMask = [.command, .shift]
+        let nextItem = goMenu.addItem(
+            withTitle: "Next Tab", action: #selector(nextTabInOrder(_:)), keyEquivalent: "]"
+        )
+        nextItem.keyEquivalentModifierMask = [.command, .shift]
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
 

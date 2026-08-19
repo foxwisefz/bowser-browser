@@ -93,6 +93,15 @@ final class InjectedHookTests: XCTestCase {
     }
 }
 
+final class TabCyclingTests: XCTestCase {
+    @MainActor func testWrapsBothDirections() {
+        XCTAssertEqual(BrowserWindowController.wrappedIndex(1, count: 3), 1)
+        XCTAssertEqual(BrowserWindowController.wrappedIndex(3, count: 3), 0)   // forward wrap
+        XCTAssertEqual(BrowserWindowController.wrappedIndex(-1, count: 3), 2)  // backward wrap
+        XCTAssertEqual(BrowserWindowController.wrappedIndex(0, count: 1), 0)
+    }
+}
+
 final class ZoomTests: XCTestCase {
     @MainActor func testStepsAndClamps() {
         XCTAssertEqual(EngineView.steppedZoom(1.0, direction: 1), 1.1, accuracy: 0.001)
