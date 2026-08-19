@@ -208,6 +208,31 @@ final class SurfaceManager {
         positionEdge(id: id, panel: panel, animated: true)
     }
 
+    /// Tab-switch pulse (bowser-browser-kt2): slide every edge surface out
+    /// briefly so in-dock feedback (the active-icon bounce) is actually
+    /// visible past the collapsed peek sliver, then retract. Generation
+    /// token so overlapping pulses don't collapse early; a cursor already
+    /// over the panel wins — retracting under the pointer would fight the
+    /// proximity tracking.
+    private var pulseGeneration = 0
+
+    func pulseEdges(for seconds: TimeInterval = 1.4) {
+        pulseGeneration += 1
+        let generation = pulseGeneration
+        for id in edgeConfigs.keys {
+            setEdgeRevealed(id, true)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard let self, self.pulseGeneration == generation else { return }
+            for id in self.edgeConfigs.keys {
+                guard let panel = self.panels[id] else { continue }
+                if !NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) {
+                    self.setEdgeRevealed(id, false)
+                }
+            }
+        }
+    }
+
     private func positionEdge(id: String, panel: NSPanel, animated: Bool) {
         guard let config = edgeConfigs[id] else { return }
 

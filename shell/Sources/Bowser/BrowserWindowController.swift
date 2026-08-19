@@ -242,6 +242,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             // keyboard to the page that's actually on screen.
             window?.makeFirstResponder(view.webView)
             adoptChrome(from: view)
+            // Show the dock's reaction: collapsed edge surfaces slide out
+            // for a beat so the active-icon bounce is visible.
+            SurfaceManager.shared.pulseEdges()
             // Refresh the resurrect frame soon after the switch paints, so
             // a death right after a tab change resurrects the right tab.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self, weak view] in
