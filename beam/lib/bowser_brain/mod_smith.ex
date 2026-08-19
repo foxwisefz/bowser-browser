@@ -298,6 +298,10 @@ defmodule BowserBrain.ModSmith do
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
     BowserBrain.Chrome.add_button(id, title, symbol: "sfsymbol");
+    BowserBrain.Chrome.add_menu_item(id, title, key: "e"?) — item in the native View
+    menu (key: optional single-char ⌘-equivalent); clicks arrive as "chrome_click"(id)
+    exactly like buttons; Chrome.remove_menu_item(id). The View menu already has
+    Reload ⌘R, Actual Size/Zoom In/Out ⌘0/⌘+/⌘-, Enter Full Screen — never duplicate those.
     BowserBrain.Surface.show(id, view, title: "T", anchor: :right_of_main) with
     import BowserBrain.View: vstack/hstack(list, opts), text(v, style: :title|:caption),
     button(label, event:, payload:, active:, symbol:, indent:), slider(event, min:, max:,

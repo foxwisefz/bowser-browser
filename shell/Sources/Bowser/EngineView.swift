@@ -188,6 +188,18 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     @objc func goBack(_ sender: Any?) { webView.goBack() }
     @objc func goForward(_ sender: Any?) { webView.goForward() }
 
+    /// One zoom step (View menu / ⌘+ ⌘− ⌘0): 0.1 per step, clamped to
+    /// 0.5–3.0; direction 0 resets to Actual Size.
+    static func steppedZoom(_ current: Double, direction: Int) -> Double {
+        guard direction != 0 else { return 1.0 }
+        let next = ((current + Double(direction) * 0.1) * 10).rounded() / 10
+        return min(max(next, 0.5), 3.0)
+    }
+
+    func zoom(direction: Int) {
+        webView.pageZoom = Self.steppedZoom(Double(webView.pageZoom), direction: direction)
+    }
+
     /// nil = leave that kind untouched; [] = clear. Applies on reload.
     func applyUserContent(scripts: [String]?, styles: [String]?, reload: Bool) {
         if let scripts { currentScripts = scripts }

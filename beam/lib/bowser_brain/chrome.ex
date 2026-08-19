@@ -30,6 +30,27 @@ defmodule BowserBrain.Chrome do
   end
 
   @doc """
+  Add (or replace) an item in the native View menu. `key:` is an optional
+  ⌘-key equivalent (single character). Clicks arrive as `chrome_click`
+  events with this id — same contract as buttons. Shell state: re-assert
+  on "hello".
+  """
+  def add_menu_item(id, title, opts \\ []) do
+    Bridge.cast_msg(%{
+      op: "chrome",
+      chrome: "add_menu_item",
+      id: id,
+      title: title,
+      key: Keyword.get(opts, :key)
+    })
+  end
+
+  @doc "Remove a View-menu item by id."
+  def remove_menu_item(id) do
+    Bridge.cast_msg(%{op: "chrome", chrome: "remove_menu_item", id: id})
+  end
+
+  @doc """
   Register an omnibar command for visual recognition: while the user types
   `:name …`, the omnibar shows `hint`. Re-register on "hello" (shell state
   dies with the engine).

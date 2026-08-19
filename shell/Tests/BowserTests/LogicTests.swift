@@ -93,6 +93,37 @@ final class InjectedHookTests: XCTestCase {
     }
 }
 
+final class ZoomTests: XCTestCase {
+    @MainActor func testStepsAndClamps() {
+        XCTAssertEqual(EngineView.steppedZoom(1.0, direction: 1), 1.1, accuracy: 0.001)
+        XCTAssertEqual(EngineView.steppedZoom(1.1, direction: 1), 1.2, accuracy: 0.001)
+        XCTAssertEqual(EngineView.steppedZoom(1.0, direction: -1), 0.9, accuracy: 0.001)
+        XCTAssertEqual(EngineView.steppedZoom(3.0, direction: 1), 3.0, accuracy: 0.001)
+        XCTAssertEqual(EngineView.steppedZoom(0.5, direction: -1), 0.5, accuracy: 0.001)
+        // direction 0 = Actual Size.
+        XCTAssertEqual(EngineView.steppedZoom(2.3, direction: 0), 1.0, accuracy: 0.001)
+    }
+}
+
+final class MenuItemTests: XCTestCase {
+    // Mod menu items are ChromeSurface state driven by chrome ops, same
+    // replace-by-id semantics as buttons (headless: no AppDelegate, the
+    // menu rebuild is a no-op).
+    @MainActor func testAddReplaceRemoveMenuItems() {
+        ChromeSurface.handle(["chrome": "add_menu_item", "id": "m1", "title": "First"])
+        ChromeSurface.handle(["chrome": "add_menu_item", "id": "m2", "title": "Second", "key": "e"])
+        XCTAssertEqual(ChromeSurface.menuItems.map(\.id), ["m1", "m2"])
+        XCTAssertEqual(ChromeSurface.menuItems.last?.key, "e")
+
+        ChromeSurface.handle(["chrome": "add_menu_item", "id": "m1", "title": "Renamed"])
+        XCTAssertEqual(ChromeSurface.menuItems.map(\.title), ["Second", "Renamed"])
+
+        ChromeSurface.handle(["chrome": "remove_menu_item", "id": "m2"])
+        ChromeSurface.handle(["chrome": "remove_menu_item", "id": "m1"])
+        XCTAssertTrue(ChromeSurface.menuItems.isEmpty)
+    }
+}
+
 final class UserContentStoreTests: XCTestCase {
     // New webviews must be born with the brain's last-pushed content —
     // set_user_content only reaches tabs alive at push time, so without the

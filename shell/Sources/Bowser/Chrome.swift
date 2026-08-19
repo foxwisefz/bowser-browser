@@ -12,7 +12,16 @@ enum ChromeSurface {
         let symbol: String?
     }
 
+    struct ModMenuItem: Equatable {
+        let id: String
+        let title: String
+        let key: String?
+    }
+
     private(set) static var buttons: [ModButton] = []
+    /// Mod-owned entries appended to the native View menu; clicks come back
+    /// as chrome_click, exactly like band buttons.
+    private(set) static var menuItems: [ModMenuItem] = []
     /// Registered omnibar commands: name → hint (shown while typing).
     private(set) static var commands: [String: String] = [:]
     private static var controllers: [ObjectIdentifier: BrowserWindowController] = [:]
@@ -44,6 +53,22 @@ enum ChromeSurface {
         case "remove_button":
             guard let id = object["id"] as? String else { return }
             buttons.removeAll { $0.id == id }
+        case "add_menu_item":
+            guard let id = object["id"] as? String else { return }
+            menuItems.removeAll { $0.id == id }
+            menuItems.append(ModMenuItem(
+                id: id,
+                title: object["title"] as? String ?? id,
+                key: object["key"] as? String
+            ))
+            // NSApplication.shared, not NSApp: NSApp is nil in headless tests.
+            (NSApplication.shared.delegate as? AppDelegate)?.rebuildModMenuItems()
+            return
+        case "remove_menu_item":
+            guard let id = object["id"] as? String else { return }
+            menuItems.removeAll { $0.id == id }
+            (NSApplication.shared.delegate as? AppDelegate)?.rebuildModMenuItems()
+            return
         case "register_command":
             guard let name = object["name"] as? String else { return }
             commands[name] = object["hint"] as? String ?? name

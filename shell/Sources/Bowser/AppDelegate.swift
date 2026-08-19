@@ -10,20 +10,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
 
         // WKWebView (as first responder) claims ⌘-key equivalents before the
-        // menu ever sees them — intercept ⌘K/⌘L/⌘R ahead of window dispatch.
+        // menu ever sees them — intercept ours ahead of window dispatch.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  let key = event.charactersIgnoringModifiers?.lowercased(),
-                  key == "k" || key == "l" || key == "r"
+                  let key = event.charactersIgnoringModifiers?.lowercased()
             else { return event }
-            if key == "r" {
+            switch key {
+            case "k", "l":
+                if let controller = self?.currentController {
+                    CommandBar.shared.show(for: controller)
+                }
+                return nil
+            case "r":
                 self?.currentController?.activeTab?.webView.reload()
                 return nil
+            case "=", "+":
+                self?.currentController?.activeTab?.zoom(direction: 1)
+                return nil
+            case "-":
+                self?.currentController?.activeTab?.zoom(direction: -1)
+                return nil
+            case "0":
+                self?.currentController?.activeTab?.zoom(direction: 0)
+                return nil
+            default:
+                return event
             }
-            if let controller = self?.currentController {
-                CommandBar.shared.show(for: controller)
-            }
-            return nil
         }
     }
 
@@ -113,6 +125,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentController?.activeTab?.webView.reload()
     }
 
+    @objc func zoomIn(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 1) }
+    @objc func zoomOut(_ sender: Any?) { currentController?.activeTab?.zoom(direction: -1) }
+    @objc func actualSize(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 0) }
+
+    @objc private func modMenuClick(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
+    }
+
+    private var viewMenu: NSMenu?
+    /// Mod-owned View-menu entries (tagged so rebuilds only touch ours).
+    private static let modItemTag = 777
+
+    func rebuildModMenuItems() {
+        guard let viewMenu else { return }
+        while let index = viewMenu.items.firstIndex(where: { $0.tag == Self.modItemTag }) {
+            viewMenu.removeItem(at: index)
+        }
+        guard !ChromeSurface.menuItems.isEmpty else { return }
+        let separator = NSMenuItem.separator()
+        separator.tag = Self.modItemTag
+        viewMenu.addItem(separator)
+        for item in ChromeSurface.menuItems {
+            let menuItem = NSMenuItem(
+                title: item.title,
+                action: #selector(modMenuClick(_:)),
+                keyEquivalent: item.key ?? ""
+            )
+            menuItem.tag = Self.modItemTag
+            menuItem.representedObject = item.id
+            viewMenu.addItem(menuItem)
+        }
+    }
+
     private func buildMenu() {
         let mainMenu = NSMenu()
 
@@ -143,11 +189,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        let viewMenuItem = NSMenuItem()
+        let view = NSMenu(title: "View")
+        view.addItem(withTitle: "Reload Page", action: #selector(reloadPage(_:)), keyEquivalent: "r")
+        view.addItem(.separator())
+        view.addItem(withTitle: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0")
+        view.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "+")
+        view.addItem(withTitle: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
+        view.addItem(.separator())
+        let fullScreen = view.addItem(
+            withTitle: "Enter Full Screen",
+            action: #selector(NSWindow.toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        viewMenuItem.submenu = view
+        mainMenu.addItem(viewMenuItem)
+        viewMenu = view
+        rebuildModMenuItems()
+
         let goMenuItem = NSMenuItem()
         let goMenu = NSMenu(title: "Go")
         goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
-        goMenu.addItem(withTitle: "Reload Page", action: #selector(reloadPage(_:)), keyEquivalent: "r")
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
 
