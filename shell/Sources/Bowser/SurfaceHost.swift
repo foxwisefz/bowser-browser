@@ -305,9 +305,30 @@ final class SurfaceManager {
 
         position(panel, anchor: anchor)
         panel.orderFront(nil)
+        // Child of the browser window (like overlays/edges already are):
+        // the panel comes forward whenever the main window does and follows
+        // it around the screen (bowser-browser-fwz).
+        if let main = NSApp.mainWindow ?? BrowserWindowController.all.last?.window,
+           main !== panel {
+            main.addChildWindow(panel, ordered: .above)
+        }
         panel.invalidateShadow()
         panels[id] = panel
         hostings[id] = hosting
+    }
+
+    /// Focus follows the main window: re-front every live surface and adopt
+    /// orphans (their parent window was closed). Screen-attached edges are
+    /// deliberately independent (macOS-Dock style) — front them, never
+    /// re-parent them.
+    func orderAllFront(parent: NSWindow) {
+        for (id, panel) in panels where panel !== parent {
+            let screenAttached = edgeConfigs[id]?.attach == "screen"
+            if !screenAttached, panel.parent == nil {
+                parent.addChildWindow(panel, ordered: .above)
+            }
+            panel.orderFront(nil)
+        }
     }
 
     private static func roundedMask(radius: CGFloat) -> NSImage {
