@@ -93,6 +93,27 @@ final class InjectedHookTests: XCTestCase {
     }
 }
 
+final class UserContentStoreTests: XCTestCase {
+    // New webviews must be born with the brain's last-pushed content —
+    // set_user_content only reaches tabs alive at push time, so without the
+    // store, tabs opened later carry no site payloads (bowser-browser-1af).
+    @MainActor func testRememberFollowsPutSemantics() {
+        EngineView.rememberUserContent(scripts: ["a"], styles: ["s"])
+        XCTAssertEqual(EngineView.sharedScripts, ["a"])
+        XCTAssertEqual(EngineView.sharedStyles, ["s"])
+
+        // nil = leave that kind untouched (matches applyUserContent).
+        EngineView.rememberUserContent(scripts: ["b"], styles: nil)
+        XCTAssertEqual(EngineView.sharedScripts, ["b"])
+        XCTAssertEqual(EngineView.sharedStyles, ["s"])
+
+        // [] = clear.
+        EngineView.rememberUserContent(scripts: [], styles: [])
+        XCTAssertEqual(EngineView.sharedScripts, [])
+        XCTAssertEqual(EngineView.sharedStyles, [])
+    }
+}
+
 final class WarmTabTests: XCTestCase {
     @MainActor func testWarmDurationDefaultsAndClamps() {
         XCTAssertEqual(BrowserWindowController.warmDuration(nil), 8000)

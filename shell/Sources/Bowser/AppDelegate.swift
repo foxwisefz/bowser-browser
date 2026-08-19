@@ -10,12 +10,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
 
         // WKWebView (as first responder) claims ⌘-key equivalents before the
-        // menu ever sees them — intercept ⌘K/⌘L ahead of window dispatch.
+        // menu ever sees them — intercept ⌘K/⌘L/⌘R ahead of window dispatch.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                   let key = event.charactersIgnoringModifiers?.lowercased(),
-                  key == "k" || key == "l"
+                  key == "k" || key == "l" || key == "r"
             else { return event }
+            if key == "r" {
+                self?.currentController?.activeTab?.webView.reload()
+                return nil
+            }
             if let controller = self?.currentController {
                 CommandBar.shared.show(for: controller)
             }
@@ -105,6 +109,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentController?.window?.close()
     }
 
+    @objc func reloadPage(_ sender: Any?) {
+        currentController?.activeTab?.webView.reload()
+    }
+
     private func buildMenu() {
         let mainMenu = NSMenu()
 
@@ -139,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let goMenu = NSMenu(title: "Go")
         goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
+        goMenu.addItem(withTitle: "Reload Page", action: #selector(reloadPage(_:)), keyEquivalent: "r")
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
 

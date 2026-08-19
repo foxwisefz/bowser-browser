@@ -271,6 +271,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             },
             goBack: { [weak self] in self?.activeTab?.webView.goBack() },
             goForward: { [weak self] in self?.activeTab?.webView.goForward() },
+            reload: { [weak self] in self?.activeTab?.webView.reload() },
             modClick: { id in
                 ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
             }
@@ -345,6 +346,7 @@ private struct CmdCluster: View {
     let openBar: () -> Void
     let goBack: () -> Void
     let goForward: () -> Void
+    let reload: () -> Void
     let modClick: (String) -> Void
 
     @State private var hovering = false
@@ -378,6 +380,8 @@ private struct CmdCluster: View {
             if hovering {
                 clusterButton("chevron.left", action: goBack)
                 clusterButton("chevron.right", action: goForward)
+                clusterButton("arrow.clockwise", action: reload)
+                    .help("Reload this tab (⌘R)")
                 ForEach(ChromeSurface.buttons, id: \.id) { button in
                     clusterButton(button.symbol ?? "puzzlepiece.extension") {
                         modClick(button.id)

@@ -224,6 +224,9 @@ final class BrainBridge {
             let scripts = message["scripts"] as? [String]
             let styles = message["styles"] as? [String]
             let reload = message["reload"] as? Bool ?? true
+            // Remember for webviews that don't exist yet — new tabs seed
+            // from this store instead of being born unmodded.
+            EngineView.rememberUserContent(scripts: scripts, styles: styles)
             // webview 0 = ALL tabs: injected content is conceptually global
             // (site payloads + mod scripts self-guard by hostname). Targeting
             // only the lowest-id tab left every other tab unmodded.

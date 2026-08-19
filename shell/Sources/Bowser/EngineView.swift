@@ -61,6 +61,20 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     private var currentScripts: [String] = []
     private var currentStyles: [String] = []
 
+    // The brain's last-pushed user content. set_user_content only reaches
+    // webviews alive at push time — a tab opened later was born UNMODDED
+    // (no site payloads, no mod scripts) until the next push
+    // (bowser-browser-1af). New views seed from here instead.
+    private(set) static var sharedScripts: [String] = []
+    private(set) static var sharedStyles: [String] = []
+
+    /// Same nil/[] semantics as applyUserContent: nil leaves that kind
+    /// untouched, [] clears it.
+    static func rememberUserContent(scripts: [String]?, styles: [String]?) {
+        if let scripts { sharedScripts = scripts }
+        if let styles { sharedStyles = styles }
+    }
+
     private static let consoleHook = """
     (function () {
       ["log", "warn", "error", "info"].forEach(function (level) {
@@ -121,6 +135,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         pageRelay.view = self
         configuration.userContentController.add(pageRelay, name: "bowserConsole")
         configuration.userContentController.add(pageRelay, name: "bowserEmit")
+        currentScripts = Self.sharedScripts
+        currentStyles = Self.sharedStyles
         rebuildUserScripts()
 
         webView.navigationDelegate = self
