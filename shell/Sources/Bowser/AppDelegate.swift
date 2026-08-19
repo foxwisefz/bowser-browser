@@ -5,6 +5,9 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        // Before any webview exists: embedded players need real third-party
+        // cookies (bowser-browser-yll).
+        EngineView.disableTrackingPrevention()
         BrainBridge.shared.start()
         openWindow()
         NSApp.activate()

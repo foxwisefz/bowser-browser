@@ -133,6 +133,20 @@ final class MenuItemTests: XCTestCase {
     }
 }
 
+import WebKit
+
+final class TrackingPreventionTests: XCTestCase {
+    // Embedded players (YouTube on fabstation.com) need third-party cookie
+    // access to see the owner's login; ITP partitions them away
+    // (bowser-browser-yll). The switch-off must take — and report honestly
+    // if the SPI ever vanishes.
+    @MainActor func testDisablesITPOnTheDefaultStore() {
+        let store = WKWebsiteDataStore.default()
+        XCTAssertTrue(EngineView.disableTrackingPrevention(on: store))
+        XCTAssertEqual(store.value(forKey: "resourceLoadStatisticsEnabled") as? Bool, false)
+    }
+}
+
 final class PopupConfigurationTests: XCTestCase {
     // The link-click crash (bowser-browser-pi1): createWebViewWith hands us
     // the OPENER's configuration — its user content controller already has

@@ -314,6 +314,22 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    /// ITP partitions third-party iframe cookies, so embedded players
+    /// (YouTube inside fabstation.com) can't see the owner's login and
+    /// demand sign-in (bowser-browser-yll). One owner, one machine: switch
+    /// tracking prevention off on the shared store. SPI via KVC
+    /// (_setResourceLoadStatisticsEnabled:), guarded so an OS that drops it
+    /// degrades to a no-op instead of crashing. Returns whether it took.
+    @discardableResult
+    static func disableTrackingPrevention(on store: WKWebsiteDataStore = .default()) -> Bool {
+        guard store.responds(to: NSSelectorFromString("_setResourceLoadStatisticsEnabled:")) else {
+            NSLog("Bowser: ITP SPI missing — third-party embeds may demand sign-in")
+            return false
+        }
+        store.setValue(false, forKey: "resourceLoadStatisticsEnabled")
+        return true
+    }
+
     /// Popups arrive with the OPENER's configuration — its controller
     /// already has these handlers, and a duplicate add() throws an uncaught
     /// NSException: every target=_blank link click aborted the app
