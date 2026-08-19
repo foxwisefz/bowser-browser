@@ -363,6 +363,67 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: WKNavigationDelegate
 
+    /// What a click on a link should do to the tab strip.
+    enum TabIntent {
+        /// Navigate the tab that was clicked in — the ordinary case.
+        case sameTab
+        /// Open a new tab, leave the user where they are (⌘+click).
+        case backgroundTab
+        /// Open a new tab and switch to it (⌘⇧+click).
+        case foregroundTab
+    }
+
+    /// ⌘+click = new tab behind, ⌘⇧+click = new tab in front — the same
+    /// contract every mac browser ships (bowser-browser-0ia). Pure so it can
+    /// be tested without an event loop: WebKit hands us these two facts and
+    /// nothing else matters. Only a link ACTIVATION counts — ⌘ is also held
+    /// for ⌘R and ⌘←, and a reload must never spawn a tab.
+    static func linkClickIntent(
+        navigationType: WKNavigationType,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> TabIntent {
+        guard navigationType == .linkActivated,
+              modifierFlags.contains(.command)
+        else { return .sameTab }
+        return modifierFlags.contains(.shift) ? .foregroundTab : .backgroundTab
+    }
+
+    // A ⌘+click reaches us as an ordinary main-frame navigation: WebKit
+    // carries the modifiers but has no opinion about tabs, so without this
+    // the link just replaced the page the user meant to keep.
+    //
+    // The decisionHandler MUST keep its `@MainActor @Sendable` attributes.
+    // This is an OPTIONAL protocol requirement, so a signature that doesn't
+    // match the SDK's exactly isn't a compile error — it just stops being the
+    // witness, gets no @objc thunk, and WebKit's respondsToSelector: check
+    // silently skips it. Costed an hour: the method existed, was never called
+    // (bowser-browser-0ia).
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        let intent = Self.linkClickIntent(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags
+        )
+        // targetFrame == nil means WebKit is already on its way to
+        // createWebViewWith (target=_blank, window.open) — that path owns the
+        // tab, and intercepting here too would open two.
+        guard intent != .sameTab,
+              navigationAction.targetFrame != nil,
+              let url = navigationAction.request.url,
+              let host = BrowserWindowController.host(of: webviewId)
+                ?? (NSApp.delegate as? AppDelegate)?.currentController
+        else {
+            decisionHandler(.allow)
+            return
+        }
+        decisionHandler(.cancel)
+        let view = host.openTab(opener: webviewId, activate: intent == .foregroundTab)
+        view.load(urlString: url.absoluteString)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         BrainBridge.shared.send([
             "op": "event", "event": "load_status", "webview": webviewId, "status": 0,
@@ -591,8 +652,15 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         guard let host = BrowserWindowController.host(of: webviewId)
             ?? (NSApp.delegate as? AppDelegate)?.currentController
         else { return nil }
+        // A plain window.open lands in front, but ⌘+click keeps the same
+        // stay-put promise it has on an ordinary link.
+        let intent = Self.linkClickIntent(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags
+        )
         let view = host.openTab(
-            configuration: configuration, opener: webviewId, activate: true
+            configuration: configuration, opener: webviewId,
+            activate: intent != .backgroundTab
         )
         return view.webView
     }

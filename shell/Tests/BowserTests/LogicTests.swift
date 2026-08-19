@@ -1,4 +1,5 @@
 import XCTest
+import WebKit
 @testable import Bowser
 
 final class NormalizeTests: XCTestCase {
@@ -248,5 +249,57 @@ final class WarmTabTests: XCTestCase {
         XCTAssertEqual(BrowserWindowController.warmDuration(10000), 10000)
         XCTAssertEqual(BrowserWindowController.warmDuration(50), 1000)
         XCTAssertEqual(BrowserWindowController.warmDuration(600_000), 30000)
+    }
+}
+
+final class LinkClickIntentTests: XCTestCase {
+    // ⌘+click opens the link in a new tab and stays put; ⌘⇧+click opens it
+    // and switches (bowser-browser-0ia).
+    @MainActor func testCommandClickOpensBackgroundTab() {
+        XCTAssertEqual(
+            EngineView.linkClickIntent(navigationType: .linkActivated, modifierFlags: .command),
+            .backgroundTab
+        )
+    }
+
+    @MainActor func testCommandShiftClickOpensForegroundTab() {
+        XCTAssertEqual(
+            EngineView.linkClickIntent(navigationType: .linkActivated,
+                                       modifierFlags: [.command, .shift]),
+            .foregroundTab
+        )
+    }
+
+    @MainActor func testPlainClickStaysInTheSameTab() {
+        XCTAssertEqual(
+            EngineView.linkClickIntent(navigationType: .linkActivated, modifierFlags: []),
+            .sameTab
+        )
+    }
+
+    // Caps lock / fn ride along on real events; only ⌘ decides.
+    @MainActor func testStrayModifiersDoNotOpenTabs() {
+        XCTAssertEqual(
+            EngineView.linkClickIntent(navigationType: .linkActivated,
+                                       modifierFlags: [.shift, .option, .control]),
+            .sameTab
+        )
+        XCTAssertEqual(
+            EngineView.linkClickIntent(navigationType: .linkActivated,
+                                       modifierFlags: [.command, .capsLock]),
+            .backgroundTab
+        )
+    }
+
+    // ⌘ is held for ⌘R / ⌘←; a reload or a back step is not a link click and
+    // must never spawn a tab.
+    @MainActor func testNonLinkNavigationIsNeverATab() {
+        for type in [WKNavigationType.reload, .backForward, .formSubmitted, .other] {
+            XCTAssertEqual(
+                EngineView.linkClickIntent(navigationType: type, modifierFlags: .command),
+                .sameTab,
+                "\(type.rawValue) with ⌘ held must not open a tab"
+            )
+        }
     }
 }
