@@ -661,7 +661,17 @@ struct MagnifyStripView: View {
 
     @EnvironmentObject var cursor: CursorModel
 
+    // Dock bounce (bowser-browser-r0g): when the active item changes, the
+    // newly active icon hops outward once. The stamp is the animation
+    // trigger; inactive items are guarded to zero offset so losing
+    // activation never twitches.
+    @State private var bounceStamp = 0
+
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
+
+    private var activeId: String? {
+        items.first(where: { ($0["active"] as? Bool) == true })?["id"] as? String
+    }
     private var baseSize: CGFloat { CGFloat(node["size"] as? Double ?? 28) }
     // Clamped: it's a scale MULTIPLIER (2.0 = double size), and a mod
     // passing pixels here (it happened) must not explode the layout.
@@ -718,10 +728,21 @@ struct MagnifyStripView: View {
                     .buttonStyle(.plain)
                     .help(item["title"] as? String ?? "")
                     .animation(.easeOut(duration: 0.09), value: cursor.point)
+                    // The hop: out fast, settle back springy. The left-edge
+                    // dock bounces rightward, into the page.
+                    .phaseAnimator([false, true], trigger: active ? bounceStamp : -1) { content, out in
+                        content.offset(x: out && active ? 10 : 0)
+                    } animation: { out in
+                        out ? .spring(duration: 0.15, bounce: 0.4)
+                            : .spring(duration: 0.45, bounce: 0.65)
+                    }
                 }
             }
             .padding(.top, top)
             .frame(maxWidth: .infinity, alignment: .top)
+            .onChange(of: activeId) { _, newValue in
+                if newValue != nil { bounceStamp += 1 }
+            }
         }
     }
 
