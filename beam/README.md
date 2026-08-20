@@ -13,6 +13,29 @@ shell/.build/debug/Bowser
 cd beam && iex -S mix
 ```
 
+## ModSmith credentials (`:do`)
+
+`:do <request>` in the omnibar has an LLM write site mods for you. It
+shells out to the [claude CLI](https://claude.com/claude-code), so you
+need one of:
+
+- **Your own Claude login** — install the CLI, run `claude` once in a
+  terminal and sign in. Nothing to configure in Bowser.
+- **A router** (e.g. DodoRouter) — in the browser, `:settings` (or
+  `:set`) both keys:
+
+  ```
+  :set dodorouter_endpoint https://your-router.example
+  :set dodorouter_api_key <token>
+  ```
+
+  The token is sent as `CLAUDE_CODE_OAUTH_TOKEN`; routers that serve
+  their own model ids may also need `:set modsmith_model <id>`.
+
+Settings live in `~/.bowser/settings.json` (hand-editable); secrets are
+masked in the palette and never leave the machine except toward the
+endpoint you configured.
+
 ## Mods
 
 Live in `~/.bowser/mods/*.ex`. Drop a file in → running in <1s. Edit → the

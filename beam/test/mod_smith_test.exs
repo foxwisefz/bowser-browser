@@ -101,6 +101,54 @@ defmodule BowserBrain.ModSmithTest do
     end
   end
 
+  describe "auth_route/1" do
+    test "no router settings -> the user's own claude CLI login" do
+      assert ModSmith.auth_route(%{}) == :cli
+      assert ModSmith.auth_route(%{"dodorouter_endpoint" => "", "dodorouter_api_key" => " "}) ==
+               :cli
+    end
+
+    test "endpoint + key -> router" do
+      settings = %{"dodorouter_endpoint" => "https://r.example", "dodorouter_api_key" => "tok"}
+      assert ModSmith.auth_route(settings) == {:router, "https://r.example"}
+    end
+
+    test "half-configured router names the missing key" do
+      assert ModSmith.auth_route(%{"dodorouter_endpoint" => "https://r.example"}) ==
+               {:missing, "dodorouter_api_key"}
+
+      assert ModSmith.auth_route(%{"dodorouter_api_key" => "tok"}) ==
+               {:missing, "dodorouter_endpoint"}
+    end
+  end
+
+  describe "claude_env/1" do
+    test "router settings become the CLI's routing env" do
+      settings = %{"dodorouter_endpoint" => "https://r.example", "dodorouter_api_key" => "tok"}
+
+      assert ModSmith.claude_env(settings) == [
+               {"ANTHROPIC_BASE_URL", "https://r.example"},
+               {"CLAUDE_CODE_OAUTH_TOKEN", "tok"}
+             ]
+    end
+
+    test "cli route inherits the environment untouched" do
+      assert ModSmith.claude_env(%{}) == []
+    end
+  end
+
+  describe "auth_hint/1" do
+    test "cli failures teach both auth paths" do
+      hint = ModSmith.auth_hint(:cli)
+      assert hint =~ "claude"
+      assert hint =~ "dodorouter_endpoint"
+    end
+
+    test "router failures point at the router config" do
+      assert ModSmith.auth_hint({:router, "https://r.example"}) =~ "https://r.example"
+    end
+  end
+
   describe "timeout_ms/1" do
     test "defaults to 10 minutes when unset" do
       assert ModSmith.timeout_ms(nil) == 600_000

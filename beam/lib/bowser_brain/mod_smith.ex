@@ -35,6 +35,7 @@ defmodule BowserBrain.ModSmith do
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     BowserBrain.Chrome.register_command("do", "ModSmith — new request")
     BowserBrain.Chrome.register_command("do+", "ModSmith — refine (do+N picks a session)")
+    declare_settings()
     # IRON RULE: the panel is shell state and died with the engine — re-show.
     render(state)
     {:noreply, state}
@@ -356,12 +357,20 @@ defmodule BowserBrain.ModSmith do
   end
 
   defp run_claude(prompt, resume) do
-    case System.find_executable("claude") do
-      nil ->
-        {nil, {:error, "claude CLI not found on PATH"}}
+    settings = BowserBrain.Settings.all()
 
-      claude ->
-        env = claude_env()
+    case {System.find_executable("claude"), auth_route(settings)} do
+      {nil, _route} ->
+        {nil, {:error, "claude CLI not found on PATH — install it, then sign in or set up a router in :settings"}}
+
+      {_claude, {:missing, key}} ->
+        {nil,
+         {:error,
+          "router half-configured: `:set #{key} <value>` to finish, " <>
+            "or clear both dodorouter settings to use your claude CLI login"}}
+
+      {claude, route} ->
+        env = claude_env(settings)
 
         args =
           ["-p", prompt, "--output-format", "json"] ++
@@ -400,7 +409,9 @@ defmodule BowserBrain.ModSmith do
             end
 
           {:ok, {output, code}} ->
-            {nil, {:error, "claude exited #{code}: #{String.slice(output, 0, 300)}"}}
+            {nil,
+             {:error,
+              "claude exited #{code}: #{String.slice(output, 0, 300)} | #{auth_hint(route)}"}}
 
           nil ->
             {nil, {:error, "claude timed out after #{div(timeout, 1000)}s"}}
@@ -420,18 +431,93 @@ defmodule BowserBrain.ModSmith do
 
   def timeout_ms(_unset), do: @default_timeout_ms
 
-  # Route through a custom endpoint (e.g. DodoRouter) when configured:
-  #   :set dodorouter_endpoint https://...
-  #   :set dodorouter_api_key sk-...
-  defp claude_env do
-    [
-      {"ANTHROPIC_BASE_URL", BowserBrain.Settings.get("dodorouter_endpoint")},
-      # DodoRouter speaks Claude Code's own auth: the token rides as
-      # CLAUDE_CODE_OAUTH_TOKEN (owner's call, "for now").
-      {"CLAUDE_CODE_OAUTH_TOKEN", BowserBrain.Settings.get("dodorouter_api_key")}
-    ]
-    |> Enum.filter(fn {_name, value} -> is_binary(value) and value != "" end)
+  # Surface every ModSmith knob in the :settings palette with its purpose,
+  # so a fresh install can configure auth without reading source
+  # (bowser-browser-bzy). Auth is either of:
+  #   - nothing set: your own claude CLI login (`claude` once in a terminal)
+  #   - both dodorouter_* keys: requests route through that endpoint
+  defp declare_settings do
+    alias BowserBrain.Settings
+
+    Settings.declare("dodorouter_endpoint",
+      about: ":do routing — optional router base URL; leave unset to use your claude CLI login"
+    )
+
+    Settings.declare("dodorouter_api_key",
+      secret: true,
+      about: ":do routing — router token (sent as CLAUDE_CODE_OAUTH_TOKEN); set with the endpoint"
+    )
+
+    Settings.declare("modsmith_model",
+      about: ":do model id — routers serve their own ids; unset = CLI default"
+    )
+
+    Settings.declare("modsmith_timeout_ms",
+      about: ":do request budget in ms (default #{@default_timeout_ms})"
+    )
   end
+
+  @doc """
+  Which auth path :do will use, from the settings map. Two supported ways
+  to run ModSmith (bowser-browser-bzy):
+
+    * `:cli` — nothing configured; the claude CLI uses its own login
+      (run `claude` once in a terminal to sign in).
+    * `{:router, endpoint}` — both `dodorouter_endpoint` and
+      `dodorouter_api_key` set; requests route through the endpoint.
+
+  A half-set router pair is `{:missing, key}` — refused early with the key
+  to fix, instead of a misleading CLI error. Public for tests.
+  """
+  def auth_route(settings) when is_map(settings) do
+    endpoint = present(settings["dodorouter_endpoint"])
+    key = present(settings["dodorouter_api_key"])
+
+    case {endpoint, key} do
+      {nil, nil} -> :cli
+      {endpoint, key} when endpoint != nil and key != nil -> {:router, endpoint}
+      {nil, _key} -> {:missing, "dodorouter_endpoint"}
+      {_endpoint, nil} -> {:missing, "dodorouter_api_key"}
+    end
+  end
+
+  @doc """
+  Extra env for the claude CLI. Router mode rides Claude Code's own auth:
+  the token goes out as CLAUDE_CODE_OAUTH_TOKEN. CLI mode adds nothing —
+  the user's own login applies. Public for tests.
+  """
+  def claude_env(settings) do
+    case auth_route(settings) do
+      {:router, endpoint} ->
+        [
+          {"ANTHROPIC_BASE_URL", endpoint},
+          {"CLAUDE_CODE_OAUTH_TOKEN", present(settings["dodorouter_api_key"])}
+        ]
+
+      _ ->
+        []
+    end
+  end
+
+  @doc "One-line setup guidance appended to auth-shaped failures. Public for tests."
+  def auth_hint(:cli) do
+    "ModSmith used your local claude CLI login — if you haven't signed in, " <>
+      "run `claude` once in a terminal, or route via " <>
+      "`:set dodorouter_endpoint <url>` + `:set dodorouter_api_key <token>`"
+  end
+
+  def auth_hint({:router, endpoint}) do
+    "ModSmith routed via #{endpoint} — check the endpoint and dodorouter_api_key in :settings"
+  end
+
+  defp present(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present(_other), do: nil
 
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
