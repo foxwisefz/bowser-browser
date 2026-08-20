@@ -297,8 +297,16 @@ defmodule BowserBrain.ModSmith do
     credit-card, or one-time-code fields; keep CSS resilient (avoid brittle
     generated class names; prefer semantic/aria/structural selectors).
 
+    SCOPE RULE: a request about a specific page/site must be limited to that
+    site by default. Payloads are auto host-scoped. A tier-"mod" for
+    page-specific behavior MUST declare its host:
+      use BowserBrain.Mod, host: "#{host}"
+    — events from tabs on other sites then never reach handle_event
+    (subdomains included). Omit host: ONLY for genuinely browser-wide mods
+    (tab docks, global chrome).
+
     MOD API (for tier "mod"):
-    defmodule MyMod do use BowserBrain.Mod
+    defmodule MyMod do use BowserBrain.Mod          # add host: "site" per SCOPE RULE
       def init_mod(_opts), do: %{}                # state
       def handle_event(event, state), do: state   # events are string-keyed maps
     end

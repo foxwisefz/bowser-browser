@@ -22,6 +22,13 @@ defmodule BowserBrain.Session do
   @doc "Currently remembered tabs, ordered by webview id."
   def tabs, do: GenServer.call(__MODULE__, :tabs)
 
+  @doc "The mirrored URL of one webview (nil when unknown). Cheap call; used by host-scoped mods."
+  def url_of(webview) do
+    GenServer.call(__MODULE__, {:url_of, webview})
+  catch
+    :exit, _ -> nil
+  end
+
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
@@ -40,6 +47,10 @@ defmodule BowserBrain.Session do
   @impl true
   def handle_call(:tabs, _from, state) do
     {:reply, ordered_urls(state.tabs), state}
+  end
+
+  def handle_call({:url_of, webview}, _from, state) do
+    {:reply, state.tabs[webview], state}
   end
 
   @impl true

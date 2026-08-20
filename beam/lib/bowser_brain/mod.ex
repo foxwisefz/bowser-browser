@@ -20,10 +20,41 @@ defmodule BowserBrain.Mod do
   @callback init_mod(term) :: term
   @callback handle_event(map, term) :: term
 
-  defmacro __using__(_opts) do
+  @doc """
+  Host scoping (bowser-browser-7md): should this event be dropped before it
+  reaches a mod declared with `use BowserBrain.Mod, host: "x.com"`? Events
+  carrying a url are matched directly (subdomains included, same rule as
+  SiteMods); other webview events consult the Session mirror; events with
+  no webview (hello, omnibar, chrome, surface) and UNKNOWN urls always pass
+  — a brand-new tab must not break a mod's init flow.
+  """
+  def scoped_out?(_event, nil), do: false
+
+  def scoped_out?(%{"url" => url}, host) when is_binary(url) do
+    not on_host?(url, host)
+  end
+
+  def scoped_out?(%{"webview" => wv}, host) do
+    case BowserBrain.Session.url_of(wv) do
+      url when is_binary(url) -> not on_host?(url, host)
+      _ -> false
+    end
+  end
+
+  def scoped_out?(_event, _host), do: false
+
+  defp on_host?(url, host) do
+    case URI.parse(url).host do
+      h when is_binary(h) -> h == host or String.ends_with?(h, "." <> host)
+      _ -> true
+    end
+  end
+
+  defmacro __using__(opts) do
     quote do
       use GenServer
       @behaviour BowserBrain.Mod
+      @bowser_mod_host unquote(Keyword.get(opts, :host))
 
       def __bowser_mod__, do: true
 
@@ -41,7 +72,11 @@ defmodule BowserBrain.Mod do
 
       @impl GenServer
       def handle_info({:browser_event, event}, state) do
-        {:noreply, handle_event(event, state)}
+        if BowserBrain.Mod.scoped_out?(event, @bowser_mod_host) do
+          {:noreply, state}
+        else
+          {:noreply, handle_event(event, state)}
+        end
       end
 
       def handle_info(_other, state), do: {:noreply, state}
