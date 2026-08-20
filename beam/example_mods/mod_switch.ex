@@ -74,12 +74,14 @@ defmodule ModSwitchMod do
         %{"event" => "surface", "surface" => "mods", "id" => "info", "value" => key},
         state
       ) do
-    info =
-      if MapSet.member?(state.info, key),
-        do: MapSet.delete(state.info, key),
-        else: MapSet.put(state.info, key)
+    expanded = expanded(state)
 
-    render(%{state | info: info})
+    info =
+      if MapSet.member?(expanded, key),
+        do: MapSet.delete(expanded, key),
+        else: MapSet.put(expanded, key)
+
+    render(Map.put(state, :info, info))
   end
 
   def handle_event(_event, state), do: state
@@ -221,6 +223,12 @@ defmodule ModSwitchMod do
     state
   end
 
+  # A freshly hot-swapped process still carries the previous code's state
+  # shape; reaching for state.info crashed and ATE the owner's click.
+  # Tolerate any shape instead (the crash-restart heals state, but nothing
+  # should be lost in the meantime).
+  defp expanded(state), do: Map.get(state, :info) || MapSet.new()
+
   # Compact by default: toggle + ⓘ side by side; the description appears
   # under the row only while its ⓘ is expanded.
   defp row(label, payload, info, state) do
@@ -230,7 +238,7 @@ defmodule ModSwitchMod do
         button("ⓘ", event: "info", payload: payload)
       ])
 
-    if MapSet.member?(state.info, payload) do
+    if MapSet.member?(expanded(state), payload) do
       vstack([head, text(String.slice(info, 0, 90), style: :caption)])
     else
       head
