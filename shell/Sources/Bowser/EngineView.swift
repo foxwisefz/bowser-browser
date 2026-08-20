@@ -315,7 +315,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// ITP partitions third-party iframe cookies, so embedded players
-    /// (YouTube inside fabstation.com) can't see the owner's login and
+    /// (a YouTube embed on a third-party site) can't see the owner's login and
     /// demand sign-in (bowser-browser-yll). One owner, one machine: switch
     /// tracking prevention off on the shared store. SPI via KVC
     /// (_setResourceLoadStatisticsEnabled:), guarded so an OS that drops it

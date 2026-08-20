@@ -159,7 +159,7 @@ final class ResurrectFrameTests: XCTestCase {
 }
 
 final class TrackingPreventionTests: XCTestCase {
-    // Embedded players (YouTube on fabstation.com) need third-party cookie
+    // Embedded players (a YouTube embed on a third-party site) need third-party cookie
     // access to see the owner's login; ITP partitions them away
     // (bowser-browser-yll). The switch-off must take — and report honestly
     // if the SPI ever vanishes.
