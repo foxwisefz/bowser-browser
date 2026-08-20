@@ -94,6 +94,29 @@ defmodule ModSwitchMod do
 
   def enabled?(name), do: not String.ends_with?(name, ".off")
 
+  @doc """
+  One-line description from a file's leading comment — Elixir `#`, JS `//`,
+  or CSS `/* */` — nil when the file starts with code (bowser-browser-ft0).
+  """
+  def describe_source(source) do
+    source
+    |> String.split("\n", parts: 6)
+    |> Enum.find_value(fn line ->
+      case Regex.run(~r{^\s*(?:#|//|/\*)\s*(.+?)\s*(?:\*/)?\s*$}, line) do
+        [_, text] when text != "" -> String.slice(text, 0, 60)
+        _ -> nil
+      end
+    end)
+  end
+
+  @doc "The host: a mod declared in `use BowserBrain.Mod, host: ...`, or nil."
+  def host_of_source(source) do
+    case Regex.run(~r/use\s+BowserBrain\.Mod\s*,\s*host:\s*"([^"]+)"/, source) do
+      [_, host] -> host
+      _ -> nil
+    end
+  end
+
   @doc "Button payload round-trip: site|host|file or mod|file."
   def parse_toggle("site|" <> rest) do
     case String.split(rest, "|", parts: 2) do
@@ -120,25 +143,45 @@ defmodule ModSwitchMod do
   defp render(state) do
     host = host_of(state)
 
+    sites_dir = host && Path.join([System.user_home!(), ".bowser/sites", host])
+
     site_rows =
-      case host && File.ls(Path.join([System.user_home!(), ".bowser/sites", host])) do
+      case sites_dir && File.ls(sites_dir) do
         {:ok, names} ->
           for name <- Enum.sort(names),
               Path.extname(display(name)) in [".css", ".js"] do
-            row(dot(enabled?(name)) <> " " <> display(name), "site|#{host}|#{name}")
+            info = describe_file(Path.join(sites_dir, name)) || "site payload"
+            row(dot(enabled?(name)) <> " " <> display(name), "site|#{host}|#{name}", info)
           end
 
         _ ->
           []
       end
 
+    mods_dir = Path.join(System.user_home!(), ".bowser/mods")
+
     mod_rows =
-      case File.ls(Path.join(System.user_home!(), ".bowser/mods")) do
+      case File.ls(mods_dir) do
         {:ok, names} ->
           for name <- Enum.sort(names),
               String.ends_with?(name, ".ex") or String.ends_with?(name, ".ex.off"),
               not String.starts_with?(name, "zz_") do
-            row(dot(enabled?(name)) <> " " <> display(name), "mod|#{name}")
+            source = File.read!(Path.join(mods_dir, name))
+            scope = host_of_source(source)
+
+            status =
+              cond do
+                not enabled?(name) -> nil
+                running?(source) -> nil
+                true -> "STOPPED"
+              end
+
+            info =
+              [scope, status, describe_source(source) || "mod"]
+              |> Enum.reject(&is_nil/1)
+              |> Enum.join(" · ")
+
+            row(dot(enabled?(name)) <> " " <> display(name), "mod|#{name}", info)
           end
 
         _ ->
@@ -163,7 +206,29 @@ defmodule ModSwitchMod do
     state
   end
 
-  defp row(label, payload), do: button(label, event: "toggle", payload: payload)
+  defp row(label, payload, info) do
+    vstack([
+      button(label, event: "toggle", payload: payload),
+      text(String.slice(info, 0, 46), style: :caption)
+    ])
+  end
+
+  defp describe_file(path) do
+    case File.read(path) do
+      {:ok, source} -> describe_source(source)
+      _ -> nil
+    end
+  end
+
+  # Is the process for this mod source actually alive? An enabled file with
+  # a dead process means it crashed past the restart budget.
+  defp running?(source) do
+    case modname(source) do
+      nil -> false
+      name -> Registry.lookup(BowserBrain.ModRegistry, Module.concat([name])) != []
+    end
+  end
+
   defp dot(true), do: "●"
   defp dot(false), do: "○"
   defp display(name), do: String.replace_suffix(name, ".off", "")
