@@ -4,3 +4,10 @@ target/
 _build/
 deps/
 /beam/tmp/
+
+# Compiler artifacts (swiftc side-products once committed by accident)
+*.o
+*.d
+*.swiftdeps
+*.swiftdeps~
+*.pcm
