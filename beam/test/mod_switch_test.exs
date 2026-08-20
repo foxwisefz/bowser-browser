@@ -51,6 +51,19 @@ defmodule ModSwitchModTest do
     end
   end
 
+  describe "info expansion" do
+    test "the (i) button toggles a row's description open and closed" do
+      state = %{active: 0, urls: %{}, info: MapSet.new()}
+      ev = %{"event" => "surface", "surface" => "mods", "id" => "info", "value" => "mod|tabs.ex"}
+
+      state = ModSwitchMod.handle_event(ev, state)
+      assert MapSet.member?(state.info, "mod|tabs.ex")
+
+      state = ModSwitchMod.handle_event(ev, state)
+      refute MapSet.member?(state.info, "mod|tabs.ex")
+    end
+  end
+
   describe "parse_toggle/1" do
     test "site and mod payloads round-trip" do
       assert ModSwitchMod.parse_toggle("site|x.com|plurk.css") == {:site, "x.com", "plurk.css"}

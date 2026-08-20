@@ -14,7 +14,8 @@ defmodule ModSwitchMod do
 
   def init_mod(_opts) do
     assert_chrome()
-    %{active: 0, urls: %{}}
+    # info: which rows have their (i) description expanded.
+    %{active: 0, urls: %{}, info: MapSet.new()}
   end
 
   def handle_event(%{"event" => "hello"} = hello, state) do
@@ -65,6 +66,20 @@ defmodule ModSwitchMod do
     # Give SiteMods/Loader a beat to react, then re-render the truth.
     Process.send_after(self(), :rerender, 800)
     state
+  end
+
+  # ⓘ click: expand/collapse this row's description (bowser-browser-ft0
+  # refinement — compact rows, info on demand).
+  def handle_event(
+        %{"event" => "surface", "surface" => "mods", "id" => "info", "value" => key},
+        state
+      ) do
+    info =
+      if MapSet.member?(state.info, key),
+        do: MapSet.delete(state.info, key),
+        else: MapSet.put(state.info, key)
+
+    render(%{state | info: info})
   end
 
   def handle_event(_event, state), do: state
@@ -151,7 +166,7 @@ defmodule ModSwitchMod do
           for name <- Enum.sort(names),
               Path.extname(display(name)) in [".css", ".js"] do
             info = describe_file(Path.join(sites_dir, name)) || "site payload"
-            row(dot(enabled?(name)) <> " " <> display(name), "site|#{host}|#{name}", info)
+            row(dot(enabled?(name)) <> " " <> display(name), "site|#{host}|#{name}", info, state)
           end
 
         _ ->
@@ -181,7 +196,7 @@ defmodule ModSwitchMod do
               |> Enum.reject(&is_nil/1)
               |> Enum.join(" · ")
 
-            row(dot(enabled?(name)) <> " " <> display(name), "mod|#{name}", info)
+            row(dot(enabled?(name)) <> " " <> display(name), "mod|#{name}", info, state)
           end
 
         _ ->
@@ -206,11 +221,20 @@ defmodule ModSwitchMod do
     state
   end
 
-  defp row(label, payload, info) do
-    vstack([
-      button(label, event: "toggle", payload: payload),
-      text(String.slice(info, 0, 46), style: :caption)
-    ])
+  # Compact by default: toggle + ⓘ side by side; the description appears
+  # under the row only while its ⓘ is expanded.
+  defp row(label, payload, info, state) do
+    head =
+      hstack([
+        button(label, event: "toggle", payload: payload),
+        button("ⓘ", event: "info", payload: payload)
+      ])
+
+    if MapSet.member?(state.info, payload) do
+      vstack([head, text(String.slice(info, 0, 90), style: :caption)])
+    else
+      head
+    end
   end
 
   defp describe_file(path) do
