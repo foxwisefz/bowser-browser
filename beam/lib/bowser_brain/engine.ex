@@ -12,8 +12,6 @@ defmodule BowserBrain.Engine do
   require Logger
 
   @check_ms 3_000
-  @default_path "/Users/gezim/projects/bowser-browser/shell/.build/debug/Bowser"
-  @wrapper "/Users/gezim/projects/bowser-browser/bin/engine-wrapper"
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -143,15 +141,19 @@ defmodule BowserBrain.Engine do
   # and the roll loops on a dead pid forever (bowser-browser-p7l).
   def roll_kill_args(os_pid), do: ["-TERM", Integer.to_string(os_pid)]
 
+  defp engine_path do
+    Application.get_env(:bowser_brain, :engine_path, BowserBrain.Paths.engine_binary())
+  end
+
   defp binary_mtime do
-    case File.stat(Application.get_env(:bowser_brain, :engine_path, @default_path), time: :posix) do
+    case File.stat(engine_path(), time: :posix) do
       {:ok, %{mtime: mtime}} -> mtime
       _ -> 0
     end
   end
 
   defp spawn_engine(state) do
-    path = Application.get_env(:bowser_brain, :engine_path, @default_path)
+    path = engine_path()
 
     if File.exists?(path) do
       Logger.info("engine: spawning #{path}")
@@ -160,7 +162,7 @@ defmodule BowserBrain.Engine do
       # abort (Ctrl-C x2), when terminate/2 never runs.
       port =
         Port.open(
-          {:spawn_executable, @wrapper},
+          {:spawn_executable, BowserBrain.Paths.engine_wrapper()},
           [:binary, :exit_status, :stderr_to_stdout, args: [path]]
         )
 

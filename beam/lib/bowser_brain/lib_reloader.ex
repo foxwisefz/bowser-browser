@@ -9,7 +9,6 @@ defmodule BowserBrain.LibReloader do
   use GenServer
   require Logger
 
-  @dir "/Users/gezim/projects/bowser-browser/beam/lib/bowser_brain"
   @poll_ms 1_000
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
@@ -28,7 +27,7 @@ defmodule BowserBrain.LibReloader do
   @impl true
   def handle_info({:scan, mode}, state) do
     mtimes =
-      for path <- Path.wildcard(Path.join(@dir, "*.ex")), into: %{} do
+      for path <- Path.wildcard(Path.join(BowserBrain.Paths.brain_lib(), "*.ex")), into: %{} do
         {path, File.stat!(path, time: :posix).mtime}
       end
 

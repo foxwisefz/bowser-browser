@@ -436,7 +436,6 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_bridge "/Users/gezim/projects/bowser-browser/bin/bowser-mcp-bridge"
   @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload"
 
@@ -445,7 +444,9 @@ defmodule BowserBrain.ModSmith do
 
     File.write!(
       config,
-      JSON.encode!(%{mcpServers: %{bowser: %{command: "python3", args: [@mcp_bridge]}}})
+      JSON.encode!(%{
+        mcpServers: %{bowser: %{command: "python3", args: [BowserBrain.Paths.mcp_bridge()]}}
+      })
     )
 
     ["--mcp-config", config, "--allowedTools", @mcp_tools]
