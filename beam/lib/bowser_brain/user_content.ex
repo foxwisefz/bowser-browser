@@ -128,6 +128,18 @@ defmodule BowserBrain.UserContent do
     GenServer.call(__MODULE__, {:put, :styles, owner, styles, Keyword.get(opts, :reload, true)})
   end
 
+  @doc """
+  Synchronously enqueue the full content push ahead of the caller's next
+  casts. Session calls this BEFORE restoring (bowser-browser-6eu): both
+  react to the same hello, and without this the restore navigations could
+  reach the engine first — the restored page's first paint had no styles.
+  """
+  def push_now do
+    GenServer.call(__MODULE__, :push_now)
+  catch
+    :exit, _ -> :ok
+  end
+
   @impl true
   def init(nil) do
     {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
@@ -135,6 +147,11 @@ defmodule BowserBrain.UserContent do
   end
 
   @impl true
+  def handle_call(:push_now, _from, state) do
+    push(state, false)
+    {:reply, :ok, state}
+  end
+
   def handle_call({:put, kind, owner, list, reload}, _from, state) do
     bucket =
       if list == [] do

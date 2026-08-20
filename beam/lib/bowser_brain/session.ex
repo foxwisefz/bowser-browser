@@ -108,6 +108,8 @@ defmodule BowserBrain.Session do
           "session: full-stack restart — restoring #{length(state.disk.urls)} tabs from disk"
         )
 
+        # Styles BEFORE navigations, deterministically (bowser-browser-6eu).
+        BowserBrain.UserContent.push_now()
         restore = rebuild(state.disk.urls, state.disk.active, engine_tabs)
         {:noreply, %{state | restore: restore}}
 
@@ -119,7 +121,10 @@ defmodule BowserBrain.Session do
           "session: fresh engine — replaying #{cookie_count} cookies, restoring #{length(remembered)} tabs"
         )
 
-        # Cookies first, so restored tabs load logged in.
+        # Styles BEFORE navigations, deterministically (bowser-browser-6eu),
+        # and cookies first, so restored tabs load logged in AND styled.
+        BowserBrain.UserContent.push_now()
+
         for {_origin, %{url: url, cookies: cookies}} <- state.cookies,
             cookie <- cookies,
             do: Bridge.set_cookie(url, cookie)
