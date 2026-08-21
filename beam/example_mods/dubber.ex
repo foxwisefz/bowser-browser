@@ -15,8 +15,6 @@ defmodule DubberMod do
   @max_segments 45
 
   def init_mod(_opts) do
-    Application.ensure_all_started(:inets)
-    Application.ensure_all_started(:ssl)
     assert_chrome()
     %{active: 0, on: MapSet.new(), jobs: %{}, cache: %{}}
   end
@@ -250,10 +248,9 @@ defmodule DubberMod do
       todo
       |> Enum.each(fn {seg_path, idx} ->
         t0 = idx * @seg_seconds
-        mp3 = File.read!(seg_path)
 
         result =
-          with {:ok, text} <- translate(mp3, key),
+          with {:ok, text} <- translate(seg_path, key),
                true <- String.trim(text) != "" || :empty,
                {:ok, tts} <- speak(text, key) do
             send_log(parent, wv, "#{t0}s: #{String.slice(text, 0, 40)}")
@@ -345,16 +342,20 @@ defmodule DubberMod do
     :exit, _ -> ""
   end
 
+  # curl, not :httpc: this OTP build ships without a usable inets (the
+  # ensure_all_started failed silently since v1.2 — nothing reached the HTTP
+  # layer until the hls job did). curl is always on macOS and builds
+  # multipart natively.
   defp hls_get(url, cookies) do
-    headers =
-      [{~c"user-agent", String.to_charlist(@browser_ua)}] ++
-        if cookies != "", do: [{~c"cookie", String.to_charlist(cookies)}], else: []
+    cookie_args = if cookies != "", do: ["-H", "Cookie: #{cookies}"], else: []
 
-    case :httpc.request(:get, {String.to_charlist(url), headers},
-           [timeout: 60_000, connect_timeout: 8_000], body_format: :binary) do
-      {:ok, {{_, 200, _}, _h, body}} -> {:ok, body}
-      {:ok, {{_, code, _}, _h, _b}} -> {:error, {:http, code}}
-      {:error, reason} -> {:error, reason}
+    curl(["-A", @browser_ua] ++ cookie_args ++ [url])
+  end
+
+  defp curl(args) do
+    case System.cmd("/usr/bin/curl", ["-sf", "--max-time", "90"] ++ args, stderr_to_stdout: true) do
+      {body, 0} -> {:ok, body}
+      {out, code} -> {:error, {:curl, code, String.slice(out, 0, 120)}}
     end
   end
 
