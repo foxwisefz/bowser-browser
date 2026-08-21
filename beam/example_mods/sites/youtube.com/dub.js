@@ -78,6 +78,42 @@
       return "ok";
     },
     reset: function () { state.segments = {}; state.playingT0 = null; return "reset"; },
+    // Fetch this video's audio with the PAGE's own credentials — the same
+    // origin the real player streams from, so no anti-bot walls. Emitted to
+    // the brain in ~2.5MB base64 parts.
+    fetchAudio: function () {
+      var player = document.querySelector("#movie_player");
+      if (!player || !player.getPlayerResponse) return "no player api";
+      var sd = (player.getPlayerResponse() || {}).streamingData || {};
+      var audio = (sd.adaptiveFormats || [])
+        .filter(function (f) { return f.mimeType && f.mimeType.indexOf("audio/") === 0 && f.url; })
+        .sort(function (a, b) { return (a.bitrate || 0) - (b.bitrate || 0); })[0];
+      var src = audio || (sd.formats || []).filter(function (f) { return f.url; })[0];
+      if (!src) { plog("no fetchable stream url (cipher-only?)"); return "no url"; }
+      plog("fetching audio itag " + src.itag + " (" + (src.contentLength ? Math.round(src.contentLength / 1e6) + "MB" : "?") + ")");
+      fetch(src.url)
+        .then(function (r) {
+          if (!r.ok) throw new Error("http " + r.status);
+          return r.blob();
+        })
+        .then(function (blob) {
+          var PART = 2500000;
+          var total = Math.ceil(blob.size / PART);
+          plog("audio fetched: " + Math.round(blob.size / 1e6) + "MB, " + total + " parts");
+          (function sendPart(i) {
+            if (i >= total) return;
+            var reader = new FileReader();
+            reader.onload = function () {
+              window.bowser.emit({ kind: "dub_audio", part: i, total: total,
+                                   data: reader.result.split(",")[1] });
+              sendPart(i + 1);
+            };
+            reader.readAsDataURL(blob.slice(i * PART, (i + 1) * PART));
+          })(0);
+        })
+        .catch(function (e) { plog("audio fetch failed: " + e.message); });
+      return "fetching";
+    },
     status: function () {
       return JSON.stringify({ on: state.on,
                               cached: Object.keys(state.segments).length,

@@ -75,6 +75,37 @@ defmodule DubberMod do
     state
   end
 
+  # Audio arrives from the page in base64 parts; when complete, the ffmpeg ->
+  # whisper -> tts pipeline takes over in a Task.
+  def handle_event(
+        %{"event" => "page", "webview" => wv,
+          "payload" => %{"kind" => "dub_audio", "part" => part, "total" => total, "data" => b64}},
+        state
+      ) do
+    url = Session.url_of(wv) || ""
+    jobs = Map.get(state, :jobs, %{})
+
+    case Map.get(jobs, url) do
+      %{parts: parts} = job ->
+        {:ok, bin} = Base.decode64(b64)
+        parts = Map.put(parts, part, bin)
+        job = %{job | parts: parts, total: total}
+
+        if map_size(parts) == total do
+          audio = Enum.map_join(0..(total - 1), "", &Map.fetch!(parts, &1))
+          ModLog.log("dubber", "wv#{wv}: audio assembled (#{div(byte_size(audio), 1_000_000)}MB) — segmenting")
+          key = Settings.get("openai_api_key")
+          parent = self()
+          Task.start(fn -> process_audio(parent, wv, url, key, audio) end)
+        end
+
+        Map.put(state, :jobs, Map.put(jobs, url, job))
+
+      _ ->
+        state
+    end
+  end
+
   def handle_event(
         %{"event" => "page", "webview" => wv, "payload" => %{"kind" => "dub_log", "msg" => msg}},
         state
@@ -144,11 +175,11 @@ defmodule DubberMod do
         state
 
       true ->
-        key = Settings.get("openai_api_key")
-        parent = self()
-        {:ok, pid} = Task.start(fn -> run_job(parent, wv, url, key) end)
-        ModLog.log("dubber", "wv#{wv}: fetching audio (yt-dlp)…")
-        Map.put(state, :jobs, Map.put(jobs, url, pid))
+        # The BROWSER fetches: it is already cookied and authorized for this
+        # exact stream — no anti-bot walls (external yt-dlp drew 403s).
+        page_eval(wv, "window.__bowserDub && window.__bowserDub.fetchAudio()")
+        ModLog.log("dubber", "wv#{wv}: asked the page to fetch its audio…")
+        Map.put(state, :jobs, Map.put(jobs, url, %{wv: wv, parts: %{}, total: nil}))
     end
   end
 
@@ -157,18 +188,15 @@ defmodule DubberMod do
     BowserBrain.Browser.eval_js("window.__bowserDub && window.__bowserDub.deliver(#{t0}, #{payload})", wv)
   end
 
-  defp run_job(parent, wv, url, key) do
+  defp process_audio(parent, wv, url, key, audio_binary) do
     dir = Path.join(System.tmp_dir!(), "bowser-dub-#{:erlang.phash2(url)}")
     File.mkdir_p!(dir)
     audio = Path.join(dir, "audio.m4a")
+    File.write!(audio, audio_binary)
 
     with {_, 0} <-
-           System.cmd("/opt/homebrew/bin/yt-dlp",
-             ["-f", "ba[ext=m4a]/ba", "--no-playlist", "-q", "-o", audio, url],
-             stderr_to_stdout: true),
-         {_, 0} <-
            System.cmd("/opt/homebrew/bin/ffmpeg",
-             ["-y", "-loglevel", "error", "-i", audio, "-f", "segment",
+             ["-y", "-loglevel", "error", "-i", audio, "-vn", "-f", "segment",
               "-segment_time", "#{@seg_seconds}", "-ar", "16000", "-ac", "1",
               "-c:a", "libmp3lame", "-b:a", "48k", Path.join(dir, "seg%03d.mp3")],
              stderr_to_stdout: true) do
@@ -207,7 +235,7 @@ defmodule DubberMod do
       send(parent, {:job_done, wv, url, "done"})
     else
       {output, code} ->
-        send_log(parent, wv, "fetch failed (#{code}): #{String.slice(to_string(output), 0, 80)}")
+        send_log(parent, wv, "ffmpeg failed (#{code}): #{String.slice(to_string(output), 0, 160)}")
         File.rm_rf!(dir)
         send(parent, {:job_done, wv, url, "failed"})
     end

@@ -13,7 +13,7 @@ defmodule BowserBrain.ModLog do
   alias BowserBrain.Surface
 
   @keep 100
-  @shown 18
+  @shown 28
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, nil, name: Keyword.get(opts, :name, __MODULE__))
 
@@ -94,7 +94,7 @@ defmodule BowserBrain.ModLog do
       |> Enum.take(-@shown)
       |> Enum.map(fn {tag, msg, at} ->
         time = at |> div(1000) |> rem(86_400) |> format_time()
-        text("#{time} [#{tag}] #{String.slice(msg, 0, 60)}", style: :caption)
+        text("#{time} [#{tag}] #{String.slice(msg, 0, 100)}", style: :caption)
       end)
 
     Surface.show(
@@ -103,7 +103,7 @@ defmodule BowserBrain.ModLog do
         (lines == [] && [text("nothing logged yet", style: :caption)] || lines)),
       title: "Mod Log",
       anchor: :right_of_main,
-      width: 300
+      width: 480
     )
   end
 
