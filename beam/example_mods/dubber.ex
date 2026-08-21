@@ -93,10 +93,18 @@ defmodule DubberMod do
 
         if map_size(parts) == total do
           audio = Enum.map_join(0..(total - 1), "", &Map.fetch!(parts, &1))
-          ModLog.log("dubber", "wv#{wv}: audio assembled (#{div(byte_size(audio), 1_000_000)}MB) — segmenting")
+          done = Map.get(state, :cache, %{}) |> Map.get(url, []) |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+          ModLog.log(
+            "dubber",
+            "wv#{wv}: shipment assembled (#{Float.round(byte_size(audio) / 1_000_000, 1)}MB, #{MapSet.size(done)} segments already done)"
+          )
+
           key = Settings.get("openai_api_key")
           parent = self()
-          Task.start(fn -> process_audio(parent, wv, url, key, audio) end)
+          Task.start(fn -> process_audio(parent, wv, url, key, audio, done) end)
+          # Ready for the next (larger) cumulative shipment.
+          job = %{job | parts: %{}, total: nil}
         end
 
         Map.put(state, :jobs, Map.put(jobs, url, job))
@@ -171,14 +179,17 @@ defmodule DubberMod do
         ModLog.log("dubber", "wv#{wv}: replayed #{length(Map.get(cache, url, []))} cached segments")
         state
 
-      Map.has_key?(jobs, url) ->
+      match?(%{parts: parts} when map_size(parts) > 0, Map.get(jobs, url)) ->
+        # Parts already flowing — leave the job alone.
         state
 
       true ->
         # The BROWSER fetches: it is already cookied and authorized for this
-        # exact stream — no anti-bot walls (external yt-dlp drew 403s).
-        page_eval(wv, "window.__bowserDub && window.__bowserDub.fetchAudio()")
-        ModLog.log("dubber", "wv#{wv}: asked the page to fetch its audio…")
+        # exact stream — no anti-bot walls (external yt-dlp drew 403s). A
+        # stale empty job (earlier attempt died before any parts) gets
+        # re-asked instead of silently blocking forever.
+        answer = page_eval(wv, "window.__bowserDub && window.__bowserDub.fetchAudio()")
+        ModLog.log("dubber", "wv#{wv}: page fetch -> #{inspect(answer)}")
         Map.put(state, :jobs, Map.put(jobs, url, %{wv: wv, parts: %{}, total: nil}))
     end
   end
@@ -188,7 +199,7 @@ defmodule DubberMod do
     BowserBrain.Browser.eval_js("window.__bowserDub && window.__bowserDub.deliver(#{t0}, #{payload})", wv)
   end
 
-  defp process_audio(parent, wv, url, key, audio_binary) do
+  defp process_audio(parent, wv, url, key, audio_binary, done \\ MapSet.new()) do
     dir = Path.join(System.tmp_dir!(), "bowser-dub-#{:erlang.phash2(url)}")
     File.mkdir_p!(dir)
     audio = Path.join(dir, "audio.m4a")
@@ -207,10 +218,18 @@ defmodule DubberMod do
         send_log(parent, wv, "video longer than #{@max_segments * @seg_seconds}s — dubbing the first 15min")
       end
 
-      send_log(parent, wv, "audio fetched: #{length(capped)} segments to translate")
+      # The stream is cumulative: the final segment may be a truncated tail
+      # still growing — leave it for the next, larger shipment. Segments
+      # already translated are skipped.
+      todo =
+        capped
+        |> Enum.with_index()
+        |> Enum.drop(-1)
+        |> Enum.reject(fn {_p, idx} -> MapSet.member?(done, idx * @seg_seconds) end)
 
-      capped
-      |> Enum.with_index()
+      send_log(parent, wv, "#{length(todo)} new segments to translate")
+
+      todo
       |> Enum.each(fn {seg_path, idx} ->
         t0 = idx * @seg_seconds
         mp3 = File.read!(seg_path)

@@ -13,6 +13,95 @@
   var SEG = 20; // seconds per segment, must match the brain's ffmpeg cut
   var state = { on: false, segments: {}, timer: null, audio: null, playingT0: null, video: null };
 
+  // ---- the tap (v1.4): tee the audio bytes the PLAYER ITSELF downloads.
+  // Stream URLs are protocol-guarded (SABR: bare fetches 403, formats
+  // appear and vanish) — but the player's own requests always work, so we
+  // clone them. Chunks are keyed by their range= start for ordered
+  // reassembly; arming reloads the video in place so the init segment is
+  // captured too.
+  var cap = { chunks: {}, bytes: 0, lastEmit: 0, lastGrowth: 0, ctype: null };
+
+  function capRecord(url, ab) {
+    try {
+      var m = /[?&]range=(\d+)-/.exec(url);
+      var start = m ? +m[1] : cap.bytes;
+      if (cap.chunks[start] === undefined) {
+        cap.chunks[start] = new Uint8Array(ab);
+        cap.bytes += ab.byteLength;
+        cap.lastGrowth = Date.now();
+      }
+    } catch (e) {}
+  }
+
+  function capAssembled() {
+    var starts = Object.keys(cap.chunks).map(Number).sort(function (a, b) { return a - b; });
+    var total = 0;
+    starts.forEach(function (k) { total += cap.chunks[k].length; });
+    var out = new Uint8Array(total);
+    var off = 0;
+    starts.forEach(function (k) { out.set(cap.chunks[k], off); off += cap.chunks[k].length; });
+    return out;
+  }
+
+  function audioUrl(u) {
+    return u && u.indexOf("videoplayback") !== -1 && /mime=audio/.test(u);
+  }
+
+  var origFetch = window.fetch;
+  window.fetch = function (input) {
+    var url = (typeof input === "string") ? input : (input && input.url);
+    var promise = origFetch.apply(this, arguments);
+    if (audioUrl(url)) {
+      promise = promise.then(function (resp) {
+        try {
+          if (!cap.ctype) cap.ctype = resp.headers.get("content-type");
+          resp.clone().arrayBuffer().then(function (ab) { capRecord(url, ab); }).catch(function () {});
+        } catch (e) {}
+        return resp;
+      });
+    }
+    return promise;
+  };
+
+  var origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__dubUrl = u; return origOpen.apply(this, arguments); };
+  var origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () {
+    var xhr = this;
+    if (audioUrl(xhr.__dubUrl)) {
+      xhr.addEventListener("load", function () {
+        try { if (xhr.response instanceof ArrayBuffer) capRecord(xhr.__dubUrl, xhr.response); } catch (e) {}
+      });
+    }
+    return origSend.apply(xhr, arguments);
+  };
+
+  // Ship the assembled audio to the brain: cumulative (init segment + all
+  // fragments = a valid file), re-sent as it grows, when growth pauses.
+  function capEmitter() {
+    if (!state.on) return;
+    var grown = cap.bytes > cap.lastEmit + 150000;
+    var settled = Date.now() - cap.lastGrowth > 4000;
+    if (grown && settled && cap.bytes > 300000) {
+      cap.lastEmit = cap.bytes;
+      var blob = new Blob([capAssembled()]);
+      var PART = 2500000;
+      var total = Math.ceil(blob.size / PART);
+      plog("shipping captured audio: " + Math.round(blob.size / 1e5) / 10 + "MB (" + (cap.ctype || "?") + ")");
+      (function sendPart(i) {
+        if (i >= total) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          window.bowser.emit({ kind: "dub_audio", part: i, total: total,
+                               data: reader.result.split(",")[1] });
+          sendPart(i + 1);
+        };
+        reader.readAsDataURL(blob.slice(i * PART, (i + 1) * PART));
+      })(0);
+    }
+  }
+  setInterval(capEmitter, 2000);
+
   function plog(msg) {
     try { window.bowser.emit({ kind: "dub_log", msg: String(msg).slice(0, 120) }); } catch (e) {}
   }
@@ -78,40 +167,21 @@
       return "ok";
     },
     reset: function () { state.segments = {}; state.playingT0 = null; return "reset"; },
-    // Fetch this video's audio with the PAGE's own credentials — the same
-    // origin the real player streams from, so no anti-bot walls. Emitted to
-    // the brain in ~2.5MB base64 parts.
+    // Restart the stream with the tap armed: reload the current video in
+    // place at the current position, so the player refetches everything —
+    // init segment included — through our tee.
     fetchAudio: function () {
       var player = document.querySelector("#movie_player");
-      if (!player || !player.getPlayerResponse) return "no player api";
-      var sd = (player.getPlayerResponse() || {}).streamingData || {};
-      var audio = (sd.adaptiveFormats || [])
-        .filter(function (f) { return f.mimeType && f.mimeType.indexOf("audio/") === 0 && f.url; })
-        .sort(function (a, b) { return (a.bitrate || 0) - (b.bitrate || 0); })[0];
-      var src = audio || (sd.formats || []).filter(function (f) { return f.url; })[0];
-      if (!src) { plog("no fetchable stream url (cipher-only?)"); return "no url"; }
-      plog("fetching audio itag " + src.itag + " (" + (src.contentLength ? Math.round(src.contentLength / 1e6) + "MB" : "?") + ")");
-      fetch(src.url)
-        .then(function (r) {
-          if (!r.ok) throw new Error("http " + r.status);
-          return r.blob();
-        })
-        .then(function (blob) {
-          var PART = 2500000;
-          var total = Math.ceil(blob.size / PART);
-          plog("audio fetched: " + Math.round(blob.size / 1e6) + "MB, " + total + " parts");
-          (function sendPart(i) {
-            if (i >= total) return;
-            var reader = new FileReader();
-            reader.onload = function () {
-              window.bowser.emit({ kind: "dub_audio", part: i, total: total,
-                                   data: reader.result.split(",")[1] });
-              sendPart(i + 1);
-            };
-            reader.readAsDataURL(blob.slice(i * PART, (i + 1) * PART));
-          })(0);
-        })
-        .catch(function (e) { plog("audio fetch failed: " + e.message); });
+      if (!player || !player.loadVideoById || !player.getVideoData) {
+        plog("player api unavailable for restream");
+        return "no player api";
+      }
+      var id = player.getVideoData().video_id;
+      var v = video();
+      var t = v ? Math.floor(v.currentTime) : 0;
+      cap.chunks = {}; cap.bytes = 0; cap.lastEmit = 0; cap.lastGrowth = Date.now(); cap.ctype = null;
+      player.loadVideoById(id, t);
+      plog("restreaming " + id + " from " + t + "s through the tap");
       return "fetching";
     },
     status: function () {
