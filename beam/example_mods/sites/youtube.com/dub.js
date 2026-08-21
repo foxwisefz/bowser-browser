@@ -167,21 +167,17 @@
       return "ok";
     },
     reset: function () { state.segments = {}; state.playingT0 = null; return "reset"; },
-    // Restart the stream with the tap armed: reload the current video in
-    // place at the current position, so the player refetches everything —
-    // init segment included — through our tee.
+    // v1.6: the page only DISCOVERS the manifest URL; the brain fetches the
+    // HLS wearing the browser's identity (engine cookies incl. HttpOnly,
+    // exact Safari UA, no Origin header) — page fetch is cross-origin and
+    // cannot send credentials, so media segments 403'd on it.
     fetchAudio: function () {
-      var player = document.querySelector("#movie_player");
-      if (!player || !player.loadVideoById || !player.getVideoData) {
-        plog("player api unavailable for restream");
-        return "no player api";
-      }
-      var id = player.getVideoData().video_id;
-      var v = video();
-      var t = v ? Math.floor(v.currentTime) : 0;
-      cap.chunks = {}; cap.bytes = 0; cap.lastEmit = 0; cap.lastGrowth = Date.now(); cap.ctype = null;
-      player.loadVideoById(id, t);
-      plog("restreaming " + id + " from " + t + "s through the tap");
+      var p = document.querySelector("#movie_player");
+      var pr = (p && p.getPlayerResponse && p.getPlayerResponse()) || window.ytInitialPlayerResponse || {};
+      var hls = (pr.streamingData || {}).hlsManifestUrl;
+      if (!hls) { plog("no hls manifest in player response"); return "no url"; }
+      window.bowser.emit({ kind: "dub_hls", url: hls });
+      plog("handed hls manifest to the brain");
       return "fetching";
     },
     status: function () {
