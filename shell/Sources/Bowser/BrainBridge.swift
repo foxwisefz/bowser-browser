@@ -292,6 +292,17 @@ final class BrainBridge {
         case "close_tab":
             BrowserWindowController.host(of: requested)?.closeTab(id: requested)
 
+        case "dub_capture_start":
+            if #available(macOS 13.0, *) { AudioDub.shared.start() }
+
+        case "dub_capture_stop":
+            if #available(macOS 13.0, *) { AudioDub.shared.stop() }
+
+        case "dub_play":
+            if #available(macOS 13.0, *), let mp3 = message["data"] as? String {
+                AudioDub.shared.play(base64: mp3)
+            }
+
         case "restore_done":
             // Session finished restoring and this webview is the active one:
             // the freeze-frame yields when IT paints (bowser-browser-6fa).

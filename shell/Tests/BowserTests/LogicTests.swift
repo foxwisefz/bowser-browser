@@ -103,6 +103,47 @@ final class TabCyclingTests: XCTestCase {
     }
 }
 
+@available(macOS 13.0, *)
+final class AudioDubTests: XCTestCase {
+    func testWavHeaderIsCanonical() {
+        let wav = AudioDub.wav([0, 32767, -32768, 100], rate: 16_000)
+        XCTAssertEqual(wav.count, 44 + 8) // header + 4 Int16 samples
+        XCTAssertEqual(String(bytes: wav[0..<4], encoding: .ascii), "RIFF")
+        XCTAssertEqual(String(bytes: wav[8..<12], encoding: .ascii), "WAVE")
+        XCTAssertEqual(String(bytes: wav[36..<40], encoding: .ascii), "data")
+        // Sample rate at byte offset 24, little-endian.
+        let rate = wav[24..<28].withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian
+        XCTAssertEqual(rate, 16_000)
+    }
+
+    func testDownmixAveragesChannelsAndDecimates() {
+        // Stereo, 6 frames: L/R that average to a known ramp; decimate by 3.
+        let interleaved: [Float32] = [
+            0.0, 0.0, // frame 0 → 0
+            0.5, 0.5, // 1
+            1.0, 1.0, // 2
+            -1.0, -1.0, // frame 3 → -1  (taken)
+            0.25, 0.75, // 4
+            0.5, 0.5, // 5
+        ]
+        let out = interleaved.withUnsafeBufferPointer {
+            AudioDub.downmix($0.baseAddress!, frames: 6, channels: 2, decimate: 3)
+        }
+        // Frames 0 and 3 survive decimation.
+        XCTAssertEqual(out.count, 2)
+        XCTAssertEqual(out[0], 0)
+        XCTAssertEqual(out[1], -32767)
+    }
+
+    func testDownmixClampsOutOfRange() {
+        let interleaved: [Float32] = [2.0, 2.0]
+        let out = interleaved.withUnsafeBufferPointer {
+            AudioDub.downmix($0.baseAddress!, frames: 1, channels: 2, decimate: 1)
+        }
+        XCTAssertEqual(out, [32767])
+    }
+}
+
 final class ZoomTests: XCTestCase {
     @MainActor func testStepsAndClamps() {
         XCTAssertEqual(EngineView.steppedZoom(1.0, direction: 1), 1.1, accuracy: 0.001)
