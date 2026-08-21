@@ -135,6 +135,19 @@ final class AudioDubTests: XCTestCase {
         XCTAssertEqual(out[1], -32767)
     }
 
+    func testDownmixPlanarAveragesChannels() {
+        // Two channel buffers (planar), 4 frames; average L/R, decimate by 2.
+        let left: [Float32] = [1.0, 0.0, -1.0, 0.5]
+        let right: [Float32] = [1.0, 0.0, -1.0, -0.5]
+        let out = left.withUnsafeBufferPointer { l in
+            right.withUnsafeBufferPointer { r in
+                AudioDub.downmixPlanar([l.baseAddress!, r.baseAddress!], frames: 4, decimate: 2)
+            }
+        }
+        // Frames 0 (avg 1.0) and 2 (avg -1.0) survive.
+        XCTAssertEqual(out, [32767, -32767])
+    }
+
     func testDownmixClampsOutOfRange() {
         let interleaved: [Float32] = [2.0, 2.0]
         let out = interleaved.withUnsafeBufferPointer {

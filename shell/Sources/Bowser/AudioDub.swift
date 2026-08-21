@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 
@@ -20,6 +21,7 @@ final class AudioDub: NSObject, SCStreamOutput, @unchecked Sendable {
     private var accum: [Int16] = []
     private var seq = 0
     private let sampleQueue = DispatchQueue(label: "bowser.audiodub.samples")
+    private let screenQueue = DispatchQueue(label: "bowser.audiodub.screen")
     @MainActor private lazy var player = AudioDubPlayer()
 
     // 16kHz mono, 6-second chunks. Whisper's floor is ~0.1s; 6s balances
@@ -29,7 +31,27 @@ final class AudioDub: NSObject, SCStreamOutput, @unchecked Sendable {
 
     var isCapturing: Bool { sampleQueue.sync { stream != nil } }
 
+    private func report(_ msg: String) {
+        Task { @MainActor in
+            BrainBridge.shared.send(["op": "event", "event": "dub_capture_status", "message": msg])
+        }
+    }
+
     func start() {
+        // Explicit permission first: CGRequestScreenCaptureAccess reliably
+        // raises the macOS prompt and registers this binary in the Screen
+        // Recording list — SCShareableContent's implicit prompt does not
+        // fire for a terminal-launched, unbundled binary (bowser-browser-gj9).
+        let granted = CGPreflightScreenCaptureAccess()
+        report("screen-recording permission: \(granted ? "granted" : "NOT granted — requesting…")")
+        if !granted {
+            let now = CGRequestScreenCaptureAccess()
+            report(now
+                ? "permission just granted — press :dub again"
+                : "permission DENIED — enable Bowser (or iTerm) in System Settings › Privacy › Screen Recording, then restart")
+            if !now { return }
+        }
+
         sampleQueue.async { [weak self] in
             guard let self, self.stream == nil else { return }
             Task { [weak self] in
@@ -74,33 +96,66 @@ final class AudioDub: NSObject, SCStreamOutput, @unchecked Sendable {
 
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        // Our TTS plays in THIS process (AudioDubPlayer) — excluding it is
-        // what stops the dub from being re-captured and re-translated.
-        config.excludesCurrentProcessAudio = true
         config.sampleRate = 48_000
         config.channelCount = 2
-        // Minimal video: SCStream requires a display filter, but we only
-        // want audio — keep the frame tiny and slow.
-        config.width = 2
-        config.height = 2
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        // A real (small) frame: a 2x2 stream silently never delivers audio.
+        config.width = 128
+        config.height = 72
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 2)
 
+        // Dump every capturable app so we can find where the video audio
+        // lives (WebKit renders it in a helper process). Show non-Apple + any
+        // WebKit/media apps to keep it short.
+        let apps = content.applications
+        let interesting = apps
+            .map { "\($0.bundleIdentifier.isEmpty ? "<pid \($0.processID)>" : $0.bundleIdentifier)" }
+            .filter { id in
+                let l = id.lowercased()
+                return l.contains("webkit") || l.contains("media") || l.contains("gpu")
+                    || l.contains("pid") || !id.hasPrefix("com.apple.")
+            }
+        report("apps: " + interesting.prefix(12).joined(separator: " "))
+
+        // Capture the whole display's audio (all apps): the video plays
+        // SOMEWHERE in the process tree and this is guaranteed to include it.
+        // Feedback from our own TTS is muzzled brain-side.
         let filter = SCContentFilter(display: display, excludingWindows: [])
+        report("capturing full display audio")
         let s = SCStream(filter: filter, configuration: config, delegate: nil)
+        // A screen output is added alongside audio: some macOS versions
+        // won't start delivering audio on an audio-only stream.
+        try s.addStreamOutput(ScreenSink.shared, type: .screen, sampleHandlerQueue: screenQueue)
         try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try await s.startCapture()
         stream = s
+        report("capture started — waiting for the first 6s chunk")
         NSLog("Bowser: dub capture started")
     }
 
     // MARK: SCStreamOutput (runs on sampleQueue)
 
+    private var cbCount = 0
+    private var reportedFormat = false
+
     func stream(
         _ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType
     ) {
-        guard type == .audio, self.stream != nil,
+        guard type == .audio else { return }
+        cbCount += 1
+        if !reportedFormat {
+            reportedFormat = true
+            if let asbd = sampleBuffer.formatDescription?.audioStreamBasicDescription {
+                report("audio cb firing: \(Int(asbd.mSampleRate))Hz \(asbd.mChannelsPerFrame)ch flags=\(asbd.mFormatFlags) bits=\(asbd.mBitsPerChannel)")
+            } else {
+                report("audio cb firing but NO format description")
+            }
+        }
+        guard self.stream != nil,
               let samples = AudioDub.monoDownsampled(sampleBuffer)
-        else { return }
+        else {
+            if cbCount <= 3 { report("cb \(cbCount): monoDownsampled returned nil") }
+            return
+        }
         accum.append(contentsOf: samples)
         while accum.count >= Self.chunkSamples {
             let chunk = Array(accum.prefix(Self.chunkSamples))
@@ -119,32 +174,73 @@ final class AudioDub: NSObject, SCStreamOutput, @unchecked Sendable {
 
     // MARK: - Pure DSP (testable)
 
-    /// 48kHz stereo Float32 sample buffer → 16kHz mono Int16 (average the
-    /// channels, decimate by 3). Nil if the buffer isn't the expected shape.
+    /// 48kHz Float32 sample buffer → 16kHz mono Int16. Handles both
+    /// interleaved and NON-INTERLEAVED (planar) layouts — SCStream delivers
+    /// planar (flags include kAudioFormatFlagIsNonInterleaved), which needs
+    /// an AudioBufferList sized for every channel (the old single-buffer
+    /// list silently failed — bowser-browser-gj9).
     static func monoDownsampled(_ sampleBuffer: CMSampleBuffer) -> [Int16]? {
-        guard let formatDesc = sampleBuffer.formatDescription,
-              let asbd = formatDesc.audioStreamBasicDescription
-        else { return nil }
+        guard let asbd = sampleBuffer.formatDescription?.audioStreamBasicDescription else { return nil }
+        let channels = Int(asbd.mChannelsPerFrame)
+        guard channels > 0 else { return nil }
+        let decim = max(1, Int(asbd.mSampleRate.rounded()) / outRate)
 
         var blockBuffer: CMBlockBuffer?
-        var audioBufferList = AudioBufferList()
+        let ablSize = MemoryLayout<AudioBufferList>.size
+            + (channels - 1) * MemoryLayout<AudioBuffer>.size
+        let ablRaw = UnsafeMutableRawPointer.allocate(
+            byteCount: ablSize, alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { ablRaw.deallocate() }
+        let abl = ablRaw.assumingMemoryBound(to: AudioBufferList.self)
+
         let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sampleBuffer,
             bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            bufferListOut: abl,
+            bufferListSize: ablSize,
             blockBufferAllocator: nil,
             blockBufferMemoryAllocator: nil,
             flags: 0,
             blockBufferOut: &blockBuffer
         )
-        guard status == noErr, let buffer = audioBufferList.mBuffers.mData else { return nil }
+        guard status == noErr else { return nil }
 
-        let channels = Int(asbd.mChannelsPerFrame)
-        let frames = Int(audioBufferList.mBuffers.mDataByteSize) / (MemoryLayout<Float32>.size * max(channels, 1))
-        let floats = buffer.assumingMemoryBound(to: Float32.self)
-        let decim = max(1, Int(asbd.mSampleRate.rounded()) / outRate)
-        return downmix(floats, frames: frames, channels: channels, decimate: decim)
+        let buffers = UnsafeMutableAudioBufferListPointer(abl)
+        let nonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+
+        if nonInterleaved {
+            // One buffer per channel; each holds `frames` Float32.
+            let channelPtrs: [UnsafePointer<Float32>] = buffers.compactMap {
+                $0.mData.map { UnsafePointer($0.assumingMemoryBound(to: Float32.self)) }
+            }
+            guard !channelPtrs.isEmpty else { return nil }
+            let frames = Int(buffers[0].mDataByteSize) / MemoryLayout<Float32>.size
+            return downmixPlanar(channelPtrs, frames: frames, decimate: decim)
+        } else {
+            guard let data = buffers[0].mData else { return nil }
+            let floats = data.assumingMemoryBound(to: Float32.self)
+            let frames = Int(buffers[0].mDataByteSize) / (MemoryLayout<Float32>.size * channels)
+            return downmix(floats, frames: frames, channels: channels, decimate: decim)
+        }
+    }
+
+    /// Planar Float32 (one pointer per channel) → mono Int16 with decimation.
+    static func downmixPlanar(
+        _ channels: [UnsafePointer<Float32>], frames: Int, decimate: Int
+    ) -> [Int16] {
+        guard !channels.isEmpty, decimate > 0 else { return [] }
+        let n = Float32(channels.count)
+        var out: [Int16] = []
+        out.reserveCapacity(frames / decimate + 1)
+        var frame = 0
+        while frame < frames {
+            var mixed: Float32 = 0
+            for ch in channels { mixed += ch[frame] }
+            mixed /= n
+            out.append(Int16(max(-1, min(1, mixed)) * 32767))
+            frame += decimate
+        }
+        return out
     }
 
     /// Interleaved Float32 → mono Int16 with decimation. Pure over a raw
@@ -184,6 +280,14 @@ final class AudioDub: NSObject, SCStreamOutput, @unchecked Sendable {
         for s in samples { u16(UInt16(bitPattern: s)) }
         return d
     }
+}
+
+/// Drops screen frames — present only so SCStream reliably starts its audio
+/// delivery (audio-only streams don't on some macOS versions).
+@available(macOS 13.0, *)
+final class ScreenSink: NSObject, SCStreamOutput, @unchecked Sendable {
+    static let shared = ScreenSink()
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {}
 }
 
 /// Ordered mp3 playback in this process, so ScreenCaptureKit's

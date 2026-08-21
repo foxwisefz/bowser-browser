@@ -14,12 +14,12 @@ defmodule DubberMod do
 
   def init_mod(_opts) do
     assert_chrome()
-    %{active: 0, on: false}
+    %{active: 0, on: false, muzzle_until: 0}
   end
 
   def handle_event(%{"event" => "hello"} = hello, state) do
     assert_chrome()
-    %{active: Map.get(hello, "active", Map.get(state, :active, 0)), on: false}
+    %{active: Map.get(hello, "active", Map.get(state, :active, 0)), on: false, muzzle_until: 0}
   end
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
@@ -28,7 +28,7 @@ defmodule DubberMod do
 
   def handle_event(%{"event" => "omnibar_command", "text" => "dub"}, state) do
     cond do
-      Settings.get("openai_api_key") in [nil, ""] ->
+      Settings.get("openai_api_key") in [nil, "", "<null>"] ->
         ModLog.log("dubber", "no key — :set openai_api_key first")
         state
 
@@ -48,13 +48,24 @@ defmodule DubberMod do
 
   # A 16kHz WAV chunk of the browser's own audio, from the shell.
   def handle_event(%{"event" => "dub_audio_chunk", "seq" => seq, "data" => wav_b64}, state) do
-    if state.on do
-      key = Settings.get("openai_api_key")
-      parent = self()
-      Task.start(fn -> pipeline(parent, seq, wav_b64, key) end)
-    end
+    now = System.system_time(:millisecond)
 
-    state
+    cond do
+      not state.on ->
+        state
+
+      # Muzzle: while our own TTS is (about to be) playing, the captured
+      # audio is dominated by the dub — translating it would loop. Skip.
+      now < Map.get(state, :muzzle_until, 0) ->
+        ModLog.log("dubber", "#{seq}: muzzled (dub playing)")
+        state
+
+      true ->
+        key = Settings.get("openai_api_key")
+        parent = self()
+        Task.start(fn -> pipeline(parent, seq, wav_b64, key) end)
+        state
+    end
   end
 
   def handle_event(%{"event" => "dub_capture_error", "message" => msg}, state) do
@@ -62,11 +73,21 @@ defmodule DubberMod do
     %{state | on: false}
   end
 
+  def handle_event(%{"event" => "dub_capture_status", "message" => msg}, state) do
+    ModLog.log("dubber", msg)
+    state
+  end
+
   def handle_event(_event, state), do: state
 
   def handle_info({:play, seq, mp3_b64}, state) do
-    if state.on, do: Bridge.cast_msg(%{op: "dub_play", seq: seq, data: mp3_b64})
-    {:noreply, state}
+    if state.on do
+      Bridge.cast_msg(%{op: "dub_play", seq: seq, data: mp3_b64})
+      until = System.system_time(:millisecond) + 7_000
+      {:noreply, %{state | muzzle_until: until}}
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_info(other, state), do: super(other, state)
