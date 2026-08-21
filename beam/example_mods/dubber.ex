@@ -7,7 +7,7 @@
 defmodule DubberMod do
   use BowserBrain.Mod, host: "youtube.com"
 
-  alias BowserBrain.{Browser, Chrome, Settings}
+  alias BowserBrain.{Browser, Chrome, ModLog, Page, Settings}
 
   def init_mod(_opts) do
     Application.ensure_all_started(:inets)
@@ -30,18 +30,44 @@ defmodule DubberMod do
 
     cond do
       Settings.get("openai_api_key") in [nil, ""] ->
-        Browser.eval_js("void 0", wv)
-        IO.puts("[dubber] no key — :set openai_api_key sk-... first (Settings panel)")
+        ModLog.log("dubber", "no key — :set openai_api_key first")
         state
 
-      MapSet.member?(state.on, wv) ->
-        Browser.eval_js("window.__bowserDub && window.__bowserDub.stop()", wv)
-        %{state | on: MapSet.delete(state.on, wv)}
-
       true ->
-        Browser.eval_js("window.__bowserDub && window.__bowserDub.start()", wv)
-        %{state | on: MapSet.put(state.on, wv)}
+        # The PAGE is the truth: after a reload the page half resets to off
+        # while the brain's set still says on — blind toggling then inverts
+        # and every :dub does the opposite of what the owner meant
+        # (bowser-browser-h9i).
+        page_on =
+          case page_eval(wv, "window.__bowserDub ? JSON.parse(window.__bowserDub.status()).on : null") do
+            {:ok, value} -> value
+            _ -> nil
+          end
+
+        case page_on do
+          nil ->
+            ModLog.log("dubber", "wv#{wv}: dub.js not present (not a youtube page?)")
+            state
+
+          true ->
+            page_eval(wv, "window.__bowserDub.stop()")
+            ModLog.log("dubber", "wv#{wv}: dubbing OFF")
+            %{state | on: MapSet.delete(state.on, wv)}
+
+          false ->
+            page_eval(wv, "window.__bowserDub.start()")
+            ModLog.log("dubber", "wv#{wv}: dubbing ON")
+            %{state | on: MapSet.put(state.on, wv)}
+        end
     end
+  end
+
+  # A dubbed tab reloaded or SPA-navigated to the next video: the page half
+  # reset to off. Re-assert start after the payload has injected — start()
+  # is idempotent, so a still-running session is untouched.
+  def handle_event(%{"event" => "url_changed", "webview" => wv}, state) do
+    if MapSet.member?(state.on, wv), do: Process.send_after(self(), {:reassert, wv}, 1_500)
+    state
   end
 
   def handle_event(
@@ -64,6 +90,18 @@ defmodule DubberMod do
 
   def handle_event(_event, state), do: state
 
+  def handle_info({:reassert, wv}, state) do
+    if MapSet.member?(state.on, wv) do
+      case page_eval(wv, "window.__bowserDub ? window.__bowserDub.start() : null") do
+        {:ok, "dubbing on"} -> ModLog.log("dubber", "wv#{wv}: re-armed after navigation")
+        {:ok, "already on"} -> :ok
+        other -> ModLog.log("dubber", "wv#{wv}: re-arm failed #{inspect(other)}")
+      end
+    end
+
+    {:noreply, state}
+  end
+
   def handle_info({:deliver, wv, seq, result}, state) do
     payload =
       case result do
@@ -80,16 +118,36 @@ defmodule DubberMod do
   # -- the pipeline ------------------------------------------------------------
 
   defp dub_chunk(b64, key) do
+    t0 = System.monotonic_time(:millisecond)
+
     with {:ok, audio} <- Base.decode64(b64),
          {:ok, text} <- translate(audio, key),
+         t1 = System.monotonic_time(:millisecond),
          true <- String.trim(text) != "" || {:skip, :empty},
          {:ok, mp3} <- speak(text, key) do
+      t2 = System.monotonic_time(:millisecond)
+
+      ModLog.log(
+        "dubber",
+        "ok (#{t1 - t0}ms whisper, #{t2 - t1}ms tts): #{String.slice(text, 0, 40)}"
+      )
+
       {:ok, Base.encode64(mp3)}
     else
+      {:skip, :empty} ->
+        ModLog.log("dubber", "chunk had no speech — skipped")
+        :skip
+
       other ->
-        IO.puts("[dubber] chunk skipped: #{inspect(other)}")
+        ModLog.log("dubber", "chunk FAILED: #{inspect(other) |> String.slice(0, 80)}")
         :skip
     end
+  end
+
+  defp page_eval(wv, js) do
+    Page.eval(js, webview: wv)
+  catch
+    :exit, _ -> {:error, :timeout}
   end
 
   defp translate(audio, key) do
