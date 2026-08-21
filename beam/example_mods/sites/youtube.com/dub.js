@@ -1,86 +1,87 @@
-// Live voice dubbing, page half (bowser-browser-dku): when the dubber mod
-// switches this tab on, capture the video's audio in STANDALONE 6s chunks
-// (MediaRecorder is restarted per chunk — continuation chunks aren't
-// independently decodable files) and emit them to the brain; play returned
-// English TTS in order while the original is ducked. ~8s behind live by
-// design — a consecutive interpreter, not simultaneous (that's v2).
+// Live voice dubbing, page half v1.2 (bowser-browser-dku): NO capture — the
+// brain fetches the video's audio itself (yt-dlp) and streams back
+// time-stamped English segments; this half is a synchronized player. Each
+// segment covers [t0, t0+20s); every 300ms we check video.currentTime and
+// hard-switch to the segment that owns it, seeking within the segment —
+// pause, scrub, and replay all stay in sync. Both in-page capture paths are
+// dead on WebKit: captureStream does not exist and MediaElementSource
+// outputs silence on YouTube's MSE stream (measured amplitude: zero).
 (function () {
   if (window.top !== window) return;
   if (window.__bowserDub) return;
 
-  var CHUNK_MS = 6000;
-  var state = { on: false, recorder: null, seq: 0, nextPlay: 0, buffer: {}, playing: false, video: null };
+  var SEG = 20; // seconds per segment, must match the brain's ffmpeg cut
+  var state = { on: false, segments: {}, timer: null, audio: null, playingT0: null, video: null };
+
+  function plog(msg) {
+    try { window.bowser.emit({ kind: "dub_log", msg: String(msg).slice(0, 120) }); } catch (e) {}
+  }
 
   function video() { return document.querySelector("video"); }
 
-  function startRecorder() {
+  function tick() {
     if (!state.on) return;
     var v = video();
-    if (!v || v.paused) { setTimeout(startRecorder, 800); return; }
-    var stream;
-    try { stream = v.captureStream(); } catch (e) { return; }
-    var audio = new MediaStream(stream.getAudioTracks());
-    if (!audio.getAudioTracks().length) { setTimeout(startRecorder, 800); return; }
-    var rec = new MediaRecorder(audio, { mimeType: "audio/webm;codecs=opus" });
-    var mySeq = state.seq++;
-    rec.ondataavailable = function (e) {
-      if (!state.on || !e.data || e.data.size < 4000) return; // skip silence/stubs
-      var reader = new FileReader();
-      reader.onload = function () {
-        var b64 = reader.result.split(",")[1];
-        window.bowser.emit({ kind: "dub_chunk", seq: mySeq, data: b64 });
-      };
-      reader.readAsDataURL(e.data);
-    };
-    rec.onstop = function () { if (state.on) startRecorder(); };
-    state.recorder = rec;
-    rec.start();
-    setTimeout(function () { if (rec.state !== "inactive") rec.stop(); }, CHUNK_MS);
-  }
-
-  function playNext() {
-    if (state.playing) return;
-    // Stay near-live: if we're far behind, skip ahead.
-    var seqs = Object.keys(state.buffer).map(Number);
-    if (seqs.length > 3) { state.nextPlay = Math.min.apply(null, seqs); }
-    var b64 = state.buffer[state.nextPlay];
-    if (b64 === undefined) return;
-    delete state.buffer[state.nextPlay];
-    state.nextPlay++;
-    if (b64 === null) { playNext(); return; } // untranslatable chunk: skip
-    state.playing = true;
+    if (!v) return;
+    if (v.paused) {
+      if (state.audio && !state.audio.paused) state.audio.pause();
+      return;
+    }
+    var t = v.currentTime;
+    var t0 = Math.floor(t / SEG) * SEG;
+    var b64 = state.segments[t0];
+    if (state.playingT0 === t0) {
+      // Same segment: resume if we paused with the video, nudge if drifted.
+      if (state.audio) {
+        if (state.audio.paused) state.audio.play().catch(function () {});
+        var want = t - t0;
+        if (Math.abs(state.audio.currentTime - want) > 2.5) state.audio.currentTime = want;
+      }
+      return;
+    }
+    if (b64 === undefined) return; // not translated yet — stay quiet
+    if (state.audio) { state.audio.pause(); state.audio = null; }
+    state.playingT0 = t0;
+    if (b64 === null) return;      // segment had no speech
     var a = new Audio("data:audio/mpeg;base64," + b64);
-    a.onended = a.onerror = function () { state.playing = false; playNext(); };
-    a.play().catch(function () { state.playing = false; });
+    state.audio = a;
+    a.oncanplay = function () {
+      var offset = video() ? Math.max(0, video().currentTime - t0) : 0;
+      if (offset > 0.5) a.currentTime = offset;
+      a.play().catch(function (e) { plog("segment play blocked: " + e.name); });
+    };
   }
 
   window.__bowserDub = {
     start: function () {
       if (state.on) return "already on";
       state.on = true;
-      state.seq = 0; state.nextPlay = 0; state.buffer = {}; state.playing = false;
+      state.playingT0 = null;
       var v = video();
-      if (v) { state.video = v; v.dataset.dubVolume = v.volume; v.volume = 0.15; }
-      startRecorder();
+      if (v) { state.video = v; v.dataset.dubVolume = v.volume; v.volume = 0.2; }
+      state.timer = setInterval(tick, 300);
+      plog("player armed (" + Object.keys(state.segments).length + " segments cached)");
       return "dubbing on";
     },
     stop: function () {
       state.on = false;
-      if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop();
-      state.buffer = {};
+      if (state.timer) clearInterval(state.timer);
+      if (state.audio) { state.audio.pause(); state.audio = null; }
+      state.playingT0 = null;
       var v = state.video || video();
       if (v && v.dataset.dubVolume) { v.volume = +v.dataset.dubVolume; delete v.dataset.dubVolume; }
       return "dubbing off";
     },
-    // Brain delivers each translated chunk here (b64 mp3, or null to skip).
-    deliver: function (seq, b64) {
-      state.buffer[seq] = b64;
-      playNext();
+    // Brain delivers each translated segment: start second + b64 mp3 (null = no speech).
+    deliver: function (t0, b64) {
+      state.segments[t0] = b64;
       return "ok";
     },
+    reset: function () { state.segments = {}; state.playingT0 = null; return "reset"; },
     status: function () {
-      return JSON.stringify({ on: state.on, seq: state.seq, next: state.nextPlay,
-                              buffered: Object.keys(state.buffer).length });
+      return JSON.stringify({ on: state.on,
+                              cached: Object.keys(state.segments).length,
+                              playing: state.playingT0 });
     }
   };
 })();

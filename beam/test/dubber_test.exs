@@ -8,7 +8,7 @@ defmodule DubberModTest do
   test "multipart body is a valid whisper upload" do
     body = DubberMod.multipart("BOUND", <<1, 2, 3>>) |> IO.iodata_to_binary()
     assert body =~ "--BOUND\r\n"
-    assert body =~ ~s(name="file"; filename="chunk.webm")
+    assert body =~ ~s(name="file"; filename="chunk.mp3")
     assert body =~ "whisper-1"
     assert String.ends_with?(body, "--BOUND--\r\n")
     assert :binary.match(body, <<1, 2, 3>>) != :nomatch

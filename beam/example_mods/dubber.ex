@@ -1,24 +1,34 @@
-# Live voice dubbing, brain half (bowser-browser-dku): `:dub` toggles the
-# current YouTube tab. The page emits standalone 6s audio chunks; each goes
-# to OpenAI translations (whisper-1 — speech in any language OUT as English
-# text) then /audio/speech (TTS), and the mp3 is delivered back to the
-# page's in-order playback queue. Key via `:set openai_api_key` (Settings,
-# secret). A consecutive interpreter ~8s behind live; Realtime S2S is v2.
+# Live voice dubbing, brain half v1.2 (bowser-browser-dku): `:dub` on a
+# YouTube watch page fetches the video's AUDIO directly (yt-dlp on this
+# machine — both in-page capture paths are dead on WebKit), cuts it into
+# 20s segments (ffmpeg), runs each through OpenAI translations (whisper-1:
+# any language in, English text out) + TTS, and streams time-stamped mp3s
+# to the page's synchronized player. Segments are cached per video URL, so
+# re-watching or reloading is free. Key via `:set openai_api_key`.
+# Capped at 45 segments (15 min) per video to bound cost — logged if hit.
 defmodule DubberMod do
   use BowserBrain.Mod, host: "youtube.com"
 
-  alias BowserBrain.{Browser, Chrome, ModLog, Page, Settings}
+  alias BowserBrain.{Chrome, ModLog, Page, Session, Settings}
+
+  @seg_seconds 20
+  @max_segments 45
 
   def init_mod(_opts) do
     Application.ensure_all_started(:inets)
     Application.ensure_all_started(:ssl)
     assert_chrome()
-    %{active: 0, on: MapSet.new()}
+    %{active: 0, on: MapSet.new(), jobs: %{}, cache: %{}}
   end
 
   def handle_event(%{"event" => "hello"} = hello, state) do
     assert_chrome()
-    %{state | active: Map.get(hello, "active", Map.get(state, :active, 0)), on: MapSet.new()}
+
+    state
+    |> Map.put(:active, Map.get(hello, "active", Map.get(state, :active, 0)))
+    |> Map.put(:on, MapSet.new())
+    |> Map.put_new(:jobs, %{})
+    |> Map.put_new(:cache, %{})
   end
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
@@ -34,10 +44,6 @@ defmodule DubberMod do
         state
 
       true ->
-        # The PAGE is the truth: after a reload the page half resets to off
-        # while the brain's set still says on — blind toggling then inverts
-        # and every :dub does the opposite of what the owner meant
-        # (bowser-browser-h9i).
         page_on =
           case page_eval(wv, "window.__bowserDub ? JSON.parse(window.__bowserDub.status()).on : null") do
             {:ok, value} -> value
@@ -56,92 +62,161 @@ defmodule DubberMod do
 
           false ->
             page_eval(wv, "window.__bowserDub.start()")
-            ModLog.log("dubber", "wv#{wv}: dubbing ON")
-            %{state | on: MapSet.put(state.on, wv)}
+            state = %{state | on: MapSet.put(state.on, wv)}
+            arm(wv, state)
         end
     end
   end
 
-  # A dubbed tab reloaded or SPA-navigated to the next video: the page half
-  # reset to off. Re-assert start after the payload has injected — start()
-  # is idempotent, so a still-running session is untouched.
+  # A dubbed tab reloaded or SPA-navigated: re-arm the player (retrying —
+  # the payload injects at document END, well after url_changed).
   def handle_event(%{"event" => "url_changed", "webview" => wv}, state) do
-    if MapSet.member?(state.on, wv), do: Process.send_after(self(), {:reassert, wv}, 1_500)
+    if MapSet.member?(state.on, wv), do: Process.send_after(self(), {:reassert, wv, 6}, 1_500)
     state
   end
 
   def handle_event(
-        %{"event" => "page", "webview" => wv,
-          "payload" => %{"kind" => "dub_chunk", "seq" => seq, "data" => b64}},
+        %{"event" => "page", "webview" => wv, "payload" => %{"kind" => "dub_log", "msg" => msg}},
         state
       ) do
-    if MapSet.member?(state.on, wv) do
-      key = Settings.get("openai_api_key")
-      parent = self()
-
-      Task.start(fn ->
-        result = dub_chunk(b64, key)
-        send(parent, {:deliver, wv, seq, result})
-      end)
-    end
-
+    ModLog.log("dubber", "wv#{wv} page: #{msg}")
     state
   end
 
   def handle_event(_event, state), do: state
 
-  def handle_info({:reassert, wv}, state) do
+  def handle_info({:reassert, wv, tries}, state) do
     if MapSet.member?(state.on, wv) do
       case page_eval(wv, "window.__bowserDub ? window.__bowserDub.start() : null") do
-        {:ok, "dubbing on"} -> ModLog.log("dubber", "wv#{wv}: re-armed after navigation")
-        {:ok, "already on"} -> :ok
-        other -> ModLog.log("dubber", "wv#{wv}: re-arm failed #{inspect(other)}")
-      end
-    end
+        {:ok, "dubbing on"} ->
+          ModLog.log("dubber", "wv#{wv}: re-armed after navigation")
+          {:noreply, arm(wv, state)}
 
-    {:noreply, state}
+        {:ok, "already on"} ->
+          {:noreply, state}
+
+        _other when tries > 1 ->
+          Process.send_after(self(), {:reassert, wv, tries - 1}, 2_000)
+          {:noreply, state}
+
+        other ->
+          ModLog.log("dubber", "wv#{wv}: re-arm gave up #{inspect(other)}")
+          {:noreply, state}
+      end
+    else
+      {:noreply, state}
+    end
   end
 
-  def handle_info({:deliver, wv, seq, result}, state) do
-    payload =
-      case result do
-        {:ok, mp3_b64} -> ~s("#{mp3_b64}")
-        _ -> "null"
-      end
+  def handle_info({:segment, wv, url, t0, mp3_b64}, state) do
+    cache = Map.update(Map.get(state, :cache, %{}), url, [{t0, mp3_b64}], &[{t0, mp3_b64} | &1])
+    deliver(wv, t0, mp3_b64)
+    {:noreply, Map.put(state, :cache, cache)}
+  end
 
-    Browser.eval_js("window.__bowserDub && window.__bowserDub.deliver(#{seq}, #{payload})", wv)
-    {:noreply, state}
+  def handle_info({:job_done, wv, url, outcome}, state) do
+    ModLog.log("dubber", "wv#{wv}: job #{outcome} (#{length(Map.get(state.cache, url, []))} segments)")
+    {:noreply, Map.put(state, :jobs, Map.delete(Map.get(state, :jobs, %{}), url))}
   end
 
   def handle_info(other, state), do: super(other, state)
 
   # -- the pipeline ------------------------------------------------------------
 
-  defp dub_chunk(b64, key) do
-    t0 = System.monotonic_time(:millisecond)
+  # Arm a tab: cached segments replay instantly; otherwise one fetch job per
+  # video URL runs in the background.
+  defp arm(wv, state) do
+    url = Session.url_of(wv) || ""
+    cache = Map.get(state, :cache, %{})
+    jobs = Map.get(state, :jobs, %{})
 
-    with {:ok, audio} <- Base.decode64(b64),
-         {:ok, text} <- translate(audio, key),
-         t1 = System.monotonic_time(:millisecond),
-         true <- String.trim(text) != "" || {:skip, :empty},
-         {:ok, mp3} <- speak(text, key) do
-      t2 = System.monotonic_time(:millisecond)
+    cond do
+      not String.contains?(url, "/watch") ->
+        ModLog.log("dubber", "wv#{wv}: not a watch page — nothing to dub")
+        state
 
-      ModLog.log(
-        "dubber",
-        "ok (#{t1 - t0}ms whisper, #{t2 - t1}ms tts): #{String.slice(text, 0, 40)}"
-      )
+      Map.has_key?(cache, url) ->
+        for {t0, b64} <- Enum.sort(Map.get(cache, url, [])), do: deliver(wv, t0, b64)
+        ModLog.log("dubber", "wv#{wv}: replayed #{length(Map.get(cache, url, []))} cached segments")
+        state
 
-      {:ok, Base.encode64(mp3)}
-    else
-      {:skip, :empty} ->
-        ModLog.log("dubber", "chunk had no speech — skipped")
-        :skip
+      Map.has_key?(jobs, url) ->
+        state
 
-      other ->
-        ModLog.log("dubber", "chunk FAILED: #{inspect(other) |> String.slice(0, 80)}")
-        :skip
+      true ->
+        key = Settings.get("openai_api_key")
+        parent = self()
+        {:ok, pid} = Task.start(fn -> run_job(parent, wv, url, key) end)
+        ModLog.log("dubber", "wv#{wv}: fetching audio (yt-dlp)…")
+        Map.put(state, :jobs, Map.put(jobs, url, pid))
     end
+  end
+
+  defp deliver(wv, t0, mp3_b64) do
+    payload = if mp3_b64, do: ~s("#{mp3_b64}"), else: "null"
+    BowserBrain.Browser.eval_js("window.__bowserDub && window.__bowserDub.deliver(#{t0}, #{payload})", wv)
+  end
+
+  defp run_job(parent, wv, url, key) do
+    dir = Path.join(System.tmp_dir!(), "bowser-dub-#{:erlang.phash2(url)}")
+    File.mkdir_p!(dir)
+    audio = Path.join(dir, "audio.m4a")
+
+    with {_, 0} <-
+           System.cmd("/opt/homebrew/bin/yt-dlp",
+             ["-f", "ba[ext=m4a]/ba", "--no-playlist", "-q", "-o", audio, url],
+             stderr_to_stdout: true),
+         {_, 0} <-
+           System.cmd("/opt/homebrew/bin/ffmpeg",
+             ["-y", "-loglevel", "error", "-i", audio, "-f", "segment",
+              "-segment_time", "#{@seg_seconds}", "-ar", "16000", "-ac", "1",
+              "-c:a", "libmp3lame", "-b:a", "48k", Path.join(dir, "seg%03d.mp3")],
+             stderr_to_stdout: true) do
+      segments = dir |> Path.join("seg*.mp3") |> Path.wildcard() |> Enum.sort()
+      capped = Enum.take(segments, @max_segments)
+
+      if length(segments) > @max_segments do
+        send_log(parent, wv, "video longer than #{@max_segments * @seg_seconds}s — dubbing the first 15min")
+      end
+
+      send_log(parent, wv, "audio fetched: #{length(capped)} segments to translate")
+
+      capped
+      |> Enum.with_index()
+      |> Enum.each(fn {seg_path, idx} ->
+        t0 = idx * @seg_seconds
+        mp3 = File.read!(seg_path)
+
+        result =
+          with {:ok, text} <- translate(mp3, key),
+               true <- String.trim(text) != "" || :empty,
+               {:ok, tts} <- speak(text, key) do
+            send_log(parent, wv, "#{t0}s: #{String.slice(text, 0, 40)}")
+            Base.encode64(tts)
+          else
+            :empty -> nil
+            error ->
+              send_log(parent, wv, "#{t0}s FAILED: #{inspect(error) |> String.slice(0, 70)}")
+              nil
+          end
+
+        send(parent, {:segment, wv, url, t0, result})
+      end)
+
+      File.rm_rf!(dir)
+      send(parent, {:job_done, wv, url, "done"})
+    else
+      {output, code} ->
+        send_log(parent, wv, "fetch failed (#{code}): #{String.slice(to_string(output), 0, 80)}")
+        File.rm_rf!(dir)
+        send(parent, {:job_done, wv, url, "failed"})
+    end
+  end
+
+  defp send_log(parent, wv, msg) do
+    ModLog.log("dubber", "wv#{wv}: #{msg}")
+    _ = parent
+    :ok
   end
 
   defp page_eval(wv, js) do
@@ -170,7 +245,7 @@ defmodule DubberMod do
   defp speak(text, key) do
     body =
       JSON.encode!(%{model: "tts-1", voice: "alloy", input: String.slice(text, 0, 4000),
-                     response_format: "mp3", speed: 1.1})
+                     response_format: "mp3", speed: 1.08})
 
     request(
       :post,
@@ -185,7 +260,7 @@ defmodule DubberMod do
     case :httpc.request(
            method,
            {url, headers, content_type, IO.iodata_to_binary(body)},
-           [timeout: 30_000, connect_timeout: 8_000],
+           [timeout: 60_000, connect_timeout: 8_000],
            body_format: :binary
          ) do
       {:ok, {{_, 200, _}, _headers, response}} -> {:ok, response}
@@ -200,8 +275,8 @@ defmodule DubberMod do
   def multipart(boundary, audio) do
     [
       "--#{boundary}\r\n",
-      "Content-Disposition: form-data; name=\"file\"; filename=\"chunk.webm\"\r\n",
-      "Content-Type: audio/webm\r\n\r\n",
+      "Content-Disposition: form-data; name=\"file\"; filename=\"chunk.mp3\"\r\n",
+      "Content-Type: audio/mpeg\r\n\r\n",
       audio,
       "\r\n--#{boundary}\r\n",
       "Content-Disposition: form-data; name=\"model\"\r\n\r\n",
