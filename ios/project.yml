@@ -1,0 +1,33 @@
+name: BowserX
+options:
+  bundleIdPrefix: com.bowser
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    GENERATE_INFOPLIST_FILE: YES
+    # localhost HTTP to the brain in the simulator needs cleartext allowed.
+    INFOPLIST_KEY_NSAppTransportSecurity: {}
+
+targets:
+  BowserX:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/BowserX
+    info:
+      path: Generated/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        CFBundleDisplayName: BowserX
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bowser.BowserX
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
