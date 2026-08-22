@@ -20,6 +20,7 @@ defmodule BowserBrain.Application do
       BowserBrain.AgentPort,
       BowserBrain.Surface,
       BowserBrain.ModLog,
+      BowserBrain.XFeed,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
       BowserBrain.Loader,
       BowserBrain.LibReloader,
