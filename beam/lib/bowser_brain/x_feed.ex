@@ -76,10 +76,12 @@ defmodule BowserBrain.XFeed do
 
   def handle_info({:failed, from, reason}, state) do
     GenServer.reply(from, {:error, reason})
-    # Self-heal: a failed fetch usually means the harness webview went stale
-    # (closed, unmounted, wedged). Drop it so the NEXT fetch spins up a fresh
-    # harness tab instead of retrying a dead one forever.
-    Logger.warning("xfeed: fetch failed (#{inspect(reason)}) — dropping harness, will re-open")
+    # Self-heal — but CLOSE the stale harness first. Dropping wv without
+    # closing leaks a tab per failure, and a swarm of x.com tabs hammering
+    # the same feed gets the whole session rate-limited (which then makes
+    # every fetch fail — a runaway leak). Close, then re-open ONE next time.
+    if state.wv, do: BowserBrain.Surface.close_tab(state.wv)
+    Logger.warning("xfeed: fetch failed (#{inspect(reason)}) — closed harness, will re-open one")
     {:noreply, dequeue(%{state | busy: false, wv: nil, route: nil, river: []})}
   end
 
