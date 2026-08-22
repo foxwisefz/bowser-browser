@@ -1,27 +1,32 @@
 import SwiftUI
 
-/// Renders a screen declaration + its data as a native list with infinite
-/// scroll: as the reader nears the bottom, `want` climbs and the brain
-/// scroll-accumulates deeper into the timeline (BowserBrain.XFeed).
+/// A timeline datum with a STABLE identity (the tweet id), so SwiftUI tracks
+/// rows by tweet — not array position. Without this, a re-sorted or extended
+/// feed (like the likes-ranked "Big" wall) shows the same tweet as a "new"
+/// row at a new index, which reads as repeats.
+struct FeedItem: Identifiable {
+    let id: String
+    let value: JSONValue
+}
+
 @MainActor
 final class FeedModel: ObservableObject {
-    @Published var response: SDUIResponse?
+    @Published var screen: SDUIScreen?
+    @Published var items: [FeedItem] = []
     @Published var error: String?
     @Published var loading = false
 
     private var want = 15
     private let page = 15
     private var loadingMore = false
-    private var lastCount = 0
-    private var ended = false   // a load added nothing = true feed end
+    private var ended = false
 
     func load(route: String) async {
-        loading = response == nil
+        loading = items.isEmpty
         error = nil
         do {
-            let next = try await BrainClient.screen(route: route, want: want)
-            response = next
-            lastCount = next.data["tweets"]?.arrayValue?.count ?? 0
+            let r = try await BrainClient.screen(route: route, want: want)
+            apply(r)
             ended = false
         } catch {
             self.error = error.localizedDescription
@@ -29,26 +34,32 @@ final class FeedModel: ObservableObject {
         loading = false
     }
 
-    /// Called when the last row appears — deepen the feed. Stops only when a
-    /// load adds nothing new (true feed end), not when a fetch merely falls
-    /// short of `want` (a timeout shortfall stays resumable).
-    func loadMore(route: String, currentCount: Int) async {
+    func loadMore(route: String) async {
         guard !loadingMore, !ended else { return }
         loadingMore = true
         want += page
         do {
-            let next = try await BrainClient.screen(route: route, want: want)
-            let count = next.data["tweets"]?.arrayValue?.count ?? 0
-            if count <= lastCount {
-                ended = true            // no growth: the feed gave all it has
-            } else {
-                response = next
-                lastCount = count
-            }
+            let before = items.count
+            let r = try await BrainClient.screen(route: route, want: want)
+            apply(r)
+            if items.count <= before { ended = true }   // true feed-end
         } catch {
-            // Transient failure — keep what we have and stay resumable.
+            // transient — stay resumable
         }
         loadingMore = false
+    }
+
+    private func apply(_ r: SDUIResponse) {
+        screen = r.screen
+        guard let list = r.screen.list else { items = []; return }
+        var seen = Set<String>()
+        items = r.items(for: list).enumerated().compactMap { index, value in
+            let id = value.resolve("id")?.stringValue
+                ?? value.resolve("permalink")?.stringValue
+                ?? "row-\(index)"
+            guard seen.insert(id).inserted else { return nil }   // dedup by identity
+            return FeedItem(id: id, value: value)
+        }
     }
 }
 
@@ -58,15 +69,14 @@ struct FeedView: View {
 
     var body: some View {
         Group {
-            if let response = model.response, let list = response.screen.list {
-                let items = response.items(for: list)
-                List(Array(items.enumerated()), id: \.offset) { index, item in
-                    SDUINodeView(node: list.item, item: item)
+            if let screen = model.screen, let list = screen.list {
+                List(model.items) { item in
+                    SDUINodeView(node: list.item, item: item.value)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .onAppear {
-                            if index == items.count - 3 {
-                                Task { await model.loadMore(route: route, currentCount: items.count) }
+                            if item.id == model.items.suffix(3).first?.id {
+                                Task { await model.loadMore(route: route) }
                             }
                         }
                 }
@@ -86,8 +96,8 @@ struct FeedView: View {
                 Color.clear
             }
         }
-        .navigationTitle(model.response?.screen.title ?? route)
+        .navigationTitle(model.screen?.title ?? route)
         .navigationBarTitleDisplayMode(.inline)
-        .task { if model.response == nil { await model.load(route: route) } }
+        .task { if model.items.isEmpty { await model.load(route: route) } }
     }
 }

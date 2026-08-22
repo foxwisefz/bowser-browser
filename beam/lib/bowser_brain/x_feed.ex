@@ -20,6 +20,7 @@ defmodule BowserBrain.XFeed do
 
   @poll_ms 800
   @default_timeout 15_000
+  @page 15
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, nil, name: Keyword.get(opts, :name, __MODULE__))
 
@@ -75,7 +76,11 @@ defmodule BowserBrain.XFeed do
 
   def handle_info({:failed, from, reason}, state) do
     GenServer.reply(from, {:error, reason})
-    {:noreply, dequeue(%{state | busy: false})}
+    # Self-heal: a failed fetch usually means the harness webview went stale
+    # (closed, unmounted, wedged). Drop it so the NEXT fetch spins up a fresh
+    # harness tab instead of retrying a dead one forever.
+    Logger.warning("xfeed: fetch failed (#{inspect(reason)}) — dropping harness, will re-open")
+    {:noreply, dequeue(%{state | busy: false, wv: nil, route: nil, river: []})}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -95,12 +100,17 @@ defmodule BowserBrain.XFeed do
     # Defensive against a hot-swap that kept the old state shape (no
     # route/river keys) — new keys are read via Map.get for one release.
     same_route = route == Map.get(state, :route)
-    existing = if same_route, do: Map.get(state, :river, []), else: []
+    # A fresh load / pull-refresh (want back at the base page size) RESETS:
+    # re-navigate to the top so the harness can't get stuck scrolled deep or
+    # stale. Only a genuine deepen (want grown past the base) extends the
+    # existing river in place.
+    extend? = same_route and want > @page
+    existing = if extend?, do: Map.get(state, :river, []), else: []
 
-    unless same_route do
-      # Fresh route: load it, warm-mount so WebKit actually renders the
+    unless extend? do
+      # Load (or reload) the route and warm-mount so WebKit renders the
       # JS-heavy timeline (unmounted webviews defer rendering — the media-
-      # dubber lesson), and reset the scroll position.
+      # dubber lesson), resetting scroll to the top.
       Browser.navigate(route_url(route), wv)
     end
 

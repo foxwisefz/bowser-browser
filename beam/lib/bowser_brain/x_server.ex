@@ -149,10 +149,12 @@ defmodule BowserBrain.XServer do
 
   # Pick the screen + shape the data for the requested view.
   defp present("gallery", _title, tweets) do
+    # Deterministic order (likes desc, id as a stable tiebreak) so the same
+    # tweet keeps its rank as the feed grows — no reshuffle on pagination.
     media =
       tweets
       |> Enum.filter(fn t -> t.photos != [] end)
-      |> Enum.sort_by(&engagement/1, :desc)
+      |> Enum.sort_by(fn t -> {-engagement(t), t.id || ""} end)
 
     {SDUI.x_gallery("Big"), media}
   end
