@@ -9,11 +9,15 @@ enum BrainClient {
         return URL(string: "http://\(host):4808")!
     }
 
-    /// Fetch a route's screen + data. `route` is "home", "@handle",
-    /// "search/query" — mirrors XServer's paths.
-    static func screen(route: String) async throws -> SDUIResponse {
-        let url = baseURL.appendingPathComponent("x").appendingPathComponent(route)
-        var request = URLRequest(url: url)
+    /// Fetch a route's screen + data. `want` controls scroll depth — the
+    /// feed raises it as the reader nears the bottom (infinite scroll).
+    static func screen(route: String, want: Int = 15) async throws -> SDUIResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("x").appendingPathComponent(route),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "want", value: String(want))]
+        var request = URLRequest(url: components.url!)
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

@@ -24,3 +24,21 @@ defmodule BowserBrain.XFeedTest do
     end
   end
 end
+
+defmodule BowserBrain.XFeedMergeTest do
+  use ExUnit.Case, async: true
+
+  # merge/2 is private; exercise it through a tiny reimplementation contract
+  # by asserting the observable behavior via XServer.split_want (public) and
+  # documenting the dedup expectation in x_feed_test proper is enough — but
+  # we can still test the want parser here.
+  alias BowserBrain.XServer
+
+  test "split_want parses and clamps the want param" do
+    assert XServer.split_want("/x/home") == {"/x/home", 15}
+    assert XServer.split_want("/x/home?want=40") == {"/x/home", 40}
+    assert XServer.split_want("/x/home?want=0") == {"/x/home", 15}
+    assert XServer.split_want("/x/home?want=9999") == {"/x/home", 15}
+    assert XServer.split_want("/x/@ada?want=30") == {"/x/@ada", 30}
+  end
+end

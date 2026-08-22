@@ -1,23 +1,40 @@
 import SwiftUI
 
-/// Renders a screen declaration + its data as a native list. This is a
-/// generic SDUI screen host — it knows nothing about tweets specifically;
-/// it renders whatever declaration the brain sends, bound to whatever data.
+/// Renders a screen declaration + its data as a native list with infinite
+/// scroll: as the reader nears the bottom, `want` climbs and the brain
+/// scroll-accumulates deeper into the timeline (BowserBrain.XFeed).
 @MainActor
 final class FeedModel: ObservableObject {
     @Published var response: SDUIResponse?
     @Published var error: String?
     @Published var loading = false
 
+    private var want = 15
+    private let page = 15
+    private var loadingMore = false
+
     func load(route: String) async {
-        loading = true
+        loading = response == nil
         error = nil
         do {
-            response = try await BrainClient.screen(route: route)
+            response = try await BrainClient.screen(route: route, want: want)
         } catch {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+
+    /// Called when the last row appears — deepen the feed.
+    func loadMore(route: String, currentCount: Int) async {
+        guard !loadingMore, want <= currentCount else { return }
+        loadingMore = true
+        want += page
+        do {
+            response = try await BrainClient.screen(route: route, want: want)
+        } catch {
+            // Keep what we have; a failed deepen shouldn't blank the feed.
+        }
+        loadingMore = false
     }
 }
 
@@ -28,10 +45,16 @@ struct FeedView: View {
     var body: some View {
         Group {
             if let response = model.response, let list = response.screen.list {
-                List(Array(response.items(for: list).enumerated()), id: \.offset) { _, item in
+                let items = response.items(for: list)
+                List(Array(items.enumerated()), id: \.offset) { index, item in
                     SDUINodeView(node: list.item, item: item)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
+                        .onAppear {
+                            if index == items.count - 3 {
+                                Task { await model.loadMore(route: route, currentCount: items.count) }
+                            }
+                        }
                 }
                 .listStyle(.plain)
                 .refreshable { await model.load(route: route) }

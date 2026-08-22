@@ -100,24 +100,43 @@ defmodule BowserBrain.XServer do
   # from the XFeed calls, which the test stubs by hitting /health).
   def route("/health"), do: {200, "ok"}
 
-  def route("/x/home"), do: timeline("home", "Home")
+  def route(path) do
+    {clean, want} = split_want(path)
 
-  def route("/x/search/" <> query) do
-    timeline("search:" <> URI.decode(query), "Search: #{URI.decode(query)}")
+    case clean do
+      "/x/home" -> timeline("home", "Home", want)
+      "/x/search/" <> q -> timeline("search:" <> URI.decode(q), "Search: #{URI.decode(q)}", want)
+      "/x/@" <> handle -> timeline("@" <> handle, "@" <> handle, want)
+      "/x/" <> route -> timeline(route, route, want)
+      _ -> {404, ~s({"error":"not found"})}
+    end
   end
 
-  def route("/x/@" <> handle) do
-    timeline("@" <> handle, "@" <> handle)
+  # `?want=N` controls how deep to scroll-accumulate — the iOS app raises it
+  # as the reader nears the bottom (infinite scroll).
+  @doc false
+  def split_want(path) do
+    case String.split(path, "?", parts: 2) do
+      [clean, query] ->
+        want =
+          query
+          |> URI.decode_query()
+          |> Map.get("want", "15")
+          |> Integer.parse()
+          |> case do
+            {n, _} when n > 0 and n <= 200 -> n
+            _ -> 15
+          end
+
+        {clean, want}
+
+      [clean] ->
+        {clean, 15}
+    end
   end
 
-  def route("/x/" <> route) do
-    timeline(route, route)
-  end
-
-  def route(_), do: {404, ~s({"error":"not found"})}
-
-  defp timeline(route, title) do
-    case XFeed.fetch(route, @fetch_timeout) do
+  defp timeline(route, title, want) do
+    case XFeed.fetch(route, want, @fetch_timeout) do
       {:ok, tweets} ->
         payload = %{"screen" => SDUI.x_timeline(title), "data" => %{"tweets" => tweets}}
         {200, JSON.encode!(payload)}
