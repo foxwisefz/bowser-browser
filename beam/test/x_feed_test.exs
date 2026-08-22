@@ -34,11 +34,11 @@ defmodule BowserBrain.XFeedMergeTest do
   # we can still test the want parser here.
   alias BowserBrain.XServer
 
-  test "split_want parses and clamps the want param" do
-    assert XServer.split_want("/x/home") == {"/x/home", 15}
-    assert XServer.split_want("/x/home?want=40") == {"/x/home", 40}
-    assert XServer.split_want("/x/home?want=0") == {"/x/home", 15}
-    assert XServer.split_want("/x/home?want=9999") == {"/x/home", 15}
-    assert XServer.split_want("/x/@ada?want=30") == {"/x/@ada", 30}
+  test "split_params parses want (clamped) and view" do
+    assert XServer.split_params("/x/home") == {"/x/home", %{"want" => 15, "view" => nil}}
+    assert XServer.split_params("/x/home?want=40") == {"/x/home", %{"want" => 40, "view" => nil}}
+    assert XServer.split_params("/x/home?want=0") == {"/x/home", %{"want" => 15, "view" => nil}}
+    assert XServer.split_params("/x/home?want=9999") == {"/x/home", %{"want" => 15, "view" => nil}}
+    assert XServer.split_params("/x/home?view=gallery&want=30") == {"/x/home", %{"want" => 30, "view" => "gallery"}}
   end
 end

@@ -137,8 +137,11 @@ defmodule BowserBrain.XFeed do
       System.monotonic_time(:millisecond) >= deadline ->
         if river == [], do: {:error, :timeout}, else: {:ok, river}
 
-      # Two scrolls with no new tweets = the end of what X will give us.
-      dry >= 2 and scrolled? ->
+      # Two scrolls with no new tweets = the end — but ONLY once tweets have
+      # actually rendered. An empty river means the page is still loading, so
+      # keep polling until content appears or the deadline (don't mistake
+      # initial load for feed-end).
+      dry >= 2 and scrolled? and river != [] ->
         {:ok, river}
 
       true ->

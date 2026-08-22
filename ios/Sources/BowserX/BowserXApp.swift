@@ -18,7 +18,7 @@ struct RootView: View {
     // New app = new route/declaration; no App Store round-trip.
     private let routes: [(label: String, symbol: String, route: String)] = [
         ("Home", "house", "home"),
-        ("Following", "person.2", "home"),
+        ("Big", "rectangle.on.rectangle.angled", "home?view=gallery"),
         ("Search", "magnifyingglass", "search/ios")
     ]
 

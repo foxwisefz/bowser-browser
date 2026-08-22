@@ -57,7 +57,45 @@ defmodule BowserBrain.SDUI do
     ], props: %{"padding" => 14, "spacing" => 6, "divider" => true})
   end
 
+  @doc """
+  "Big" — a media-forward wall: each tweet is a full-bleed hero image with a
+  gradient scrim and the handle + text overlaid at the bottom. A completely
+  different app from x_timeline, built on the same data — the "iOS mod".
+  """
+  def x_gallery(title \\ "Big") do
+    %{"type" => "screen", "title" => title, "list" => %{"data" => "tweets", "item" => hero_card()}}
+  end
+
+  def hero_card do
+    zstack(
+      [
+        image(bind: "photos.0", props: %{"height" => 380, "fill" => true}),
+        %{"type" => "gradient", "props" => %{"height" => 380}},
+        vstack(
+          [
+            text(bind: "name", props: %{"weight" => "bold", "color" => "white", "size" => 17}),
+            text(bind: "handle", props: %{"color" => "white", "size" => 13}),
+            text(bind: "text", props: %{"color" => "white", "size" => 15}),
+            hstack(
+              [
+                %{"type" => "icon", "props" => %{"symbol" => "heart.fill", "size" => 13, "color" => "white"}},
+                text(bind: "metrics.likes", props: %{"color" => "white", "size" => 13, "weight" => "bold"}),
+                %{"type" => "icon", "props" => %{"symbol" => "eye.fill", "size" => 13, "color" => "white"}},
+                text(bind: "metrics.views", props: %{"color" => "white", "size" => 13})
+              ],
+              props: %{"spacing" => 6, "top" => 4}
+            )
+          ],
+          props: %{"padding" => 16, "spacing" => 3}
+        )
+      ],
+      props: %{"align" => "bottomLeading"}
+    )
+  end
+
   # -- component builders (pure) ----------------------------------------------
+
+  def zstack(children, opts \\ []), do: container("zstack", children, opts)
 
   def vstack(children, opts \\ []), do: container("vstack", children, opts)
   def hstack(children, opts \\ []), do: container("hstack", children, opts)

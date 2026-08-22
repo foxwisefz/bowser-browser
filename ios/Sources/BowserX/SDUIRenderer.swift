@@ -22,6 +22,21 @@ struct SDUINodeView: View {
             }
             .padding(.top, node.propDouble("top").map { CGFloat($0) } ?? 0)
 
+        case "zstack":
+            ZStack(alignment: zAlignment(node.propString("align"))) {
+                children
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+        case "gradient":
+            LinearGradient(
+                colors: [.black.opacity(0.75), .black.opacity(0.0)],
+                startPoint: .bottom, endPoint: .center
+            )
+            .frame(height: node.propDouble("height").map { CGFloat($0) } ?? 200)
+            .allowsHitTesting(false)
+
         case "text":
             textView
 
@@ -76,6 +91,7 @@ struct SDUINodeView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: node.propDouble("height").map { CGFloat($0) } ?? 180)
+            .clipped()
             .clipShape(RoundedRectangle(cornerRadius: node.propDouble("corner").map { CGFloat($0) } ?? 0))
         }
     }
@@ -85,7 +101,17 @@ struct SDUINodeView: View {
     private func color(_ name: String?) -> Color {
         switch name {
         case "secondary": return .secondary
+        case "white": return .white
         default: return .primary
+        }
+    }
+
+    private func zAlignment(_ name: String?) -> Alignment {
+        switch name {
+        case "bottomLeading": return .bottomLeading
+        case "bottom": return .bottom
+        case "topLeading": return .topLeading
+        default: return .center
         }
     }
 

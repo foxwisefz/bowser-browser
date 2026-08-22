@@ -12,11 +12,22 @@ enum BrainClient {
     /// Fetch a route's screen + data. `want` controls scroll depth — the
     /// feed raises it as the reader nears the bottom (infinite scroll).
     static func screen(route: String, want: Int = 15) async throws -> SDUIResponse {
+        // A route may carry its own query (e.g. "home?view=gallery"); split
+        // it off, then merge in `want`.
+        let parts = route.split(separator: "?", maxSplits: 1).map(String.init)
+        let path = parts[0]
         var components = URLComponents(
-            url: baseURL.appendingPathComponent("x").appendingPathComponent(route),
+            url: baseURL.appendingPathComponent("x").appendingPathComponent(path),
             resolvingAgainstBaseURL: false
         )!
-        components.queryItems = [URLQueryItem(name: "want", value: String(want))]
+        var items = [URLQueryItem(name: "want", value: String(want))]
+        if parts.count > 1 {
+            for pair in parts[1].split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                items.append(URLQueryItem(name: String(kv[0]), value: kv.count > 1 ? String(kv[1]) : ""))
+            }
+        }
+        components.queryItems = items
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)

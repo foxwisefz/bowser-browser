@@ -101,48 +101,80 @@ defmodule BowserBrain.XServer do
   def route("/health"), do: {200, "ok"}
 
   def route(path) do
-    {clean, want} = split_want(path)
+    {clean, params} = split_params(path)
+    want = params["want"]
+    view = params["view"]
 
     case clean do
-      "/x/home" -> timeline("home", "Home", want)
-      "/x/search/" <> q -> timeline("search:" <> URI.decode(q), "Search: #{URI.decode(q)}", want)
-      "/x/@" <> handle -> timeline("@" <> handle, "@" <> handle, want)
-      "/x/" <> route -> timeline(route, route, want)
+      "/x/home" -> timeline("home", "Home", want, view)
+      "/x/search/" <> q -> timeline("search:" <> URI.decode(q), "Search: #{URI.decode(q)}", want, view)
+      "/x/@" <> handle -> timeline("@" <> handle, "@" <> handle, want, view)
+      "/x/" <> route -> timeline(route, route, want, view)
       _ -> {404, ~s({"error":"not found"})}
     end
   end
 
-  # `?want=N` controls how deep to scroll-accumulate — the iOS app raises it
-  # as the reader nears the bottom (infinite scroll).
+  # `?want=N` controls scroll depth (infinite scroll); `?view=gallery`
+  # swaps the screen declaration — same data, a different native app.
   @doc false
-  def split_want(path) do
+  def split_params(path) do
     case String.split(path, "?", parts: 2) do
       [clean, query] ->
+        q = URI.decode_query(query)
+
         want =
-          query
-          |> URI.decode_query()
-          |> Map.get("want", "15")
-          |> Integer.parse()
-          |> case do
-            {n, _} when n > 0 and n <= 200 -> n
+          case Integer.parse(Map.get(q, "want", "15")) do
+            {n, _} when n > 0 and n <= 1000 -> n
             _ -> 15
           end
 
-        {clean, want}
+        {clean, %{"want" => want, "view" => Map.get(q, "view")}}
 
       [clean] ->
-        {clean, 15}
+        {clean, %{"want" => 15, "view" => nil}}
     end
   end
 
-  defp timeline(route, title, want) do
+  defp timeline(route, title, want, view) do
     case XFeed.fetch(route, want, @fetch_timeout) do
       {:ok, tweets} ->
-        payload = %{"screen" => SDUI.x_timeline(title), "data" => %{"tweets" => tweets}}
+        {screen, tweets} = present(view, title, tweets)
+        payload = %{"screen" => screen, "data" => %{"tweets" => tweets}}
         {200, JSON.encode!(payload)}
 
       {:error, reason} ->
         {502, JSON.encode!(%{"error" => "feed unavailable", "reason" => inspect(reason)})}
+    end
+  end
+
+  # Pick the screen + shape the data for the requested view.
+  defp present("gallery", _title, tweets) do
+    media =
+      tweets
+      |> Enum.filter(fn t -> t.photos != [] end)
+      |> Enum.sort_by(&engagement/1, :desc)
+
+    {SDUI.x_gallery("Big"), media}
+  end
+
+  defp present(_default, title, tweets), do: {SDUI.x_timeline(title), tweets}
+
+  # Parse "19K"/"1.2M" into a sortable number.
+  defp engagement(t) do
+    raw = t.metrics[:likes] || "0"
+
+    {num, mult} =
+      case Regex.run(~r/^([\d.,]+)\s*([KMB]?)/i, raw) do
+        [_, n, "K"] -> {n, 1_000}
+        [_, n, "M"] -> {n, 1_000_000}
+        [_, n, "B"] -> {n, 1_000_000_000}
+        [_, n, _] -> {n, 1}
+        _ -> {"0", 1}
+      end
+
+    case Float.parse(String.replace(num, ",", "")) do
+      {f, _} -> f * mult
+      _ -> 0
     end
   end
 

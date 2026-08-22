@@ -12,27 +12,41 @@ final class FeedModel: ObservableObject {
     private var want = 15
     private let page = 15
     private var loadingMore = false
+    private var lastCount = 0
+    private var ended = false   // a load added nothing = true feed end
 
     func load(route: String) async {
         loading = response == nil
         error = nil
         do {
-            response = try await BrainClient.screen(route: route, want: want)
+            let next = try await BrainClient.screen(route: route, want: want)
+            response = next
+            lastCount = next.data["tweets"]?.arrayValue?.count ?? 0
+            ended = false
         } catch {
             self.error = error.localizedDescription
         }
         loading = false
     }
 
-    /// Called when the last row appears — deepen the feed.
+    /// Called when the last row appears — deepen the feed. Stops only when a
+    /// load adds nothing new (true feed end), not when a fetch merely falls
+    /// short of `want` (a timeout shortfall stays resumable).
     func loadMore(route: String, currentCount: Int) async {
-        guard !loadingMore, want <= currentCount else { return }
+        guard !loadingMore, !ended else { return }
         loadingMore = true
         want += page
         do {
-            response = try await BrainClient.screen(route: route, want: want)
+            let next = try await BrainClient.screen(route: route, want: want)
+            let count = next.data["tweets"]?.arrayValue?.count ?? 0
+            if count <= lastCount {
+                ended = true            // no growth: the feed gave all it has
+            } else {
+                response = next
+                lastCount = count
+            }
         } catch {
-            // Keep what we have; a failed deepen shouldn't blank the feed.
+            // Transient failure — keep what we have and stay resumable.
         }
         loadingMore = false
     }
