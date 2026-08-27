@@ -19,12 +19,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // ⌘⇧[ / ⌘⇧] cycle tabs (Safari muscle memory; arrows would
             // collide with select-to-line-edge in text fields).
             if flags == [.command, .shift] {
-                switch event.charactersIgnoringModifiers {
+                switch event.charactersIgnoringModifiers?.lowercased() {
                 case "[":
                     self?.currentController?.activateAdjacentTab(offset: -1)
                     return nil
                 case "]":
                     self?.currentController?.activateAdjacentTab(offset: 1)
+                    return nil
+                case "c":
+                    self?.copyCurrentURL(nil)
                     return nil
                 default:
                     return event
@@ -147,6 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentController?.activeTab?.webView.reload()
     }
 
+    @objc func copyCurrentURL(_ sender: Any?) {
+        guard let url = currentController?.activeTab?.currentURLString else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(url, forType: .string)
+    }
+
     @objc func previousTab(_ sender: Any?) { currentController?.activateAdjacentTab(offset: -1) }
     @objc func nextTabInOrder(_ sender: Any?) { currentController?.activateAdjacentTab(offset: 1) }
 
@@ -240,6 +250,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let goMenu = NSMenu(title: "Go")
         goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
+        let copyURLItem = goMenu.addItem(
+            withTitle: "Copy URL", action: #selector(copyCurrentURL(_:)), keyEquivalent: "c"
+        )
+        copyURLItem.keyEquivalentModifierMask = [.command, .shift]
         goMenu.addItem(.separator())
         let previousItem = goMenu.addItem(
             withTitle: "Previous Tab", action: #selector(previousTab(_:)), keyEquivalent: "["
