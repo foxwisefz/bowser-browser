@@ -124,6 +124,14 @@ defmodule BowserBrain.ModSmith do
         render(state)
         {:noreply, state}
 
+      {:handoff, summary} ->
+        # ModSmith deliberately declined a too-big task (SIZE RULE). Not a
+        # failure — a handoff the owner can hand to the resident agent.
+        Logger.info("modsmith: handoff — #{summary}")
+        state = %{state | busy: nil, last_status: "↗ #{String.slice(summary, 0, 160)}"}
+        render(state)
+        {:noreply, state}
+
       {:error, reason} ->
         Logger.error("modsmith: #{request} failed: #{reason}")
         state = %{state | busy: nil, last_status: "Failed: #{String.slice(reason, 0, 120)}"}
@@ -565,14 +573,31 @@ defmodule BowserBrain.ModSmith do
   defp install({:error, _} = error, _host), do: error
 
   defp install({:output, output}, _host) do
-    with {:ok, envelope} <- extract_json(output),
-         files when files != [] <- Map.get(envelope, "files", []),
-         :ok <- validate(files) do
-      installed = Enum.map(files, &write_file/1)
-      {:ok, Map.get(envelope, "summary", "done"), installed}
-    else
-      [] -> {:error, "envelope had no files"}
-      {:error, reason} -> {:error, reason}
+    case extract_json(output) do
+      {:ok, envelope} ->
+        files = Map.get(envelope, "files", [])
+        summary = Map.get(envelope, "summary", "")
+
+        cond do
+          # A zero-file reply is usually the SIZE RULE handoff ("NEEDS THE
+          # RESIDENT AGENT: …") — surface that summary so the owner sees WHY
+          # and can bring the task to the resident agent, not a bare
+          # "envelope had no files".
+          files == [] and summary =~ ~r/resident agent/i ->
+            {:handoff, summary}
+
+          files == [] ->
+            {:error, if(summary == "", do: "envelope had no files", else: summary)}
+
+          true ->
+            case validate(files) do
+              :ok -> {:ok, summary == "" && "done" || summary, Enum.map(files, &write_file/1)}
+              {:error, reason} -> {:error, reason}
+            end
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
