@@ -192,7 +192,8 @@ defmodule BowserBrain.Session do
     |> Enum.filter(fn {_id, url} -> real_url?(url) end)
   end
 
-  defp real_url?(u), do: is_binary(u) and String.starts_with?(u, "http")
+  # http(s) and local file:// pages both count as real, restorable tabs.
+  defp real_url?(u), do: is_binary(u) and (String.starts_with?(u, "http") or String.starts_with?(u, "file:"))
 
   defp disk_path do
     Application.get_env(

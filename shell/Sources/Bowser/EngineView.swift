@@ -187,7 +187,20 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
 
     func load(urlString: String) {
         guard let url = URL(string: urlString) else { return }
-        webView.load(URLRequest(url: url))
+        // file:// needs explicit read access to the containing directory or
+        // WebKit sandboxes sibling resources — a local page's <video>, css,
+        // and images silently fail to load (bowser-browser-vus). Grant the
+        // whole directory so a self-contained local page works like it does
+        // in Safari.
+        if url.isFileURL {
+            // Read access is granted to the file's DIRECTORY, computed from
+            // the bare path so a #fragment (reveal.js slide anchors etc.)
+            // can't corrupt the directory resolution.
+            let dir = URL(fileURLWithPath: url.path).deletingLastPathComponent()
+            webView.loadFileURL(url, allowingReadAccessTo: dir)
+        } else {
+            webView.load(URLRequest(url: url))
+        }
     }
 
     @objc func goBack(_ sender: Any?) { webView.goBack() }
