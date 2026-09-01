@@ -60,6 +60,24 @@ TOOLS = [
             "required": ["host", "name", "content"],
         },
     },
+    {
+        "name": "list_mods",
+        "description": "Every existing mod and site payload the owner already has: "
+                       "path, on/off, host scope, one line on what it does. Check this "
+                       "BEFORE writing anything — modify what exists instead of duplicating it.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "read_mod",
+        "description": "Full source of one existing mod or payload by catalog path "
+                       "(mods/<name>.ex or sites/<host>/<name>.css|.js). Disabled (.off) "
+                       "files are found by their plain name too.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
 ]
 
 

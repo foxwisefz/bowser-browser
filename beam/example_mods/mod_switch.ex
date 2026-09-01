@@ -153,7 +153,11 @@ defmodule ModSwitchMod do
   end
 
   defp host_of(state) do
-    url = state.urls[state.active] || ""
+    # Prefer our own capture, but fall back to the brain's authoritative
+    # tab→url mirror: a hot-reloaded mod_switch starts with an empty urls
+    # map and would otherwise show NO site payloads for an already-loaded
+    # page (the "no twitter mods for x.com" bug).
+    url = state.urls[state.active] || BowserBrain.Session.url_of(state.active) || ""
     URI.parse(url).host
   end
 

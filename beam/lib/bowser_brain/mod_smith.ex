@@ -28,7 +28,7 @@ defmodule BowserBrain.ModSmith do
     # sessions: numbered refinement history, newest first, persisted to disk —
     # the claude CLI keeps its transcripts on disk, so --resume stays valid
     # across brain AND engine restarts (bowser-browser-lv4).
-    {:ok, %{active: 0, urls: %{}, busy: nil, sessions: load_sessions(), last_status: "Ready."}}
+    {:ok, %{active: 0, urls: %{}, busy: nil, sessions: load_sessions(), last_status: "Ready.", progress: []}}
   end
 
   @impl true
@@ -98,7 +98,21 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
+  # Live narration while the agent works (bowser-browser-y7g): what it is
+  # reading, probing, installing — so "Working on…" is no longer a black box.
+  def handle_info({:smith_progress, line}, %{busy: busy} = state) when busy != nil do
+    progress = Enum.take([line | Map.get(state, :progress, [])], 8)
+    BowserBrain.ModLog.log("modsmith", line)
+    state = Map.put(state, :progress, progress)
+    render(state, "Working on: #{busy}")
+    {:noreply, state}
+  end
+
+  def handle_info({:smith_progress, _line}, state), do: {:noreply, state}
+
   def handle_info({:smith_done, request, session, resumed, host, result}, state) do
+    state = Map.put(state, :progress, [])
+
     case result do
       {:ok, summary, installed} ->
         Logger.info("modsmith: #{summary} — installed #{Enum.join(installed, ", ")}")
@@ -163,14 +177,22 @@ defmodule BowserBrain.ModSmith do
         REFINEMENT REQUEST: #{request}
         """
       else
-        build_prompt(request, url, host, page_digest(state.active), SiteMods.payloads_for(host))
+        build_prompt(
+          request,
+          url,
+          host,
+          page_digest(state.active),
+          SiteMods.payloads_for(host),
+          BowserBrain.ModCatalog.summary()
+        )
       end
 
     render(%{state | busy: request}, "Working on: #{request}")
     parent = self()
 
     Task.start(fn ->
-      {session, result} = run_claude(prompt, resume)
+      on_progress = fn line -> send(parent, {:smith_progress, line}) end
+      {session, result} = run_claude(prompt, resume, on_progress)
       send(parent, {:smith_done, request, session, resume, host, result && install(result, host)})
     end)
 
@@ -265,7 +287,7 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  defp build_prompt(request, url, host, digest, existing) do
+  defp build_prompt(request, url, host, digest, existing, catalog) do
     existing_block =
       case existing do
         [] ->
@@ -285,7 +307,8 @@ defmodule BowserBrain.ModSmith do
     list_tabs (which webview is which), page_html (ground-truth DOM for a selector),
     page_eval (run JS, check computed styles, probe selectors), put_payload
     (install a draft payload NOW — applies within ~1s after you reload via
-    page_eval "location.reload()"). WORKFLOW: inspect the real DOM first; draft;
+    page_eval "location.reload()"), list_mods (every existing mod/payload:
+    path, on/off, scope, what it does), read_mod (full source of one by path). WORKFLOW: inspect the real DOM first; draft;
     put_payload; reload; page_eval to VERIFY the change actually took (selector
     matched, style applied); iterate until it does. Do not finish while unverified.
 
@@ -311,6 +334,14 @@ defmodule BowserBrain.ModSmith do
     tools), do NOT attempt it — reply IMMEDIATELY with an envelope of zero
     files and a summary starting "NEEDS THE RESIDENT AGENT:" plus one line
     on why. A fast honest handoff beats a ten-minute timeout.
+
+    MODIFY RULE: the EXISTING MODS catalog below is what the owner already has.
+    If the request refers to behavior that exists — by name, by what it does,
+    or by its site — MODIFY that file: read_mod it first, keep everything you
+    were not asked to change, and return the SAME path with the complete
+    updated content. Never create a second mod or payload for behavior that
+    already exists. A file marked OFF still counts: modify it and say in the
+    summary that it is disabled (the owner toggles it in :mods).
 
     SCOPE RULE: a request about a specific page/site must be limited to that
     site by default. Payloads are auto host-scoped. A tier-"mod" for
@@ -372,14 +403,16 @@ defmodule BowserBrain.ModSmith do
     Existing settings (REUSE these key names where relevant instead of
     inventing new ones; declare + prompt for anything missing):
     #{BowserBrain.Settings.summary()}
-    Existing payloads for #{host}:
+    Existing payloads for #{host} (full content):
     #{existing_block}
+    EXISTING MODS AND PAYLOADS, all sites (read_mod for full source):
+    #{catalog}
 
     OWNER REQUEST: #{request}
     """
   end
 
-  defp run_claude(prompt, resume) do
+  defp run_claude(prompt, resume, on_progress) do
     settings = BowserBrain.Settings.all()
 
     case {System.find_executable("claude"), auth_route(settings)} do
@@ -395,8 +428,11 @@ defmodule BowserBrain.ModSmith do
       {claude, route} ->
         env = claude_env(settings)
 
+        # stream-json (needs --verbose in --print mode): one JSON event per
+        # line as the agent works, so progress narrates live instead of
+        # arriving as one blob after ten minutes (bowser-browser-y7g).
         args =
-          ["-p", prompt, "--output-format", "json"] ++
+          ["-p", prompt, "--output-format", "stream-json", "--verbose"] ++
             mcp_args() ++
             model_args() ++
             if(resume, do: ["--resume", resume], else: [])
@@ -407,38 +443,131 @@ defmodule BowserBrain.ModSmith do
             "| env: #{Enum.map_join(env, ",", &elem(&1, 0))}"
         )
 
-        task =
-          Task.async(fn ->
-            # sh wrapper: claude waits 3s on the port's dangling stdin
-            # without an explicit < /dev/null.
-            System.cmd(
-              "/bin/sh",
-              ["-c", ~s(exec "$0" "$@" < /dev/null), claude | args],
-              stderr_to_stdout: true,
-              env: env
-            )
-          end)
-
         timeout = timeout_ms(BowserBrain.Settings.get("modsmith_timeout_ms"))
 
-        case Task.yield(task, timeout) || Task.shutdown(task) do
-          {:ok, {output, 0}} ->
-            case JSON.decode(output) do
-              {:ok, %{"result" => text} = envelope} ->
-                {envelope["session_id"], {:output, text}}
+        # sh wrapper: claude waits 3s on the port's dangling stdin without an
+        # explicit < /dev/null.
+        port =
+          Port.open({:spawn_executable, "/bin/sh"}, [
+            :binary,
+            :exit_status,
+            :stderr_to_stdout,
+            {:line, 4_000_000},
+            {:args, ["-c", ~s(exec "$0" "$@" < /dev/null), claude | args]},
+            {:env, Enum.map(env, fn {k, v} -> {to_charlist(k), to_charlist(v)} end)}
+          ])
 
-              _ ->
-                {nil, {:output, output}}
+        deadline = System.monotonic_time(:millisecond) + timeout
+
+        case stream_loop(port, deadline, on_progress, %{events: [], raw: [], partial: ""}) do
+          {:done, 0, events, raw} ->
+            case stream_result(events) do
+              {session, text} when is_binary(text) and text != "" -> {session, {:output, text}}
+              _ -> {nil, {:output, Enum.join(raw, "\n")}}
             end
 
-          {:ok, {output, code}} ->
-            {nil,
-             {:error,
-              "claude exited #{code}: #{String.slice(output, 0, 300)} | #{auth_hint(route)}"}}
+          {:done, code, events, raw} ->
+            {_session, text} = stream_result(events)
+            detail = text || Enum.join(raw, " ")
+            {nil, {:error, "claude exited #{code}: #{String.slice(detail, 0, 300)} | #{auth_hint(route)}"}}
 
-          nil ->
+          :timeout ->
             {nil, {:error, "claude timed out after #{div(timeout, 1000)}s"}}
         end
+    end
+  end
+
+  defp stream_loop(port, deadline, on_progress, acc) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {^port, {:data, {:noeol, chunk}}} ->
+        stream_loop(port, deadline, on_progress, %{acc | partial: acc.partial <> chunk})
+
+      {^port, {:data, {:eol, chunk}}} ->
+        line = acc.partial <> chunk
+        acc = %{acc | partial: ""}
+
+        acc =
+          case JSON.decode(line) do
+            {:ok, event} when is_map(event) ->
+              for text <- progress_lines(event), do: on_progress.(text)
+              %{acc | events: [event | acc.events]}
+
+            _ ->
+              if String.trim(line) == "", do: acc, else: %{acc | raw: Enum.take([line | acc.raw], 40)}
+          end
+
+        stream_loop(port, deadline, on_progress, acc)
+
+      {^port, {:exit_status, code}} ->
+        {:done, code, Enum.reverse(acc.events), Enum.reverse(acc.raw)}
+    after
+      remaining ->
+        catch_close(port)
+        :timeout
+    end
+  end
+
+  defp catch_close(port) do
+    Port.close(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  @doc """
+  Human lines for one stream-json event: assistant prose (trimmed) and tool
+  calls as `→ tool detail`. Nothing for system/user/result events. Public
+  for tests.
+  """
+  def progress_lines(%{"type" => "assistant", "message" => %{"content" => content}})
+      when is_list(content) do
+    Enum.flat_map(content, fn
+      %{"type" => "text", "text" => text} ->
+        case text |> String.trim() |> String.replace(~r/\s+/, " ") do
+          "" -> []
+          t -> [String.slice(t, 0, 160)]
+        end
+
+      %{"type" => "tool_use", "name" => name} = call ->
+        input = Map.get(call, "input", %{})
+        tool = name |> String.replace_prefix("mcp__bowser__", "")
+
+        detail =
+          Enum.find_value(["path", "selector", "name", "js"], "", fn key ->
+            case input[key] do
+              v when is_binary(v) and v != "" -> v |> String.replace(~r/\s+/, " ") |> String.slice(0, 70)
+              _ -> nil
+            end
+          end)
+
+        [String.trim("→ #{tool} #{detail}")]
+
+      _ ->
+        []
+    end)
+  end
+
+  def progress_lines(_event), do: []
+
+  @doc """
+  The final answer from a stream: `{session_id, text}` from the terminating
+  result event, else the assistant's concatenated prose. Public for tests.
+  """
+  def stream_result(events) do
+    case Enum.find(Enum.reverse(events), &(&1["type"] == "result")) do
+      %{"result" => text} = result when is_binary(text) ->
+        {result["session_id"], text}
+
+      _ ->
+        text =
+          events
+          |> Enum.filter(&(&1["type"] == "assistant"))
+          |> Enum.flat_map(fn %{"message" => %{"content" => c}} when is_list(c) -> c; _ -> [] end)
+          |> Enum.flat_map(fn %{"type" => "text", "text" => t} -> [t]; _ -> [] end)
+          |> Enum.join("\n")
+
+        {nil, if(text == "", do: nil, else: text)}
     end
   end
 
@@ -546,7 +675,7 @@ defmodule BowserBrain.ModSmith do
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
   @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
-               "mcp__bowser__page_html,mcp__bowser__put_payload"
+               "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod"
 
   defp mcp_args do
     config = Path.join(System.user_home!(), ".bowser/agent-mcp.json")
@@ -663,14 +792,21 @@ defmodule BowserBrain.ModSmith do
         text("#{i}. #{String.slice(s.summary, 0, 44)} — #{s.host}", style: :caption)
       end)
 
+    progress_lines =
+      state
+      |> Map.get(:progress, [])
+      |> Enum.reverse()
+      |> Enum.map(&text(String.slice(&1, 0, 60), style: :caption))
+
     Surface.show(
       :modsmith,
       vstack(
         [
           text("ModSmith", style: :title),
-          text(headline || state.last_status, style: :caption),
-          divider()
+          text(headline || state.last_status, style: :caption)
         ] ++
+          progress_lines ++
+          [divider()] ++
           session_lines ++
           [text(":do new · :do+ refine last · :do+N refine #N", style: :caption)]
       ),

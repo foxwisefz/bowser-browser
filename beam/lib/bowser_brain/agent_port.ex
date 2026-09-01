@@ -42,10 +42,8 @@ defmodule BowserBrain.AgentPort do
            reuseaddr: true
          ]) do
       {:ok, listener} ->
-        server = self()
-        Task.start(fn -> accept_loop(listener, server) end)
         Logger.info("agent_port: listening at #{path}")
-        {:noreply, %{state | listener: listener}}
+        {:noreply, start_acceptor(%{state | listener: listener})}
 
       {:error, reason} ->
         Logger.error("agent_port: listen failed: #{inspect(reason)}")
@@ -53,13 +51,49 @@ defmodule BowserBrain.AgentPort do
     end
   end
 
+  # The acceptor died — after two hot-reloads of this file the code purge
+  # killed it silently and every agent call then timed out with no clue why
+  # (bowser-browser-y7g). Start another on the listener this server owns.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Map.get(state, :acceptor) do
+      {_pid, ^ref} ->
+        Logger.warning("agent_port: acceptor died (#{inspect(reason)}) — restarting")
+        {:noreply, start_acceptor(Map.put(state, :acceptor, nil))}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  # Idempotent kick: start an acceptor only if none is alive.
+  def handle_info(:ensure_acceptor, state) do
+    alive? =
+      case Map.get(state, :acceptor) do
+        {pid, _ref} -> Process.alive?(pid)
+        _ -> false
+      end
+
+    {:noreply, if(alive?, do: state, else: start_acceptor(state))}
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp accept_loop(listener, server) do
+  defp start_acceptor(%{listener: listener} = state) when listener != nil do
+    {:ok, pid} = Task.start(fn -> __MODULE__.accept_loop(listener) end)
+    Map.put(state, :acceptor, {pid, Process.monitor(pid)})
+  end
+
+  defp start_acceptor(state), do: state
+
+  @doc false
+  # External self-call on every connection: the loop always re-enters the
+  # CURRENT module version, so a hot-reload never leaves it stranded on code
+  # the next reload purges (which kills the process).
+  def accept_loop(listener) do
     case :gen_tcp.accept(listener) do
       {:ok, sock} ->
         Task.start(fn -> serve(sock) end)
-        accept_loop(listener, server)
+        __MODULE__.accept_loop(listener)
 
       {:error, _closed} ->
         :ok
@@ -71,7 +105,7 @@ defmodule BowserBrain.AgentPort do
       {:ok, line} ->
         reply =
           case JSON.decode(line) do
-            {:ok, request} -> dispatch(request)
+            {:ok, request} -> safe_dispatch(request)
             {:error, _} -> %{ok: false, error: "request is not JSON"}
           end
 
@@ -81,6 +115,15 @@ defmodule BowserBrain.AgentPort do
       {:error, _} ->
         :gen_tcp.close(sock)
     end
+  end
+
+  # A tool that raises (an undefined module mid-hot-reload, a bad arg) must
+  # still answer — a dead serve task left the client hanging until its own
+  # timeout with no clue why (bowser-browser-y7g).
+  defp safe_dispatch(request) do
+    dispatch(request)
+  rescue
+    error -> %{ok: false, error: "tool crashed: " <> Exception.message(error)}
   end
 
   @doc "Tool dispatch. Public for tests; every arm returns a JSON-able map."
@@ -140,6 +183,22 @@ defmodule BowserBrain.AgentPort do
       true ->
         SiteMods.put(host, name, content)
         %{ok: true, installed: "sites/#{host}/#{name}", applies: "within ~1s, on page reload"}
+    end
+  end
+
+  # What already exists, so an agent MODIFIES a mod instead of guessing or
+  # duplicating it (bowser-browser-y7g).
+  def dispatch(%{"tool" => "list_mods"}) do
+    %{ok: true, mods: BowserBrain.ModCatalog.catalog()}
+  end
+
+  def dispatch(%{"tool" => "read_mod"} = request) do
+    path = request |> Map.get("args", %{}) |> Map.get("path", "")
+
+    case BowserBrain.ModCatalog.read(path) do
+      {:ok, content} -> %{ok: true, path: path, content: content}
+      {:error, :enoent} -> %{ok: false, error: "no such mod or payload: #{path} (see list_mods)"}
+      {:error, reason} -> %{ok: false, error: "refused #{path}: #{inspect(reason)}"}
     end
   end
 

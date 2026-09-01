@@ -32,7 +32,7 @@ defmodule BowserBrain.LibReloader do
       end
 
     if mode != :baseline do
-      for {path, mtime} <- mtimes, state.mtimes[path] != nil, state.mtimes[path] != mtime do
+      for path <- changed(state.mtimes, mtimes) do
         try do
           Code.compile_file(path)
           Logger.info("libreload: hot-swapped #{Path.basename(path)}")
@@ -50,5 +50,16 @@ defmodule BowserBrain.LibReloader do
     {:noreply, %{state | mtimes: mtimes}}
   end
 
-  def handle_info(_other, state), do: {:noreply, state}
+    def handle_info(_other, state), do: {:noreply, state}
+
+  @doc """
+  Paths to recompile: every file whose mtime differs from the last scan —
+  including files the last scan never saw. A brand-new lib file used to be
+  silently skipped (the guard required a prior mtime), so a module added
+  while the brain ran did not exist until a full restart (bowser-browser-y7g).
+  Public for tests.
+  """
+  def changed(previous, current) do
+    for {path, mtime} <- current, previous[path] != mtime, do: path
+  end
 end

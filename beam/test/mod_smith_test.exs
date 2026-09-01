@@ -164,4 +164,59 @@ defmodule BowserBrain.ModSmithTest do
       assert ModSmith.timeout_ms("-5") == 600_000
     end
   end
+
+  describe "progress_lines/1 (stream-json narration)" do
+    test "assistant prose is trimmed and collapsed" do
+      ev = %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "  Reading the\n  dock mod first. "}]}}
+      assert ModSmith.progress_lines(ev) == ["Reading the dock mod first."]
+    end
+
+    test "tool calls show the tool and its key argument" do
+      ev = %{
+        "type" => "assistant",
+        "message" => %{
+          "content" => [
+            %{"type" => "tool_use", "name" => "mcp__bowser__read_mod", "input" => %{"path" => "mods/edge_dock_tabs.ex"}},
+            %{"type" => "tool_use", "name" => "mcp__bowser__list_mods", "input" => %{}},
+            %{"type" => "tool_use", "name" => "mcp__bowser__page_eval", "input" => %{"js" => "document.title"}}
+          ]
+        }
+      }
+
+      assert ModSmith.progress_lines(ev) == [
+               "→ read_mod mods/edge_dock_tabs.ex",
+               "→ list_mods",
+               "→ page_eval document.title"
+             ]
+    end
+
+    test "empty text, system, user and result events narrate nothing" do
+      blank = %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "  \n"}]}}
+      assert ModSmith.progress_lines(blank) == []
+      assert ModSmith.progress_lines(%{"type" => "system", "subtype" => "init"}) == []
+      assert ModSmith.progress_lines(%{"type" => "result", "result" => "{}"}) == []
+    end
+  end
+
+  describe "stream_result/1" do
+    test "takes text and session id from the result event" do
+      events = [
+        %{"type" => "system"},
+        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "thinking"}]}},
+        %{"type" => "result", "result" => ~s({"tier":"mod"}), "session_id" => "sess-1"}
+      ]
+
+      assert ModSmith.stream_result(events) == {"sess-1", ~s({"tier":"mod"})}
+    end
+
+    test "falls back to assistant prose when no result event arrived" do
+      events = [
+        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "part one"}]}},
+        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "part two"}]}}
+      ]
+
+      assert ModSmith.stream_result(events) == {nil, "part one\npart two"}
+      assert ModSmith.stream_result([]) == {nil, nil}
+    end
+  end
 end
