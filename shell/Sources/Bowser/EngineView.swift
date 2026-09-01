@@ -130,6 +130,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         }()
         // Media resume after a respawn needs programmatic play().
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        // WKWebView disables HTML element fullscreen by default; Safari
+        // enables it. Without this, a video's fullscreen button does nothing
+        // (bowser-browser-cgt). Public API on macOS 12.3+.
+        configuration.preferences.isElementFullscreenEnabled = true
         webView = WKWebView(frame: .zero, configuration: configuration)
 
         super.init(frame: frameRect)
