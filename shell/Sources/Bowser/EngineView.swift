@@ -46,7 +46,7 @@ private final class PageRelay: NSObject, WKScriptMessageHandler {
 /// rendering, and process isolation; this class owns identity, user content,
 /// and event flow to the brain.
 @MainActor
-final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
+final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     private(set) static var live: [UInt64: EngineView] = [:]
     private static var nextId: UInt64 = 1
 
@@ -420,6 +420,12 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
+        // `<a download>` and app-scheme links ask WebKit to download rather
+        // than navigate (bowser-browser-9ew).
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
         let intent = Self.linkClickIntent(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags
@@ -439,6 +445,73 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         decisionHandler(.cancel)
         let view = host.openTab(opener: webviewId, activate: intent == .foregroundTab)
         view.load(urlString: url.absoluteString)
+    }
+
+    // A response WebKit can't display (a binary, a file with Content-
+    // Disposition: attachment) becomes a download instead of a blank page.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+    ) {
+        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    // MARK: WKDownloadDelegate — save to ~/Downloads, collision-safe.
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+    ) {
+        let dest = Self.uniqueDownloadURL(suggestedFilename)
+        BrainBridge.shared.send([
+            "op": "event", "event": "download", "webview": webviewId,
+            "state": "started", "filename": dest.lastPathComponent,
+        ])
+        NSLog("Bowser: downloading \(dest.lastPathComponent)")
+        completionHandler(dest)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        BrainBridge.shared.send([
+            "op": "event", "event": "download", "webview": webviewId, "state": "finished",
+        ])
+        NSLog("Bowser: download finished")
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        BrainBridge.shared.send([
+            "op": "event", "event": "download", "webview": webviewId,
+            "state": "failed", "error": error.localizedDescription,
+        ])
+        NSLog("Bowser: download failed — \(error.localizedDescription)")
+    }
+
+    // A non-clobbering path in ~/Downloads: "file.zip", "file (1).zip", …
+    static func uniqueDownloadURL(_ suggested: String) -> URL {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        let name = suggested.isEmpty ? "download" : suggested
+        var url = dir.appendingPathComponent(name)
+        let ext = url.pathExtension
+        let base = url.deletingPathExtension().lastPathComponent
+        var n = 1
+        while FileManager.default.fileExists(atPath: url.path) {
+            let candidate = ext.isEmpty ? "\(base) (\(n))" : "\(base) (\(n)).\(ext)"
+            url = dir.appendingPathComponent(candidate)
+            n += 1
+        }
+        return url
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
