@@ -71,4 +71,13 @@ defmodule ModSwitchModTest do
       assert ModSwitchMod.parse_toggle("garbage") == :error
     end
   end
+
+  describe "edit_path/1 (✎ → ModSmith)" do
+    test "maps row payloads to catalog paths, stripping .off" do
+      assert ModSwitchMod.edit_path("mod|dock.ex") == "mods/dock.ex"
+      assert ModSwitchMod.edit_path("mod|nav.ex.off") == "mods/nav.ex"
+      assert ModSwitchMod.edit_path("site|x.com|font.css.off") == "sites/x.com/font.css"
+      assert ModSwitchMod.edit_path("garbage") == nil
+    end
+  end
 end

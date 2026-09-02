@@ -84,6 +84,20 @@ defmodule ModSwitchMod do
     render(Map.put(state, :info, info))
   end
 
+  # ✎ click: hand this file to ModSmith to modify (its panel comes up with
+  # the file pre-targeted; you type the change).
+  def handle_event(
+        %{"event" => "surface", "surface" => "mods", "id" => "edit", "value" => value},
+        state
+      ) do
+    case edit_path(value) do
+      nil -> :ok
+      path -> BowserBrain.ModSmith.modify(path)
+    end
+
+    state
+  end
+
   def handle_event(_event, state), do: state
 
   def handle_info(:rerender, state) do
@@ -144,6 +158,15 @@ defmodule ModSwitchMod do
 
   def parse_toggle("mod|" <> name), do: {:mod, name}
   def parse_toggle(_), do: :error
+
+  @doc "Catalog path ModSmith should modify for a row payload (.off stripped); nil if not a row."
+  def edit_path(value) do
+    case parse_toggle(value) do
+      {:mod, name} -> "mods/" <> display(name)
+      {:site, host, name} -> "sites/#{host}/" <> display(name)
+      :error -> nil
+    end
+  end
 
   # -- rendering --------------------------------------------------------------
 
@@ -240,7 +263,8 @@ defmodule ModSwitchMod do
     head =
       hstack([
         button(label, event: "toggle", payload: payload),
-        button("ⓘ", event: "info", payload: payload)
+        button("ⓘ", event: "info", payload: payload),
+        button("✎", event: "edit", payload: payload)
       ])
 
     if MapSet.member?(expanded(state), payload) do

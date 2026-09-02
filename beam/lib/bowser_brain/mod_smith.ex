@@ -49,6 +49,62 @@ defmodule BowserBrain.ModSmith do
     {:noreply, %{state | urls: Map.put(state.urls, wv, url)}}
   end
 
+  @doc "Prefill the panel to modify one existing file — the ✎ in the Mods window."
+  def modify(path), do: GenServer.cast(__MODULE__, {:modify, path})
+
+  @impl true
+  def handle_cast({:modify, path}, state) do
+    state = Map.put(state, :target, %{kind: :modify, path: path})
+    ensure_visible()
+    render(state)
+    {:noreply, state}
+  end
+
+  # -- the panel is interactive (bowser-browser-y7g follow-up): type a request,
+  # click a session to refine it, ✕ to go back to a fresh request.
+  def handle_info(
+        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "request", "value" => text}},
+        state
+      ) do
+    text = text |> to_string() |> String.trim()
+
+    cond do
+      state.busy != nil ->
+        render(state, "Busy with: #{state.busy}")
+        {:noreply, state}
+
+      text == "" ->
+        {:noreply, state}
+
+      true ->
+        case request_for(Map.get(state, :target), state.sessions, text) do
+          {:error, reason} ->
+            render(state, reason)
+            {:noreply, state}
+
+          {request, opts} ->
+            {:noreply, start_request(request, Map.put(state, :target, nil), opts)}
+        end
+    end
+  end
+
+  def handle_info(
+        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "pick", "value" => n}},
+        state
+      ) do
+    n = to_int(n)
+    target = if fetch_session(state.sessions, n), do: %{kind: :refine, n: n}, else: nil
+    state = Map.put(state, :target, target)
+    render(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "new"}}, state) do
+    state = Map.put(state, :target, nil)
+    render(state)
+    {:noreply, state}
+  end
+
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do+" <> rest}}, state) do
     {target, request} = parse_followup(rest)
 
@@ -197,6 +253,49 @@ defmodule BowserBrain.ModSmith do
     end)
 
     %{state | busy: request}
+  end
+
+  @doc """
+  What a panel submission means given the picked target: a fresh request, a
+  refinement of session N (resumed), or a change to one existing file — the
+  MODIFY rule + read_mod then make the agent edit that file in place.
+  Public for tests.
+  """
+  def request_for(nil, _sessions, text), do: {text, []}
+
+  def request_for(%{kind: :modify, path: path}, _sessions, text) do
+    {"Modify the existing file #{path} — read_mod it first and return the SAME path " <>
+       "with the complete updated content. Change: #{text}", []}
+  end
+
+  def request_for(%{kind: :refine, n: n}, sessions, text) do
+    case fetch_session(sessions, n) do
+      nil -> {:error, "Session ##{n} is gone — pick another"}
+      session -> {text, [resume: session.id]}
+    end
+  end
+
+  @doc "Textfield hint for the current target. Public for tests."
+  def placeholder_for(nil), do: "What should this page do? ⏎"
+  def placeholder_for(%{kind: :modify, path: path}), do: "Change #{Path.basename(path)} how? ⏎"
+  def placeholder_for(%{kind: :refine, n: n}), do: "Refine ##{n} how? ⏎"
+
+  defp to_int(v) when is_integer(v), do: v
+
+  defp to_int(v) do
+    case Integer.parse(to_string(v)) do
+      {n, _} -> n
+      _ -> 0
+    end
+  end
+
+  # A panel toggled off in the View menu swallows shows; un-suppress it so
+  # a ✎ click from the Mods window actually brings ModSmith up.
+  defp ensure_visible do
+    case Enum.find(Surface.list(), &(&1.id == "modsmith")) do
+      %{closed: true} -> Surface.toggle(:modsmith)
+      _ -> :ok
+    end
   end
 
   @doc """
@@ -782,37 +881,59 @@ defmodule BowserBrain.ModSmith do
     path
   end
 
-  # The panel is persistent chrome now: headline (current activity or last
-  # outcome) + the numbered session history that :do+N indexes into.
+  # The panel is a workbench: request field on top (Enter sends), what the
+  # agent is doing, then the session history — click one to refine it.
   defp render(state, headline \\ nil) do
-    session_lines =
-      state.sessions
-      |> Enum.with_index(1)
-      |> Enum.map(fn {s, i} ->
-        text("#{i}. #{String.slice(s.summary, 0, 44)} — #{s.host}", style: :caption)
-      end)
+    target = Map.get(state, :target)
+
+    mode =
+      case target do
+        nil ->
+          text("new request · click a session to refine · ✎ in Mods edits a file", style: :caption)
+
+        %{kind: :refine, n: n} ->
+          s = fetch_session(state.sessions, n)
+          summary = String.slice((s && s.summary) || "", 0, 30)
+          hstack([text("Refining ##{n}: #{summary}", style: :caption), button("✕", event: "new")])
+
+        %{kind: :modify, path: path} ->
+          hstack([text("Modifying #{path}", style: :caption), button("✕", event: "new")])
+      end
 
     progress_lines =
       state
       |> Map.get(:progress, [])
       |> Enum.reverse()
-      |> Enum.map(&text(String.slice(&1, 0, 60), style: :caption))
+      |> Enum.map(&text(String.slice(&1, 0, 70), style: :caption))
+
+    session_rows =
+      state.sessions
+      |> Enum.with_index(1)
+      |> Enum.map(fn {s, i} ->
+        button("#{i}. #{String.slice(s.summary, 0, 42)} — #{s.host}",
+          event: "pick",
+          payload: i,
+          active: match?(%{kind: :refine, n: ^i}, target)
+        )
+      end)
 
     Surface.show(
       :modsmith,
       vstack(
         [
-          text("Forge 9811", style: :title),
+          text("ModSmith", style: :title),
+          textfield("request", placeholder: placeholder_for(target)),
+          mode,
           text(headline || state.last_status, style: :caption)
         ] ++
           progress_lines ++
-          [divider()] ++
-          session_lines ++
-          [text(":do new · :do+ refine last · :do+N refine #N", style: :caption)]
+          [divider(), text("Sessions", style: :caption)] ++
+          (if(session_rows == [], do: [text("none yet", style: :caption)], else: session_rows)) ++
+          [divider(), text("Enter sends · :do and :do+N still work", style: :caption)]
       ),
-      title: "Forge 9811",
+      title: "ModSmith",
       anchor: :right_of_main,
-      width: 260
+      width: 320
     )
   end
 end

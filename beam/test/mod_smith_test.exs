@@ -219,4 +219,31 @@ defmodule BowserBrain.ModSmithTest do
       assert ModSmith.stream_result([]) == {nil, nil}
     end
   end
+
+  describe "panel targets" do
+    test "no target is a fresh request" do
+      assert ModSmith.request_for(nil, [], "dark mode") == {"dark mode", []}
+    end
+
+    test "modify target wraps the change with the file and the MODIFY contract" do
+      {req, opts} = ModSmith.request_for(%{kind: :modify, path: "mods/dock.ex"}, [], "bigger icons")
+      assert req =~ "Modify the existing file mods/dock.ex"
+      assert req =~ "read_mod"
+      assert req =~ "Change: bigger icons"
+      assert opts == []
+    end
+
+    test "refine target resumes that session; a gone session is an error" do
+      sessions = [%{id: "s-1", summary: "a", host: "x.com"}, %{id: "s-2", summary: "b", host: "y.com"}]
+      assert ModSmith.request_for(%{kind: :refine, n: 2}, sessions, "tighter") == {"tighter", [resume: "s-2"]}
+      assert {:error, msg} = ModSmith.request_for(%{kind: :refine, n: 5}, sessions, "x")
+      assert msg =~ "#5"
+    end
+
+    test "placeholders name the target" do
+      assert ModSmith.placeholder_for(nil) =~ "What should this page do"
+      assert ModSmith.placeholder_for(%{kind: :modify, path: "sites/x.com/tweet-font.css"}) =~ "tweet-font.css"
+      assert ModSmith.placeholder_for(%{kind: :refine, n: 3}) =~ "#3"
+    end
+  end
 end
