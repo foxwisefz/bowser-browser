@@ -312,6 +312,14 @@ final class SurfaceManager {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.acceptsMouseMovedEvents = true
+        // Independent of the browser window, NOT a child of it (the owner
+        // found the glued-together "one window" behaviour annoying): the
+        // .floating level keeps panels above the main window whenever Bowser
+        // is active, hidesOnDeactivate takes them away with the app and
+        // brings them back with it, and fullScreenAuxiliary lets them show
+        // over a fullscreen main window without being its child.
+        panel.hidesOnDeactivate = true
+        panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
 
         let effect = NSVisualEffectView(frame: panel.contentLayoutRect)
         effect.material = .popover
@@ -330,28 +338,22 @@ final class SurfaceManager {
 
         position(panel, anchor: anchor)
         panel.orderFront(nil)
-        // Child of the browser window (like overlays/edges already are):
-        // the panel comes forward whenever the main window does and follows
-        // it around the screen (bowser-browser-fwz).
-        if let main = NSApp.mainWindow ?? BrowserWindowController.all.last?.window,
-           main !== panel {
-            main.addChildWindow(panel, ordered: .above)
-        }
         panel.invalidateShadow()
         panels[id] = panel
         hostings[id] = hosting
     }
 
-    /// Focus follows the main window: re-front every live surface and adopt
-    /// orphans (their parent window was closed). Screen-attached edges are
-    /// deliberately independent (macOS-Dock style) — front them, never
-    /// re-parent them. Child panels translate with every parent move
-    /// (fullscreen jumps included), so any panel that drifted off every
-    /// screen gets rescued back beside the parent (bowser-browser-gpi).
+    /// Focus follows the main window: re-front every live surface. Only
+    /// WINDOW-attached edges are children of the browser window (they hug
+    /// its edge) — re-adopt those when their parent was closed. Floating
+    /// panels and screen-attached edges are independent windows: front
+    /// them, never re-parent them. Any panel that drifted off every screen
+    /// gets rescued back beside the parent (bowser-browser-gpi).
     func orderAllFront(parent: NSWindow) {
         for (id, panel) in panels where panel !== parent {
             let screenAttached = edgeConfigs[id]?.attach == "screen"
-            if !screenAttached, panel.parent == nil {
+            let windowAttachedEdge = edgeConfigs[id] != nil && !screenAttached
+            if windowAttachedEdge, panel.parent == nil {
                 parent.addChildWindow(panel, ordered: .above)
             }
             if !screenAttached,
