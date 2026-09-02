@@ -802,7 +802,7 @@ defmodule BowserBrain.ModSmith do
       :modsmith,
       vstack(
         [
-          text("ModSmith", style: :title),
+          text("Forge 9811", style: :title),
           text(headline || state.last_status, style: :caption)
         ] ++
           progress_lines ++
@@ -810,7 +810,7 @@ defmodule BowserBrain.ModSmith do
           session_lines ++
           [text(":do new · :do+ refine last · :do+N refine #N", style: :caption)]
       ),
-      title: "ModSmith",
+      title: "Forge 9811",
       anchor: :right_of_main,
       width: 260
     )
