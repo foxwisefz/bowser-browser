@@ -477,12 +477,35 @@ struct SurfaceRootView: View {
     let title: String
     let node: [String: Any]
 
+    /// The ✕ sends exactly what the View-menu entry sends: the panels mod
+    /// then suppresses + closes it, so it STAYS closed (event-driven mods
+    /// can't re-show it) and the menu checkmark follows. A local close
+    /// alone would be undone by the owner's next Surface.show.
+    nonisolated static func closeClickId(for surfaceId: String) -> String { "panel:\(surfaceId)" }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                .kerning(1.1)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .center) {
+                Text(title.uppercased())
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .kerning(1.1)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button(action: {
+                    ChromeSurface.emit([
+                        "op": "event", "event": "chrome_click",
+                        "id": Self.closeClickId(for: surfaceId),
+                    ])
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close (View menu re-opens it)")
+            }
             SurfaceTreeView(surfaceId: surfaceId, node: node)
         }
         .padding(14)
