@@ -12,6 +12,8 @@ defmodule BowserBrain.Application do
     children = [
       {Registry, keys: :unique, name: BowserBrain.ModRegistry},
       {Registry, keys: :duplicate, name: BowserBrain.Events},
+      # Before every mod: mods read their durable state in init_mod.
+      BowserBrain.Store,
       # Session and UserContent register for events before Bridge can
       # broadcast a hello.
       BowserBrain.Session,
