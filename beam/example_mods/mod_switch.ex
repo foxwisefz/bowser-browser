@@ -147,9 +147,10 @@ defmodule ModSwitchMod do
 
   # -- rendering --------------------------------------------------------------
 
+  # No add_menu_item here: the panels mod already gives every surface a
+  # View-menu toggle ("panel:mods"), so a second "Mods" entry was a duplicate.
   defp assert_chrome do
     Chrome.register_command("mods", "What's modding this page — toggle on/off")
-    Chrome.add_menu_item("mods", "Mods")
   end
 
   defp host_of(state) do

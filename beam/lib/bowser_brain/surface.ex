@@ -4,8 +4,8 @@ defmodule BowserBrain.Surface do
   view tree from BowserBrain.View; calling show/3 again with the same id
   re-renders in place — so mods just re-show on every state change.
 
-      Surface.show(:page_tools, view, title: "Page", anchor: :right_of_main)
-      Surface.close(:page_tools)
+      Surface.show(:my_panel, view, title: "Page", anchor: :right_of_main)
+      Surface.close(:my_panel)
 
   Surfaces die with the engine; re-show on the "hello" event (or just on the
   next event you care about) to resurrect them.

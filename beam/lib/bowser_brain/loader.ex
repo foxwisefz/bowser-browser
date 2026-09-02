@@ -7,6 +7,9 @@ defmodule BowserBrain.Loader do
   - Edited mod file     -> recompiled; the running process picks up the new
                            code on its next event, state intact, no restart
   - Broken mod file     -> compile error logged, old code keeps running
+  - Deleted mod file    -> its process is stopped (deleting a mod is how the
+                           owner kills it; it used to keep running until a
+                           brain restart)
   """
   use GenServer
   require Logger
@@ -36,11 +39,47 @@ defmodule BowserBrain.Loader do
         {path, File.stat!(path, time: :posix).mtime}
       end
 
+    # path -> modules it declares, snapshotted while the file still exists so
+    # a deleted file can still be mapped to the process to stop. Backfilled
+    # when this code was hot-swapped into a brain whose state predates it.
+    modules = Map.get(state, :modules) || Map.new(mtimes, fn {path, _} -> {path, modules_in(path)} end)
+
     changed = for {path, mtime} <- mtimes, state.mtimes[path] != mtime, do: path
     Enum.each(changed, &load_file/1)
+    modules = Enum.reduce(changed, modules, &Map.put(&2, &1, modules_in(&1)))
+
+    gone = vanished(state.mtimes, mtimes)
+    for path <- gone, module <- Map.get(modules, path, []), do: stop_module(module, path)
 
     Process.send_after(self(), :scan, @poll_ms)
-    {:noreply, %{state | mtimes: mtimes}}
+    {:noreply, state |> Map.put(:mtimes, mtimes) |> Map.put(:modules, Map.drop(modules, gone))}
+  end
+
+  @doc "Paths the previous scan knew that no longer exist. Public for tests."
+  def vanished(previous, current) do
+    for {path, _} <- previous, not Map.has_key?(current, path), do: path
+  end
+
+  @doc "Modules a mod file declares, read from source (works before/without compiling). Public for tests."
+  def modules_in(path) do
+    case File.read(path) do
+      {:ok, source} ->
+        for [_, name] <- Regex.scan(~r/defmodule\s+([A-Za-z0-9_.]+)/, source), do: Module.concat([name])
+
+      _ ->
+        []
+    end
+  end
+
+  defp stop_module(module, path) do
+    case Registry.lookup(BowserBrain.ModRegistry, module) do
+      [{pid, _}] ->
+        DynamicSupervisor.terminate_child(BowserBrain.ModSupervisor, pid)
+        Logger.info("loader: #{Path.basename(path)} deleted — stopped #{inspect(module)}")
+
+      _ ->
+        :ok
+    end
   end
 
   defp load_file(path) do
