@@ -30,7 +30,7 @@ defmodule BowserBrain.View do
     %{t: "text", value: to_string(value), style: Keyword.get(opts, :style)}
   end
 
-  @doc "opts: event: (required), active:, symbol: (SF Symbol), indent:, payload:"
+  @doc "opts: event: (required), active:, symbol: (SF Symbol), indent:, payload:, compact: (small row)"
   def button(label, opts) do
     %{
       t: "button",
@@ -39,7 +39,8 @@ defmodule BowserBrain.View do
       active: Keyword.get(opts, :active, false),
       symbol: Keyword.get(opts, :symbol),
       indent: Keyword.get(opts, :indent, 0),
-      payload: Keyword.get(opts, :payload)
+      payload: Keyword.get(opts, :payload),
+      compact: Keyword.get(opts, :compact, false)
     }
   end
 

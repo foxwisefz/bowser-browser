@@ -246,4 +246,45 @@ defmodule BowserBrain.ModSmithTest do
       assert ModSmith.placeholder_for(%{kind: :refine, n: 3}) =~ "#3"
     end
   end
+
+  describe "panel tree" do
+    defp base, do: %{sessions: [], last_status: "Ready.", progress: [], busy: nil}
+
+    test "status_line maps every outcome to glyph/label/detail" do
+      assert ModSmith.status_line("Working on: dark mode", "Ready.") == {"●", "Working", "dark mode"}
+      assert ModSmith.status_line(nil, "Done: added a tag") == {"✓", "Done", "added a tag"}
+      assert ModSmith.status_line(nil, "Failed: claude exited 1") == {"✗", "Failed", "claude exited 1"}
+      assert ModSmith.status_line(nil, "↗ NEEDS THE RESIDENT AGENT: big") == {"↗", "Handed off", "NEEDS THE RESIDENT AGENT: big"}
+      assert ModSmith.status_line(nil, "Ready.") == {"○", "Ready", nil}
+    end
+
+    test "request field first, no inner title, no footer, no mode row when untargeted" do
+      %{children: [first | rest]} = ModSmith.tree(base())
+      assert first.t == "textfield"
+      refute Enum.any?(rest, &(&1.t == "text" and &1.value in ["ModSmith", "Forge 9811"]))
+      refute Enum.any?(rest, &(&1.t == "text" and String.contains?(&1.value, "Enter sends")))
+      refute Enum.any?(rest, &(&1.t == "hstack"))
+      assert Enum.any?(rest, &(&1.t == "text" and &1.value == "○ Ready"))
+    end
+
+    test "log lines are mono, oldest first, capped at 6" do
+      progress = for i <- 1..9, do: "line #{i}"
+      %{children: kids} = ModSmith.tree(Map.put(base(), :progress, progress))
+      mono = for %{t: "text", style: :mono, value: v} <- kids, do: v
+      assert mono == ["line 6", "line 5", "line 4", "line 3", "line 2", "line 1"]
+    end
+
+    test "sessions are compact buttons; the picked one is active; target shows a mode row" do
+      state =
+        base()
+        |> Map.put(:sessions, [%{id: "a", summary: "one", host: "x.com"}, %{id: "b", summary: "two", host: "y.com"}])
+        |> Map.put(:target, %{kind: :refine, n: 2})
+
+      %{children: kids} = ModSmith.tree(state)
+      rows = for %{t: "button", event: "pick"} = b <- kids, do: b
+      assert Enum.map(rows, & &1.compact) == [true, true]
+      assert Enum.map(rows, & &1.active) == [false, true]
+      assert Enum.any?(kids, &(&1.t == "hstack"))
+    end
+  end
 end

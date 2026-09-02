@@ -881,59 +881,88 @@ defmodule BowserBrain.ModSmith do
     path
   end
 
-  # The panel is a workbench: request field on top (Enter sends), what the
-  # agent is doing, then the session history — click one to refine it.
-  defp render(state, headline \\ nil) do
+  @doc """
+  Status glyph/label/detail from the live headline or the last outcome:
+  `{"●","Working",request}`, `{"✓","Done",summary}`, `{"✗","Failed",reason}`,
+  `{"↗","Handed off",why}`, `{"○","Ready",nil}`. Public for tests.
+  """
+  def status_line(headline, last_status) do
+    line = headline || last_status || "Ready."
+
+    {glyph, label, detail} =
+      cond do
+        String.starts_with?(line, "Working on: ") -> {"●", "Working", String.replace_prefix(line, "Working on: ", "")}
+        String.starts_with?(line, "Busy with: ") -> {"●", "Busy", String.replace_prefix(line, "Busy with: ", "")}
+        String.starts_with?(line, "Done: ") -> {"✓", "Done", String.replace_prefix(line, "Done: ", "")}
+        String.starts_with?(line, "Failed: ") -> {"✗", "Failed", String.replace_prefix(line, "Failed: ", "")}
+        String.starts_with?(line, "↗ ") -> {"↗", "Handed off", String.replace_prefix(line, "↗ ", "")}
+        line == "Ready." -> {"○", "Ready", nil}
+        true -> {"·", line, nil}
+      end
+
+    {glyph, label, detail && String.slice(detail, 0, 110)}
+  end
+
+  @doc """
+  The panel: request field, (target line), status + short mono log, then
+  compact click-to-refine sessions. No inner title (the panel chrome has
+  one), no hint footer (the placeholder says ⏎). Public for tests.
+  """
+  def tree(state, headline \\ nil) do
     target = Map.get(state, :target)
+    {glyph, label, detail} = status_line(headline, state.last_status)
 
     mode =
       case target do
         nil ->
-          text("new request · click a session to refine · ✎ in Mods edits a file", style: :caption)
+          []
 
         %{kind: :refine, n: n} ->
           s = fetch_session(state.sessions, n)
-          summary = String.slice((s && s.summary) || "", 0, 30)
-          hstack([text("Refining ##{n}: #{summary}", style: :caption), button("✕", event: "new")])
+          summary = String.slice((s && s.summary) || "", 0, 34)
+          [hstack([text("Refining ##{n} · #{summary}", style: :caption), spacer(), button("✕", event: "new", compact: true)])]
 
         %{kind: :modify, path: path} ->
-          hstack([text("Modifying #{path}", style: :caption), button("✕", event: "new")])
+          [hstack([text("Modifying #{Path.basename(path)}", style: :caption), spacer(), button("✕", event: "new", compact: true)])]
       end
 
-    progress_lines =
+    log =
       state
       |> Map.get(:progress, [])
+      |> Enum.take(6)
       |> Enum.reverse()
-      |> Enum.map(&text(String.slice(&1, 0, 70), style: :caption))
+      |> Enum.map(&text(&1, style: :mono))
 
-    session_rows =
-      state.sessions
-      |> Enum.with_index(1)
-      |> Enum.map(fn {s, i} ->
-        button("#{i}. #{String.slice(s.summary, 0, 42)} — #{s.host}",
-          event: "pick",
-          payload: i,
-          active: match?(%{kind: :refine, n: ^i}, target)
-        )
-      end)
+    sessions =
+      case state.sessions do
+        [] ->
+          [text("No sessions yet — type a request above.", style: :caption)]
 
-    Surface.show(
-      :modsmith,
-      vstack(
-        [
-          text("ModSmith", style: :title),
-          textfield("request", placeholder: placeholder_for(target)),
-          mode,
-          text(headline || state.last_status, style: :caption)
-        ] ++
-          progress_lines ++
-          [divider(), text("Sessions", style: :caption)] ++
-          (if(session_rows == [], do: [text("none yet", style: :caption)], else: session_rows)) ++
-          [divider(), text("Enter sends · :do and :do+N still work", style: :caption)]
-      ),
-      title: "ModSmith",
-      anchor: :right_of_main,
-      width: 320
+        list ->
+          list
+          |> Enum.with_index(1)
+          |> Enum.map(fn {s, i} ->
+            button("#{i}  #{s.summary}",
+              event: "pick",
+              payload: i,
+              compact: true,
+              active: match?(%{kind: :refine, n: ^i}, target)
+            )
+          end)
+      end
+
+    vstack(
+      [textfield("request", placeholder: placeholder_for(target))] ++
+        mode ++
+        [spacer(min: 2), text("#{glyph} #{label}", style: :title)] ++
+        if(detail, do: [text(detail, style: :caption)], else: []) ++
+        log ++
+        [divider(), text("SESSIONS · click to refine", style: :caption)] ++
+        sessions
     )
+  end
+
+  defp render(state, headline \\ nil) do
+    Surface.show(:modsmith, tree(state, headline), title: "ModSmith", anchor: :right_of_main, width: 320)
   end
 end

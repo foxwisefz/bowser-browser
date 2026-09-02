@@ -572,6 +572,15 @@ struct SurfaceTreeView: View {
                 return AnyView(
                     Text(value).font(.system(size: 11)).foregroundStyle(.secondary)
                 )
+            case "mono":
+                // One-line log entry: what an agent said / which tool it called.
+                return AnyView(
+                    Text(value)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                )
             default:
                 return AnyView(Text(value).font(.system(size: 13)))
             }
@@ -642,6 +651,7 @@ private struct SurfaceRow: View {
 
     private var active: Bool { node["active"] as? Bool ?? false }
     private var indent: Double { node["indent"] as? Double ?? 0 }
+    private var compact: Bool { node["compact"] as? Bool ?? false }
 
     var body: some View {
         Button(action: { emit(node["event"] as? String ?? "click", node["payload"]) }) {
@@ -652,23 +662,24 @@ private struct SurfaceRow: View {
                         .frame(width: 16)
                 }
                 Text(node["label"] as? String ?? "?")
-                    .font(.system(size: 13, weight: active ? .semibold : .regular))
+                    .font(.system(size: compact ? 11.5 : 13, weight: active ? .semibold : .regular))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
         }
-        .buttonStyle(PaletteRowStyle(active: active))
+        .buttonStyle(PaletteRowStyle(active: active, compact: compact))
         .padding(.leading, indent)
     }
 }
 
 private struct PaletteRowStyle: ButtonStyle {
     let active: Bool
+    var compact: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.vertical, 5)
-            .padding(.horizontal, 9)
+            .padding(.vertical, compact ? 2 : 5)
+            .padding(.horizontal, compact ? 7 : 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .background {
