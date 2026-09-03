@@ -52,4 +52,27 @@ defmodule BowserBrain.ProfilesTest do
     :ok = Profiles.delete("work")
     assert Enum.map(Profiles.list(), & &1["id"]) == ["default"]
   end
+
+  test "edit_event parses field|id" do
+    assert Profiles.edit_event("tint|work") == {"tint", "work"}
+    assert Profiles.edit_event("name|default") == {"name", "default"}
+    assert Profiles.edit_event("open") == nil
+    assert Profiles.edit_event("bogus|x") == nil
+  end
+
+  test "edit validates: unknown color refused, duplicate/empty name refused, empty clears" do
+    {:ok, _} = Profiles.create("Work", tint: "blue", icon: "🧪")
+    {:ok, _} = Profiles.create("Play")
+    assert {:error, msg} = Profiles.edit("work", "tint", "chartreuse-ish")
+    assert msg =~ "unknown color"
+    assert Profiles.get("work")["tint"] == "#3e63dd"
+    assert {:ok, %{"tint" => "#30a46c"}} = Profiles.edit("work", "tint", "green")
+    assert {:ok, %{"tint" => nil}} = Profiles.edit("work", "tint", "")
+    assert {:ok, %{"icon" => nil}} = Profiles.edit("work", "icon", " ")
+    assert {:error, _} = Profiles.edit("work", "name", "")
+    assert {:error, _} = Profiles.edit("work", "name", "play")
+    assert {:ok, %{"name" => "Work"}} = Profiles.edit("work", "name", "Work")
+    assert {:ok, %{"name" => "Werk"}} = Profiles.edit("work", "name", "Werk")
+    assert {:error, _} = Profiles.edit("nope", "name", "x")
+  end
 end

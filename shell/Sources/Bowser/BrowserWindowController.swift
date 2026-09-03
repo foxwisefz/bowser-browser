@@ -123,11 +123,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         clusterHosting = hosting
 
         // Profile identity in the title bar: "🧪 Work" in the profile's tint,
-        // trailing edge. The default profile shows nothing — today's look.
-        if profile.id != "default", let titlebar = window.standardWindowButton(.closeButton)?.superview {
-            profileBadge.stringValue = profile.label
+        // trailing edge. Hidden for an unstyled default profile — today's look.
+        if let titlebar = window.standardWindowButton(.closeButton)?.superview {
             profileBadge.font = .systemFont(ofSize: 11, weight: .semibold)
-            profileBadge.textColor = profile.color ?? .secondaryLabelColor
             profileBadge.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(profileBadge)
             NSLayoutConstraint.activate([
@@ -135,6 +133,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 profileBadge.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
             ])
         }
+        refreshProfileBadge()
 
         let isFirstWindow = Self.all.isEmpty
         Self.all.append(self)
@@ -367,6 +366,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             guard let self, let view, self.activeTab === view else { return }
             self.applyThemeColor(color)
         }
+    }
+
+    private func refreshProfileBadge() {
+        profileBadge.stringValue = profile.label
+        profileBadge.textColor = profile.color ?? .secondaryLabelColor
+        profileBadge.isHidden = profile.id == "default" && profile.icon == nil && profile.tint == nil
+    }
+
+    /// The brain changed the profile list (edited in Settings): re-read our
+    /// profile and repaint badge, title and tint without a new window.
+    func profileDidChange() {
+        profile = Profile.find(profile.id)
+        refreshProfileBadge()
+        applyTitle(activeTab?.webView.title ?? "")
+        applyThemeColor(activeTab?.themeColor)
     }
 
     private func adoptChrome(from view: EngineView) {

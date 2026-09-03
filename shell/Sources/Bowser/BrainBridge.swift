@@ -304,6 +304,7 @@ final class BrainBridge {
             // The brain changed the profile list: refresh ours and the menu.
             Profile.apply(message["profiles"] as? [[String: Any]] ?? [])
             (NSApp.delegate as? AppDelegate)?.rebuildProfileMenu()
+            for controller in BrowserWindowController.all { controller.profileDidChange() }
 
         case "chrome":
             ChromeSurface.handle(message)

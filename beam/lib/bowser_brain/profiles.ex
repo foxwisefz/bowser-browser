@@ -94,6 +94,34 @@ defmodule BowserBrain.Profiles do
 
   # -- pure helpers (public for tests) ----------------------------------------
 
+  @doc "\"tint|work\" -> {\"tint\", \"work\"}; nil for anything else."
+  def edit_event(id) when is_binary(id) do
+    case String.split(id, "|", parts: 2) do
+      [field, pid] when field in ["name", "icon", "tint"] and pid != "" -> {field, pid}
+      _ -> nil
+    end
+  end
+
+  def edit_event(_), do: nil
+
+  @doc """
+  Change one attribute from the Settings editor, validated: an empty name
+  or a duplicate name is refused; an unknown color is refused rather than
+  silently clearing the tint; an empty icon/tint clears it.
+  """
+  def edit(id, field, value) when field in ["name", "icon", "tint"] do
+    value = value |> to_string() |> String.trim()
+    existing = by_name(value)
+
+    cond do
+      get(id) == nil -> {:error, "no profile #{id}"}
+      field == "name" and value == "" -> {:error, "a profile needs a name"}
+      field == "name" and existing != nil and existing["id"] != id -> {:error, "profile “#{value}” already exists"}
+      field == "tint" and value != "" and normalize_tint(value) == nil -> {:error, "unknown color “#{value}” — blue/red/green/… or #rrggbb"}
+      true -> update(id, %{field => value})
+    end
+  end
+
   @doc "An id from a name: lowercase letters/digits/dashes, never empty."
   def slug(name) do
     case name |> String.downcase() |> String.replace(~r/[^a-z0-9]+/u, "-") |> String.trim("-") do
@@ -195,6 +223,33 @@ defmodule BowserBrain.Profiles do
     {:noreply, create_and_open(to_string(text), state)}
   end
 
+  def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "delete", "value" => id}}, state) do
+    status =
+      case delete(to_string(id)) do
+        :ok -> "Deleted — close its windows; its logins stay on disk"
+        {:error, why} -> why
+      end
+
+    {:noreply, render(%{state | status: status})}
+  end
+
+  # Inline edits: textfield ids are "name|<id>", "icon|<id>", "tint|<id>".
+  def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => field_id, "value" => value}}, state) do
+    case edit_event(field_id) do
+      {field, id} ->
+        status =
+          case edit(id, field, value) do
+            {:ok, p} -> "Saved #{label(p)}"
+            {:error, why} -> why
+          end
+
+        {:noreply, render(%{state | status: status})}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(_other, state), do: {:noreply, state}
 
   defp create_and_open(rest, state) do
@@ -212,16 +267,31 @@ defmodule BowserBrain.Profiles do
 
   defp render(state, activate \\ false) do
     rows =
-      for p <- list() do
-        button(label(p) <> if(p["tint"], do: "  " <> p["tint"], else: ""), event: "open", payload: p["id"], compact: true)
-      end
+      Enum.flat_map(list(), fn p ->
+        id = p["id"]
+        head = label(p) <> if(p["tint"], do: " · " <> p["tint"], else: "") <> if(id == "default", do: "  (default)", else: "")
+
+        [
+          text(head, style: :title),
+          hstack([
+            textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
+            textfield("icon|" <> id, value: p["icon"] || "", placeholder: "icon (emoji) ⏎"),
+            textfield("tint|" <> id, value: p["tint"] || "", placeholder: "tint: blue or #3e63dd ⏎")
+          ]),
+          hstack(
+            [button("Open window", event: "open", payload: id, compact: true)] ++
+              if(id == "default", do: [], else: [button("Delete", event: "delete", payload: id, compact: true)])
+          ),
+          divider()
+        ]
+      end)
 
     Surface.show(
       :profiles,
       vstack(
-        [textfield("new", placeholder: "new profile: work blue 🧪 ⏎")] ++
+        [text("New profile", style: :caption), textfield("new", placeholder: "work blue 🧪 ⏎  (name, color, emoji — any order)")] ++
           if(state.status, do: [text(state.status, style: :caption)], else: []) ++
-          [divider(), text("click to open a window", style: :caption)] ++ rows
+          [divider()] ++ rows
       ),
       title: "Profiles",
       kind: :settings,
