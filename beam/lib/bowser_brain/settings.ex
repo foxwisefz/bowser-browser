@@ -103,9 +103,16 @@ defmodule BowserBrain.Settings do
   def handle_call(:declarations, _from, state), do: {:reply, state.declared, state}
 
   @impl true
+  # The Settings window opened (⌘,): render our section fresh.
+  def handle_info({:browser_event, %{"event" => "settings_opened"}}, state) do
+    show_all(state.declared)
+    {:noreply, state}
+  end
+
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     BowserBrain.Chrome.register_command("set", "Settings — :set <key> <value>")
-    BowserBrain.Chrome.register_command("settings", "Settings — editable panel")
+    BowserBrain.Chrome.register_command("settings", "Settings window (⌘,)")
+    show_all(state.declared)
     {:noreply, state}
   end
 
@@ -129,7 +136,7 @@ defmodule BowserBrain.Settings do
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "settings"}}, state) do
-    show_all(state.declared)
+    show_all(state.declared, true)
     {:noreply, state}
   end
 
@@ -154,7 +161,7 @@ defmodule BowserBrain.Settings do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp show_all(declared) do
+  defp show_all(declared, activate \\ false) do
     stored = all()
     keys = (Map.keys(declared) ++ Map.keys(stored)) |> Enum.uniq() |> Enum.sort()
 
@@ -180,9 +187,11 @@ defmodule BowserBrain.Settings do
       end
 
     Surface.show(:settings, vstack(rows, spacing: 5),
-      title: "Settings",
-      anchor: :right_of_main,
-      width: 300
+      title: "General",
+      kind: :settings,
+      section: "General",
+      order: 0,
+      activate: activate
     )
   end
 

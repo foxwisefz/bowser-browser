@@ -153,9 +153,11 @@ defmodule BowserBrain.Profiles do
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     Chrome.register_command("profile", "Window in a profile — :profile work · :profile new work blue 🧪 · :profile delete work")
-    Chrome.register_command("profiles", "Profiles: open a window, create one")
-    {:noreply, state}
+    Chrome.register_command("profiles", "Profiles — Settings window section")
+    {:noreply, render(state)}
   end
+
+  def handle_info({:browser_event, %{"event" => "settings_opened"}}, state), do: {:noreply, render(state)}
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profile new " <> rest}}, state) do
     {:noreply, create_and_open(rest, state)}
@@ -181,7 +183,7 @@ defmodule BowserBrain.Profiles do
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profiles"}}, state) do
-    {:noreply, render(state)}
+    {:noreply, render(state, true)}
   end
 
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "open", "value" => id}}, state) do
@@ -208,7 +210,7 @@ defmodule BowserBrain.Profiles do
     end
   end
 
-  defp render(state) do
+  defp render(state, activate \\ false) do
     rows =
       for p <- list() do
         button(label(p) <> if(p["tint"], do: "  " <> p["tint"], else: ""), event: "open", payload: p["id"], compact: true)
@@ -222,8 +224,10 @@ defmodule BowserBrain.Profiles do
           [divider(), text("click to open a window", style: :caption)] ++ rows
       ),
       title: "Profiles",
-      anchor: :right_of_main,
-      width: 280
+      kind: :settings,
+      section: "Profiles",
+      order: 10,
+      activate: activate
     )
 
     state

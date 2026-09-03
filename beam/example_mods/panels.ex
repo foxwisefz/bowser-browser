@@ -39,6 +39,9 @@ defmodule PanelsMod do
   panel id): two mods both calling their panel "Tabs" must not produce two
   identical menu entries. Public for tests.
   """
+  @doc "Panels the View menu toggles: everything except Settings-window sections. Public for tests."
+  def visible(entries), do: Enum.reject(entries, &(Map.get(&1, :kind) == "settings"))
+
   def menu_titles(entries) do
     counts = Enum.frequencies_by(entries, &String.downcase(&1.title))
 
@@ -57,7 +60,7 @@ defmodule PanelsMod do
   # Diff-based: only cast add/remove when an item's presence or checkmark
   # actually changed — the menu rebuild in the shell is not free.
   defp sync(state) do
-    entries = Surface.list()
+    entries = visible(Surface.list())
     titles = menu_titles(entries)
 
     desired =

@@ -28,4 +28,9 @@ defmodule PanelsModTest do
     assert titles["x"] == "tabs (x)"
     assert titles["y"] == "Tabs (SomeMod)"
   end
+
+  test "visible/1 keeps panels and drops Settings-window sections" do
+    entries = [%{id: "dock", kind: "edge", title: "Tabs"}, %{id: "settings", kind: "settings", title: "General"}, %{id: "ff", kind: "floating", title: "Follow"}]
+    assert Enum.map(PanelsMod.visible(entries), & &1.id) == ["dock", "ff"]
+  end
 end

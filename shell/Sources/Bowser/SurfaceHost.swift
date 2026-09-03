@@ -43,6 +43,25 @@ final class SurfaceManager {
         case "show":
             guard let id = message["id"] as? String,
                   let tree = message["view"] as? [String: Any] else { return }
+            if message["kind"] as? String == "settings" {
+                // A section of the Settings window, not a panel. A floating
+                // leftover with this id (from before it moved) goes away.
+                if let panel = panels.removeValue(forKey: id) {
+                    panel.parent?.removeChildWindow(panel)
+                    panel.close()
+                }
+                hostings.removeValue(forKey: id)
+                SettingsWindow.shared.set(
+                    id: id,
+                    title: message["title"] as? String ?? id,
+                    order: message["order"] as? Int ?? 50,
+                    tree: tree
+                )
+                if message["activate"] as? Bool == true {
+                    SettingsWindow.shared.show(select: id)
+                }
+                return
+            }
             if message["kind"] as? String == "toolbar_overlay" {
                 showToolbarOverlay(id: id, tree: tree)
                 return
@@ -67,6 +86,7 @@ final class SurfaceManager {
             )
         case "close":
             guard let id = message["id"] as? String else { return }
+            SettingsWindow.shared.remove(id: id)
             hostings.removeValue(forKey: id)
             overlayHostings.removeValue(forKey: id)
             if let panel = panels.removeValue(forKey: id) {

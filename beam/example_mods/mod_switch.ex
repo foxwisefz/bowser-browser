@@ -20,8 +20,10 @@ defmodule ModSwitchMod do
 
   def handle_event(%{"event" => "hello"} = hello, state) do
     assert_chrome()
-    %{state | active: Map.get(hello, "active", state.active)}
+    render(%{state | active: Map.get(hello, "active", state.active)})
   end
+
+  def handle_event(%{"event" => "settings_opened"}, state), do: render(state)
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
     %{state | active: wv}
@@ -31,8 +33,8 @@ defmodule ModSwitchMod do
     %{state | urls: Map.put(state.urls, wv, url)}
   end
 
-  def handle_event(%{"event" => "omnibar_command", "text" => "mods"}, state), do: render(state)
-  def handle_event(%{"event" => "chrome_click", "id" => "mods"}, state), do: render(state)
+  def handle_event(%{"event" => "omnibar_command", "text" => "mods"}, state), do: render(state, true)
+  def handle_event(%{"event" => "chrome_click", "id" => "mods"}, state), do: render(state, true)
 
   def handle_event(
         %{"event" => "surface", "surface" => "mods", "id" => "toggle", "value" => value},
@@ -185,7 +187,7 @@ defmodule ModSwitchMod do
     URI.parse(url).host
   end
 
-  defp render(state) do
+  defp render(state, activate \\ false) do
     host = host_of(state)
 
     sites_dir = host && Path.join([System.user_home!(), ".bowser/sites", host])
@@ -244,8 +246,10 @@ defmodule ModSwitchMod do
           [divider(), text("click to toggle · off = renamed .off", style: :caption)]
       ),
       title: "Mods",
-      anchor: :right_of_main,
-      width: 260
+      kind: :settings,
+      section: "Mods",
+      order: 20,
+      activate: activate
     )
 
     state

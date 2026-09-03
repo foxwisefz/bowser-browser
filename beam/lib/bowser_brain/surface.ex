@@ -100,7 +100,9 @@ defmodule BowserBrain.Surface do
 
   @impl true
   def handle_call({:shown, id, view, opts, owner_pid}, _from, state) do
-    suppressed? = MapSet.member?(state.suppressed, id)
+    # Settings sections are not panels: a stale View-menu suppression from
+    # when they floated must never swallow them.
+    suppressed? = Keyword.get(opts, :kind, :floating) != :settings and MapSet.member?(state.suppressed, id)
 
     entry = %{
       id: id,
@@ -183,6 +185,12 @@ defmodule BowserBrain.Surface do
       title: Keyword.get(opts, :title, to_string(id)),
       anchor: to_string(Keyword.get(opts, :anchor, :right_of_main)),
       width: Keyword.get(opts, :width, 260),
+      # kind: :settings — hosted as a section of the conventional Settings
+      # window (⌘,) instead of a floating panel: section: sidebar label,
+      # order: sort key, activate: bring the window up now.
+      section: Keyword.get(opts, :section),
+      order: Keyword.get(opts, :order, 50),
+      activate: Keyword.get(opts, :activate, false),
       view: view
     }
   end

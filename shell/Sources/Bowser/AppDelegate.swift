@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "r":
                 self?.currentController?.activeTab?.webView.reload()
                 return nil
+            case ",":
+                SettingsWindow.shared.show()
+                return nil
             case "=", "+":
                 self?.currentController?.activeTab?.zoom(direction: 1)
                 return nil
@@ -151,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// ⌘N: another window of the CURRENT profile.
+    /// ⌘,: the conventional Settings window.
+    @objc func openSettings(_ sender: Any?) {
+        SettingsWindow.shared.show()
+    }
+
     @objc func newWindow(_ sender: Any?) {
         openWindow(profile: currentController?.profile ?? .defaultProfile)
     }
@@ -250,6 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Bowser", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
