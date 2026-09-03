@@ -56,6 +56,20 @@ defmodule BowserBrain.View do
     }
   end
 
+  @doc """
+  Native color picker. Sends {id, "#rrggbb"} shortly after the color stops
+  changing (debounced in the shell, so a drag on the wheel is one event).
+  opts: value: "#rrggbb" | nil, label:.
+  """
+  def colorpicker(event, opts \\ []) do
+    %{
+      t: "colorpicker",
+      event: to_string(event),
+      value: Keyword.get(opts, :value),
+      label: Keyword.get(opts, :label, "")
+    }
+  end
+
   @doc "Sends {id, value} on Enter."
   def textfield(event, opts \\ []) do
     %{

@@ -711,6 +711,13 @@ struct SurfaceTreeView: View {
                 initial: node["value"] as? String ?? "",
                 emit: emit
             ))
+        case "colorpicker":
+            return AnyView(SurfaceColorPicker(
+                eventId: node["event"] as? String ?? "color",
+                initialHex: node["value"] as? String,
+                label: node["label"] as? String ?? "",
+                emit: emit
+            ))
         case "divider":
             return AnyView(
                 Rectangle()
@@ -1027,6 +1034,47 @@ private struct SurfaceSlider: View {
     }
 }
 
+/// Native ColorPicker. Emits "#rrggbb" 350ms after the last change, so a
+/// drag across the wheel is one event and the brain can persist without
+/// re-rendering (a rebuild mid-drag would close the popover).
+private struct SurfaceColorPicker: View {
+    let eventId: String
+    let initialHex: String?
+    let label: String
+    let emit: (String, Any?) -> Void
+
+    @State private var color: Color = .gray
+    @State private var loaded = false
+    @State private var pending: Task<Void, Never>?
+
+    /// "#rrggbb" for a color, in sRGB. Pure — tested.
+    nonisolated static func hex(_ nsColor: NSColor) -> String {
+        let c = nsColor.usingColorSpace(.sRGB) ?? nsColor
+        func byte(_ v: CGFloat) -> Int { Int((max(0, min(1, v)) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent))
+    }
+
+    var body: some View {
+        ColorPicker(label, selection: $color, supportsOpacity: false)
+            .font(.system(size: 12))
+            .onAppear {
+                if !loaded {
+                    color = Color(nsColor: Profile.color(hex: initialHex) ?? .systemGray)
+                    loaded = true
+                }
+            }
+            .onChange(of: color) { _, newValue in
+                guard loaded else { return }
+                pending?.cancel()
+                let hex = Self.hex(NSColor(newValue))
+                pending = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    if !Task.isCancelled { emit(eventId, hex) }
+                }
+            }
+    }
+}
+
 private struct SurfaceTextField: View {
     let eventId: String
     let placeholder: String
@@ -1049,4 +1097,9 @@ private struct SurfaceTextField: View {
                 }
             }
     }
+}
+
+/// Test seam for SurfaceColorPicker.hex (the view itself is file-private).
+enum SurfaceColorPickerHexBridge {
+    nonisolated static func hex(_ color: NSColor) -> String { SurfaceColorPicker.hex(color) }
 }

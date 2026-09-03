@@ -233,6 +233,15 @@ defmodule BowserBrain.Profiles do
     {:noreply, render(%{state | status: status})}
   end
 
+  # Color picker: persist (windows repaint via the profiles op) but do NOT
+  # re-render the section — a rebuild mid-drag would close the picker.
+  def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "pick|" <> id, "value" => hex}}, state) do
+    case edit(id, "tint", hex) do
+      {:ok, p} -> {:noreply, %{state | status: "Saved #{label(p)}"}}
+      {:error, why} -> {:noreply, %{state | status: why}}
+    end
+  end
+
   # Inline edits: textfield ids are "name|<id>", "icon|<id>", "tint|<id>".
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => field_id, "value" => value}}, state) do
     case edit_event(field_id) do
@@ -275,8 +284,11 @@ defmodule BowserBrain.Profiles do
           text(head, style: :title),
           hstack([
             textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
-            textfield("icon|" <> id, value: p["icon"] || "", placeholder: "icon (emoji) ⏎"),
-            textfield("tint|" <> id, value: p["tint"] || "", placeholder: "tint: blue or #3e63dd ⏎")
+            textfield("icon|" <> id, value: p["icon"] || "", placeholder: "icon (emoji) ⏎")
+          ]),
+          hstack([
+            colorpicker("pick|" <> id, value: p["tint"], label: "Tint"),
+            textfield("tint|" <> id, value: p["tint"] || "", placeholder: "or type: blue / #3e63dd / empty clears ⏎")
           ]),
           hstack(
             [button("Open window", event: "open", payload: id, compact: true)] ++

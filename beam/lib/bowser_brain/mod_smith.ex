@@ -503,7 +503,8 @@ defmodule BowserBrain.ModSmith do
     BowserBrain.Surface.show(id, view, title: "T", anchor: :right_of_main) with
     import BowserBrain.View: vstack/hstack(list, opts), text(v, style: :title|:caption),
     button(label, event:, payload:, active:, symbol:, indent:), slider(event, min:, max:,
-    value:, label:), textfield(event, placeholder:), divider(), particles(chars: ["♪"],
+    value:, label:), textfield(event, placeholder:, value:), colorpicker(event, value: "#rrggbb",
+    label:) (sends "#rrggbb", debounced), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
     PANEL RULE: the panel chrome already shows the title and a close button —

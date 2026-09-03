@@ -27,3 +27,12 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(Profile.ensureDefault([]).map(\.id), ["default"])
     }
 }
+
+final class ColorPickerHexTests: XCTestCase {
+    func testHexRoundTripsThroughProfileColor() {
+        for hex in ["#3e63dd", "#30a46c", "#000000", "#ffffff"] {
+            let color = Profile.color(hex: hex)!
+            XCTAssertEqual(SurfaceColorPickerHexBridge.hex(color), hex)
+        }
+    }
+}
