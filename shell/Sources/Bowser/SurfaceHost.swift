@@ -12,6 +12,31 @@ final class SurfaceManager {
 
     private var panels: [String: NSPanel] = [:]
     private var hostings: [String: NSHostingView<AnyView>] = [:]
+    private var activationObserved = false
+
+    /// Floating panels ride above the browser window only while Bowser is
+    /// the active app; otherwise they drop to normal level and behave like
+    /// ordinary windows of an inactive app (behind whatever is in front,
+    /// still there when you come back). Edges/overlays are children of the
+    /// main window and need nothing.
+    private func observeActivation() {
+        guard !activationObserved else { return }
+        activationObserved = true
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setFloatingPanels(level: .normal) }
+        }
+        center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setFloatingPanels(level: .floating, front: true) }
+        }
+    }
+
+    private func setFloatingPanels(level: NSWindow.Level, front: Bool = false) {
+        for (id, panel) in panels where edgeConfigs[id] == nil {
+            panel.level = level
+            if front { panel.orderFront(nil) }
+        }
+    }
 
     func handle(_ message: [String: Any]) {
         switch message["surface"] as? String {
@@ -318,8 +343,12 @@ final class SurfaceManager {
         // is active, hidesOnDeactivate takes them away with the app and
         // brings them back with it, and fullScreenAuxiliary lets them show
         // over a fullscreen main window without being its child.
-        panel.hidesOnDeactivate = true
+        // NOT hidesOnDeactivate: that made every panel vanish the moment the
+        // owner glanced at another app. Instead the level follows activation
+        // (observeActivation): floating while Bowser is active, normal — a
+        // plain window in the stack — when it is not.
         panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
+        observeActivation()
 
         let effect = NSVisualEffectView(frame: panel.contentLayoutRect)
         effect.material = .popover
