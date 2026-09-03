@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case "c":
                     self?.copyCurrentURL(nil)
                     return nil
+                case "`", "~":
+                    self?.cycleWindows(forward: false)
+                    return nil
                 default:
                     return event
                 }
@@ -47,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             case ",":
                 SettingsWindow.shared.show()
+                return nil
+            case "`":
+                self?.cycleWindows(forward: true)
                 return nil
             case "=", "+":
                 self?.currentController?.activeTab?.zoom(direction: 1)
@@ -155,6 +161,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// ⌘N: another window of the CURRENT profile.
+    /// ⌘` / ⌘⇧`: cycle browser windows (one per profile, typically) the way
+    /// macOS does — the front window goes to the back, so repeated presses
+    /// visit every window instead of ping-ponging between two.
+    @objc func cycleWindowsForward(_ sender: Any?) { cycleWindows(forward: true) }
+    @objc func cycleWindowsBackward(_ sender: Any?) { cycleWindows(forward: false) }
+
+    func cycleWindows(forward: Bool) {
+        let windows = NSApp.orderedWindows.filter { $0.windowController is BrowserWindowController && $0.isVisible }
+        guard windows.count > 1 else { return }
+        let front = windows[0]
+        let next = windows[Self.nextWindowIndex(count: windows.count, forward: forward)]
+        next.makeKeyAndOrderFront(nil)
+        if forward { front.orderBack(nil) }
+    }
+
+    /// Index (in front-to-back order) of the window to bring forward:
+    /// forward = the one right behind the front window; backward = the
+    /// back-most. Pure — tested.
+    nonisolated static func nextWindowIndex(count: Int, forward: Bool) -> Int {
+        guard count > 1 else { return 0 }
+        return forward ? 1 : count - 1
+    }
+
     /// ⌘,: the conventional Settings window.
     @objc func openSettings(_ sender: Any?) {
         SettingsWindow.shared.show()
@@ -337,6 +366,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         nextItem.keyEquivalentModifierMask = [.command, .shift]
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
+
+        // A real Window menu: Minimize/Zoom, cycling, and AppKit's own list
+        // of open windows (one per profile, typically) via windowsMenu.
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Cycle Through Windows", action: #selector(cycleWindowsForward(_:)), keyEquivalent: "`")
+        let back = windowMenu.addItem(withTitle: "Cycle Back Through Windows", action: #selector(cycleWindowsBackward(_:)), keyEquivalent: "`")
+        back.keyEquivalentModifierMask = [.command, .shift]
+        windowMenu.addItem(.separator())
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+        NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = mainMenu
     }

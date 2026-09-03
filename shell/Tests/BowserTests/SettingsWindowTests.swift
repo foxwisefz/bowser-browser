@@ -12,3 +12,12 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertEqual(SettingsWindow.ordered(s).map(\.id), ["settings", "profiles", "zeta", "mods"])
     }
 }
+
+final class WindowCyclingTests: XCTestCase {
+    func testForwardPicksTheWindowBehindTheFrontAndBackwardTheBackmost() {
+        XCTAssertEqual(AppDelegate.nextWindowIndex(count: 3, forward: true), 1)
+        XCTAssertEqual(AppDelegate.nextWindowIndex(count: 3, forward: false), 2)
+        XCTAssertEqual(AppDelegate.nextWindowIndex(count: 2, forward: false), 1)
+        XCTAssertEqual(AppDelegate.nextWindowIndex(count: 1, forward: true), 0)
+    }
+}
