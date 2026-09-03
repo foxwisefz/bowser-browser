@@ -236,11 +236,19 @@ defmodule BowserBrain.Profiles do
   # Color picker: persist (windows repaint via the profiles op) but do NOT
   # re-render the section — a rebuild mid-drag would close the picker.
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "pick|" <> id, "value" => hex}}, state) do
-    case edit(id, "tint", hex) do
-      {:ok, p} -> {:noreply, %{state | status: "Saved #{label(p)}"}}
-      {:error, why} -> {:noreply, %{state | status: why}}
-    end
+    status =
+      case edit(id, "tint", hex) do
+        {:ok, p} -> "Saved #{label(p)}"
+        {:error, why} -> why
+      end
+
+    # Refresh the section (header hex, typed field) once the drag settles.
+    if t = Map.get(state, :rerender), do: Process.cancel_timer(t)
+    timer = Process.send_after(self(), :rerender, 1_200)
+    {:noreply, state |> Map.put(:status, status) |> Map.put(:rerender, timer)}
   end
+
+  def handle_info(:rerender, state), do: {:noreply, render(Map.put(state, :rerender, nil))}
 
   # Inline edits: textfield ids are "name|<id>", "icon|<id>", "tint|<id>".
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => field_id, "value" => value}}, state) do

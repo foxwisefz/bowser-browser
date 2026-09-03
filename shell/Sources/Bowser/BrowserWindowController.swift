@@ -399,6 +399,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // A profile's tint is its identity: it wins over the page's theme.
         let color = profile.color ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
+        band.tint = profile.color
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
                 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
@@ -563,6 +564,13 @@ private struct CmdCluster: View {
 final class BandScrimView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
+    /// The profile's tint. The scrim used to paint the SYSTEM window color
+    /// (not this window's backgroundColor), so a profile tint set on the
+    /// window was invisible — the title bar is the band, so tint the band.
+    var tint: NSColor? {
+        didSet { needsDisplay = true }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -573,7 +581,7 @@ final class BandScrimView: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor =
-            NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
+            (tint?.withAlphaComponent(0.78) ?? NSColor.windowBackgroundColor.withAlphaComponent(0.42)).cgColor
     }
 
     // Page content is transform-shifted below the band, so nothing
