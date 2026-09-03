@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Build Bowser and install it under ~/.bowser/app, then (re)start the
+# installed system. The working copy is never executed by the installed
+# brain: it runs its own release and spawns its own Bowser.app, so builds
+# and edits here do not touch the browser you are using until you run this.
+#
+#   bin/install                 release shell + brain release, restart everything
+#   bin/install --shell-only    rebuild + reinstall only the browser (rolls it, brain stays)
+#   bin/install --brain-only    rebuild + reinstall only the brain (restarts it, tabs restore)
+#   bin/install --release       release shell build (DEFAULT IS DEBUG until the
+#                               release-only SIGTRAP in BrainBridge's listener is fixed —
+#                               see bead bowser-browser-oeo; debug in a bundle runs fine)
+#   bin/install --debug         explicit debug shell build (the current default)
+#   bin/install --no-restart    install but leave the running system alone
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
+APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
+BUNDLE="$APP_DIR/Bowser.app"
+SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=1; RESTART=1
+for a in "$@"; do case "$a" in
+  --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) RESTART=0;;
+  *) echo "unknown flag: $a" >&2; exit 2;;
+esac; done
+
+VERSION="$(cd "$REPO" && (jj log -r @- --no-graph -T 'change_id.short()' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev))"
+BUILD="$(date +%Y%m%d%H%M%S)"
+say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
+
+mkdir -p "$APP_DIR/bin"
+
+# ---------------------------------------------------------------- shell
+if [ "$BRAIN_ONLY" = 0 ]; then
+  CONF=release; [ "$DEBUG" = 1 ] && CONF=debug
+  say "shell: swift build -c $CONF"
+  (cd "$REPO/shell" && swift build -c "$CONF" 2>&1 | grep -E "error|warning: unre|Build complete" || true)
+  BIN="$REPO/shell/.build/$CONF/Bowser"
+  [ -x "$BIN" ] || { echo "no binary at $BIN — build failed" >&2; exit 1; }
+  # Never trust "Build complete": the artifact must be newer than the sources.
+  NEWEST_SRC="$(find "$REPO/shell/Sources" -name '*.swift' -newer "$BIN" | head -1)"
+  [ -z "$NEWEST_SRC" ] || { echo "binary older than $NEWEST_SRC — stale build" >&2; exit 1; }
+
+  say "shell: assembling $BUNDLE ($VERSION)"
+  STAGE="$(mktemp -d)"; mkdir -p "$STAGE/Bowser.app/Contents/MacOS" "$STAGE/Bowser.app/Contents/Resources"
+  cp "$BIN" "$STAGE/Bowser.app/Contents/MacOS/Bowser"
+  sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$REPO/bin/Info.plist" > "$STAGE/Bowser.app/Contents/Info.plist"
+  printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
+  codesign --force --deep --sign - "$STAGE/Bowser.app" >/dev/null 2>&1 || echo "  (codesign skipped)"
+  # Swap atomically: the brain watches the binary's mtime and blue-green
+  # rolls the browser when it changes.
+  rm -rf "$BUNDLE.new"; mv "$STAGE/Bowser.app" "$BUNDLE.new"; rm -rf "$BUNDLE.old"
+  [ -d "$BUNDLE" ] && mv "$BUNDLE" "$BUNDLE.old"; mv "$BUNDLE.new" "$BUNDLE"; rm -rf "$BUNDLE.old" "$STAGE"
+fi
+
+# ---------------------------------------------------------------- helpers
+say "bin: engine-wrapper, mcp bridge, bowser"
+cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$APP_DIR/bin/"
+chmod +x "$APP_DIR/bin/"*
+
+# ---------------------------------------------------------------- brain
+if [ "$SHELL_ONLY" = 0 ]; then
+  say "brain: mix release (prod)"
+  (cd "$REPO/beam" && MIX_ENV=prod mix release bowser_brain --overwrite --quiet 2>&1 | grep -vE "^\s*$" | tail -3 || true)
+  REL="$REPO/beam/_build/prod/rel/bowser_brain"
+  [ -x "$REL/bin/bowser_brain" ] || { echo "no release at $REL" >&2; exit 1; }
+  rm -rf "$APP_DIR/brain.new"; cp -R "$REL" "$APP_DIR/brain.new"
+  rm -rf "$APP_DIR/brain.old"; [ -d "$APP_DIR/brain" ] && mv "$APP_DIR/brain" "$APP_DIR/brain.old"
+  mv "$APP_DIR/brain.new" "$APP_DIR/brain"; rm -rf "$APP_DIR/brain.old"
+fi
+
+echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
+say "installed $VERSION → $APP_DIR"
+
+# ---------------------------------------------------------------- run
+if [ "$RESTART" = 1 ]; then
+  if [ "$SHELL_ONLY" = 1 ] && "$APP_DIR/bin/bowser" status >/dev/null 2>&1; then
+    say "browser rolls on its own (the installed brain saw the new binary)"
+  else
+    "$APP_DIR/bin/bowser" restart
+  fi
+fi

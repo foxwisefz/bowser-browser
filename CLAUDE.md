@@ -20,6 +20,7 @@ A completely personalizable browser. One machine, one target: `arm64-apple-macos
   ```sh
   cd beam && mix test          # brain: ExUnit (beam/test/)
   cd shell && swift test       # shell: XCTest (shell/Tests/BowserTests/)
+  bin/install                  # deliver: what the owner is using only changes here
   ```
 - Testable-by-design: pure logic lives in `static`/public functions (e.g. `BrowserWindowController.normalize`, `EngineView.parseCSSColor`, `ModSmith.extract_json/validate`). If logic is hard to test, extract it first.
 - UI/behavior that can't run headless gets verified via probe mods (`~/.bowser/mods` is an RPC channel into the running brain) or explicit owner check — never assumed.
@@ -28,4 +29,5 @@ A completely personalizable browser. One machine, one target: `arm64-apple-macos
 
 - Speed regressions are bugs. No cross-platform abstractions. No traditional extension platform.
 - VCS is **jj (jujutsu)**, colocated with git — use `jj st`, `jj describe`, `jj commit`, `jj new`; never raw git for commits. Conservative profile: don't commit/push unless asked.
-- **One workspace: this one.** Never create a per-bead jj workspace or git worktree. The brain supervises `shell/.build/debug/Bowser` at this path only — a build in a side workspace is never delivered and reads as "the change did nothing".
+- **One workspace: this one.** Never create a per-bead jj workspace or git worktree.
+- **The owner runs the INSTALLED Bowser, not the working copy.** `bin/install` builds both halves into `~/.bowser/app/` (Bowser.app bundle + a brain release + bin/) and restarts it; `bin/bowser start|stop|restart|status|log` controls it. A dev brain (`iex -S mix` in beam/) supervises `shell/.build/debug/Bowser` and is for development only — never run both at once (they fight over ~/.bowser sockets; `bin/bowser stop --all` clears dev brains). Working-copy builds and edits do NOT reach the owner until `bin/install` (`--shell-only` rolls just the browser, `--brain-only` restarts just the brain; the shell build is DEBUG by default until the release-only SIGTRAP is fixed).

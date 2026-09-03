@@ -6,7 +6,12 @@ defmodule BowserBrain.Paths do
   no hardcoded home directories, runnable from any clone path.
 
   Overrides, strongest first: `:root` app env (tests), BOWSER_ROOT env
-  var (running a compiled brain against a repo somewhere else).
+  var (an INSTALLED brain — bin/install sets it to ~/.bowser/app, which
+  holds bin/ and the app bundle), then this checkout.
+
+  BOWSER_ENGINE names the browser binary explicitly; the installed brain
+  points it at Bowser.app inside the install dir so working-copy builds
+  never touch the running browser.
   """
 
   # beam/lib/bowser_brain -> repo root is three levels up.
@@ -18,7 +23,15 @@ defmodule BowserBrain.Paths do
       @compiled_root
   end
 
-  def engine_binary, do: Path.join(root(), "shell/.build/debug/Bowser")
+  def engine_binary, do: engine_binary(System.get_env())
+
+  @doc "The browser binary for a given environment map. Public for tests."
+  def engine_binary(env) when is_map(env) do
+    case Map.get(env, "BOWSER_ENGINE") do
+      path when is_binary(path) and path != "" -> path
+      _ -> Path.join(root(), "shell/.build/debug/Bowser")
+    end
+  end
   def engine_wrapper, do: Path.join(root(), "bin/engine-wrapper")
   def brain_lib, do: Path.join(root(), "beam/lib/bowser_brain")
   def mcp_bridge, do: Path.join(root(), "bin/bowser-mcp-bridge")

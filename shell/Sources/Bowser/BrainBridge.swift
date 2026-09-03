@@ -22,8 +22,17 @@ final class BrainBridge {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent("brain.sock").path
 
-        Thread.detachNewThread { [weak self] in
-            self?.listenLoop(path: path)
+        Self.spawnListener(self, path: path)
+    }
+
+    /// The listener thread is spawned from a NONISOLATED context: a closure
+    /// formed inside a @MainActor method inherits main-actor isolation, and
+    /// Swift's strict executor checks (on for a real app bundle; lenient for
+    /// the bare dev binary) trap the moment it runs on the detached thread —
+    /// SIGTRAP on every launch of the installed Bowser.app.
+    nonisolated private static func spawnListener(_ bridge: BrainBridge, path: String) {
+        Thread.detachNewThread {
+            bridge.listenLoop(path: path)
         }
     }
 
