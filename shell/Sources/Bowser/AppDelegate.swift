@@ -192,8 +192,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         profileMenu.addItem(hint)
     }
 
-    /// ⌘W closes the TAB now; the window goes with the last one.
+    /// ⌘W closes the TAB now; the window goes with the last one. When the
+    /// key window is not a browser window (Settings, a panel), ⌘W closes
+    /// THAT — not a tab in some browser window behind it.
     @objc func closeTab(_ sender: Any?) {
+        if let key = NSApp.keyWindow, !(key.windowController is BrowserWindowController),
+           !(key is NSPanel) || key.styleMask.contains(.closable) {
+            key.performClose(nil)
+            return
+        }
         guard let controller = currentController, let view = controller.activeTab else { return }
         controller.closeTab(view)
     }

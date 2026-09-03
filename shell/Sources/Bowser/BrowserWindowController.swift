@@ -379,6 +379,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func profileDidChange() {
         profile = Profile.find(profile.id)
         refreshProfileBadge()
+        syncModButtons() // the ⌘K keycap carries the tint
         applyTitle(activeTab?.webView.title ?? "")
         applyThemeColor(activeTab?.themeColor)
     }
@@ -399,7 +400,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // A profile's tint is its identity: it wins over the page's theme.
         let color = profile.color ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
-        band.tint = profile.color
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
                 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
@@ -413,6 +413,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func clusterView() -> some View {
         CmdCluster(
+            tint: profile.color.map { Color(nsColor: $0) },
             openBar: { [weak self] in
                 guard let self else { return }
                 CommandBar.shared.show(for: self)
@@ -493,6 +494,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 /// buttons fade in on hover. Regular key window titlebar — hover is
 /// reliable here, unlike non-activating panels.
 private struct CmdCluster: View {
+    /// The window's profile tint — painted on the ⌘K keycap only (the
+    /// owner's call: not the whole bar, not the command palette).
+    let tint: Color?
     let openBar: () -> Void
     let goBack: () -> Void
     let goForward: () -> Void
@@ -509,12 +513,12 @@ private struct CmdCluster: View {
                 Text("⌘+K")
                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     .kerning(0.8)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(tint == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.95)))
                     .padding(.horizontal, 8)
                     .frame(height: 22)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .fill(tint ?? Color(nsColor: .controlBackgroundColor))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6)
@@ -564,12 +568,6 @@ private struct CmdCluster: View {
 final class BandScrimView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
-    /// The profile's tint. The scrim used to paint the SYSTEM window color
-    /// (not this window's backgroundColor), so a profile tint set on the
-    /// window was invisible — the title bar is the band, so tint the band.
-    var tint: NSColor? {
-        didSet { needsDisplay = true }
-    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -581,7 +579,7 @@ final class BandScrimView: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor =
-            (tint?.withAlphaComponent(0.78) ?? NSColor.windowBackgroundColor.withAlphaComponent(0.42)).cgColor
+            NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
     }
 
     // Page content is transform-shifted below the band, so nothing

@@ -8,14 +8,12 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
 
     private var panel: CommandBarPanel?
     private let field = NSTextField()
-    private let tintView = NSView()
     private let hint = NSTextField(labelWithString: "")
     private weak var target: BrowserWindowController?
 
     func show(for controller: BrowserWindowController) {
         target = controller
         let panel = ensurePanel()
-        tintView.layer?.backgroundColor = controller.profile.color?.withAlphaComponent(0.5).cgColor
 
         // Launcher semantics: empty field, current URL as placeholder.
         field.stringValue = ""
@@ -62,13 +60,6 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
         effect.blendingMode = .behindWindow
         effect.maskImage = Self.roundedMask(radius: 14)
         effect.autoresizingMask = [.width, .height]
-
-        // Profile tint wash under the field: the bar belongs to the window
-        // it was summoned from, and looks like it.
-        tintView.wantsLayer = true
-        tintView.frame = effect.bounds
-        tintView.autoresizingMask = [.width, .height]
-        effect.addSubview(tintView)
 
         field.isBezeled = false
         field.drawsBackground = false
