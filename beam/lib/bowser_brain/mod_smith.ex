@@ -1056,11 +1056,13 @@ defmodule BowserBrain.ModSmith do
           list
           |> Enum.with_index(1)
           |> Enum.map(fn {s, i} ->
-            button("#{i}  #{s.summary}",
+            picked = match?(%{kind: :refine, n: ^i}, target)
+
+            row(s.summary,
+              subtitle: "##{i} · #{s.host}" <> if(picked, do: " · refining", else: ""),
+              symbol: if(picked, do: "checkmark.circle.fill", else: "clock"),
               event: "pick",
-              payload: i,
-              compact: true,
-              active: match?(%{kind: :refine, n: ^i}, target)
+              payload: i
             )
           end)
       end
@@ -1071,7 +1073,7 @@ defmodule BowserBrain.ModSmith do
         [spacer(min: 2), text("#{glyph} #{label}", style: :title)] ++
         if(detail, do: [text(detail, style: :caption)], else: []) ++
         log ++
-        [divider(), text("SESSIONS · click to refine", style: :caption)] ++
+        [section("Sessions · click to refine")] ++
         sessions
     )
   end

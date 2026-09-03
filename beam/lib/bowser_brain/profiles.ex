@@ -286,10 +286,15 @@ defmodule BowserBrain.Profiles do
     rows =
       Enum.flat_map(list(), fn p ->
         id = p["id"]
-        head = label(p) <> if(p["tint"], do: " · " <> p["tint"], else: "") <> if(id == "default", do: "  (default)", else: "")
 
         [
-          text(head, style: :title),
+          row(label(p),
+            subtitle: Enum.join(Enum.reject([id, p["tint"], if(id == "default", do: "default profile")], &is_nil/1), " · "),
+            swatch: p["tint"] || "#8b8d98",
+            trailing:
+              [button("Open window", event: "open", payload: id, compact: true)] ++
+                if(id == "default", do: [], else: [button("Delete", event: "delete", payload: id, compact: true)])
+          ),
           hstack([
             textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
             textfield("icon|" <> id, value: p["icon"] || "", placeholder: "icon (emoji) ⏎")
@@ -298,10 +303,6 @@ defmodule BowserBrain.Profiles do
             colorpicker("pick|" <> id, value: p["tint"], label: "Tint"),
             textfield("tint|" <> id, value: p["tint"] || "", placeholder: "or type: blue / #3e63dd / empty clears ⏎")
           ]),
-          hstack(
-            [button("Open window", event: "open", payload: id, compact: true)] ++
-              if(id == "default", do: [], else: [button("Delete", event: "delete", payload: id, compact: true)])
-          ),
           divider()
         ]
       end)
@@ -309,9 +310,9 @@ defmodule BowserBrain.Profiles do
     Surface.show(
       :profiles,
       vstack(
-        [text("New profile", style: :caption), textfield("new", placeholder: "work blue 🧪 ⏎  (name, color, emoji — any order)")] ++
+        [section("New profile"), textfield("new", placeholder: "work blue 🧪 ⏎  (name, color, emoji — any order)")] ++
           if(state.status, do: [text(state.status, style: :caption)], else: []) ++
-          [divider()] ++ rows
+          [section("Profiles")] ++ rows
       ),
       title: "Profiles",
       kind: :settings,

@@ -281,9 +281,9 @@ defmodule BowserBrain.ModSmithTest do
         |> Map.put(:target, %{kind: :refine, n: 2})
 
       %{children: kids} = ModSmith.tree(state)
-      rows = for %{t: "button", event: "pick"} = b <- kids, do: b
-      assert Enum.map(rows, & &1.compact) == [true, true]
-      assert Enum.map(rows, & &1.active) == [false, true]
+      rows = for %{t: "row", event: "pick"} = r <- kids, do: r
+      assert Enum.map(rows, & &1.title) == ["one", "two"]
+      assert Enum.map(rows, & &1.symbol) == ["clock", "checkmark.circle.fill"]
       assert Enum.any?(kids, &(&1.t == "hstack"))
     end
   end

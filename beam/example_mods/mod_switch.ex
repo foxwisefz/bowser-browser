@@ -37,10 +37,13 @@ defmodule ModSwitchMod do
   def handle_event(%{"event" => "chrome_click", "id" => "mods"}, state), do: render(state, true)
 
   def handle_event(
-        %{"event" => "surface", "surface" => "mods", "id" => "toggle", "value" => value},
+        %{"event" => "surface", "surface" => "mods", "id" => "toggle", "value" => raw},
         state
       ) do
-    case parse_toggle(value) do
+    case should_flip?(raw) && parse_toggle(toggle_payload(raw)) do
+      false ->
+        state
+
       {:site, host, name} ->
         dir = Path.join([System.user_home!(), ".bowser/sites", host])
         File.rename(Path.join(dir, name), Path.join(dir, toggle_path(name)))
@@ -150,6 +153,22 @@ defmodule ModSwitchMod do
     end
   end
 
+  @doc "A switch sends %{\"on\" => bool, \"payload\" => p}; a plain button sends p. Public for tests."
+  def toggle_payload(%{"payload" => p}), do: p
+  def toggle_payload(p), do: p
+
+  @doc """
+  Only flip when the switch asks for a state the file is not already in —
+  a repeated or spurious emission must be a no-op (a blind toggle turned
+  every render into a mass on/off flip). A plain button payload always flips.
+  """
+  def should_flip?(%{"on" => on, "payload" => p}) when is_boolean(on) do
+    name = p |> String.split("|") |> List.last()
+    on != enabled?(name)
+  end
+
+  def should_flip?(_plain), do: true
+
   @doc "Button payload round-trip: site|host|file or mod|file."
   def parse_toggle("site|" <> rest) do
     case String.split(rest, "|", parts: 2) do
@@ -238,12 +257,10 @@ defmodule ModSwitchMod do
     Surface.show(
       :mods,
       vstack(
-        [text("Mods", style: :title)] ++
-          [text("This page#{if host, do: " — #{host}", else: ""}", style: :caption)] ++
-          (site_rows == [] && [text("no site payloads", style: :caption)] || site_rows) ++
-          [divider(), text("Global mods", style: :caption)] ++
-          mod_rows ++
-          [divider(), text("click to toggle · off = renamed .off", style: :caption)]
+        [section("This page#{if host, do: " · #{host}", else: ""}")] ++
+          (site_rows == [] && [text("No site payloads for this page.", style: :caption)] || site_rows) ++
+          [section("Global mods")] ++
+          mod_rows
       ),
       title: "Mods",
       kind: :settings,
@@ -261,21 +278,18 @@ defmodule ModSwitchMod do
   # should be lost in the meantime).
   defp expanded(state), do: Map.get(state, :info) || MapSet.new()
 
-  # Compact by default: toggle + ⓘ side by side; the description appears
-  # under the row only while its ⓘ is expanded.
-  defp row(label, payload, info, state) do
-    head =
-      hstack([
-        button(label, event: "toggle", payload: payload),
-        button("ⓘ", event: "info", payload: payload),
-        button("✎", event: "edit", payload: payload)
-      ])
+  # icon · name / description · ✎ · switch — the extensions-list pattern.
+  defp row(label, payload, info, _state) do
+    on = enabled?(payload |> String.split("|") |> List.last())
 
-    if MapSet.member?(expanded(state), payload) do
-      vstack([head, text(String.slice(info, 0, 90), style: :caption)])
-    else
-      head
-    end
+    row(String.replace_prefix(String.replace_prefix(label, "● ", ""), "○ ", ""),
+      subtitle: String.slice(info, 0, 90),
+      symbol: if(String.starts_with?(payload, "site|"), do: "doc.text", else: "puzzlepiece.extension"),
+      trailing: [
+        button("✎", event: "edit", payload: payload, compact: true),
+        toggle("toggle", on: on, payload: payload)
+      ]
+    )
   end
 
   defp describe_file(path) do

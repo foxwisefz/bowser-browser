@@ -80,4 +80,17 @@ defmodule ModSwitchModTest do
       assert ModSwitchMod.edit_path("garbage") == nil
     end
   end
+
+  test "toggle_payload accepts a switch map or a plain button payload" do
+    assert ModSwitchMod.toggle_payload(%{"on" => false, "payload" => "mod|dock.ex"}) == "mod|dock.ex"
+    assert ModSwitchMod.toggle_payload("site|x.com|a.css") == "site|x.com|a.css"
+  end
+
+  test "should_flip? is idempotent for switches and always true for plain buttons" do
+    refute ModSwitchMod.should_flip?(%{"on" => true, "payload" => "mod|dock.ex"})
+    assert ModSwitchMod.should_flip?(%{"on" => false, "payload" => "mod|dock.ex"})
+    refute ModSwitchMod.should_flip?(%{"on" => false, "payload" => "mod|nav.ex.off"})
+    assert ModSwitchMod.should_flip?(%{"on" => true, "payload" => "site|x.com|a.css.off"})
+    assert ModSwitchMod.should_flip?("mod|dock.ex")
+  end
 end

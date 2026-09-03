@@ -93,13 +93,17 @@ struct SettingsRootView: View {
         } detail: {
             if let section = model.sections.first(where: { $0.id == model.selected }) {
                 ScrollView {
-                    SurfaceTreeView(surfaceId: section.id, node: section.tree)
-                        .id("\(section.id)-\(model.revision)")
-                        .padding(22)
-                        .frame(maxWidth: 560, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(section.title)
+                            .font(.system(size: 22, weight: .bold))
+                            .padding(.bottom, 8)
+                        SurfaceTreeView(surfaceId: section.id, node: section.tree)
+                            .id("\(section.id)-\(model.revision)")
+                    }
+                    .padding(26)
+                    .frame(maxWidth: 620, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .navigationTitle(section.title)
             } else {
                 Text("No settings sections yet — the brain is still connecting.")
                     .foregroundStyle(.secondary)

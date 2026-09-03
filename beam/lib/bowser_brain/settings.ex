@@ -167,23 +167,24 @@ defmodule BowserBrain.Settings do
 
     rows =
       if keys == [] do
-        [text("empty — :set <key> <value>, or mods declare keys", style: :caption)]
+        [text("Nothing declared yet — :set <key> <value>, or a mod declares keys.", style: :caption)]
       else
-        Enum.flat_map(keys, fn key ->
-          meta = Map.get(declared, key, %{})
-          about = meta[:about]
+        [section("Settings")] ++
+          Enum.map(keys, fn key ->
+            meta = Map.get(declared, key, %{})
 
-          current =
-            case Map.fetch(stored, key) do
-              {:ok, value} -> mask(key, value, declared)
-              :error -> "not set"
-            end
+            current =
+              case Map.fetch(stored, key) do
+                {:ok, value} -> mask(key, value, declared)
+                :error -> "not set"
+              end
 
-          [
-            text(if(about, do: "#{key} — #{about}", else: key), style: :caption),
-            textfield(key, placeholder: current)
-          ]
-        end)
+            row(key,
+              subtitle: meta[:about],
+              symbol: if(get_in(declared, [key, :secret]) == true, do: "key.fill", else: "slider.horizontal.3"),
+              trailing: [textfield(key, placeholder: current)]
+            )
+          end)
       end
 
     Surface.show(:settings, vstack(rows, spacing: 5),

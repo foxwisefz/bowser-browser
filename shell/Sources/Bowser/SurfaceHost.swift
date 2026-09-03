@@ -719,6 +719,25 @@ struct SurfaceTreeView: View {
             }
         case "button":
             return AnyView(SurfaceRow(node: node, emit: emit))
+        case "row":
+            return AnyView(SurfaceListRow(node: node, emit: emit, render: { self.render($0) }))
+        case "toggle":
+            return AnyView(SurfaceToggle(
+                eventId: node["event"] as? String ?? "toggle",
+                initial: node["on"] as? Bool ?? false,
+                payload: node["payload"],
+                label: node["label"] as? String ?? "",
+                emit: emit
+            ))
+        case "section":
+            return AnyView(
+                Text((node["value"] as? String ?? "").uppercased())
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .kerning(0.9)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 10)
+                    .padding(.bottom, 2)
+            )
         case "slider":
             let eventId = node["event"] as? String ?? "slide"
             return AnyView(SurfaceSlider(
@@ -804,7 +823,7 @@ private struct SurfaceRow: View {
                 Text(node["label"] as? String ?? "?")
                     .font(.system(size: compact ? 11.5 : 13, weight: active ? .semibold : .regular))
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                if !compact { Spacer(minLength: 0) }
             }
         }
         .buttonStyle(PaletteRowStyle(active: active, compact: compact))
@@ -820,7 +839,9 @@ private struct PaletteRowStyle: ButtonStyle {
         configuration.label
             .padding(.vertical, compact ? 2 : 5)
             .padding(.horizontal, compact ? 7 : 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // Compact buttons hug their label (they sit in row trailings);
+            // full rows stretch.
+            .frame(maxWidth: compact ? nil : .infinity, alignment: .leading)
             .foregroundStyle(active ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .background {
                 if active {
@@ -1096,6 +1117,92 @@ private struct SurfaceColorPicker: View {
                 pending = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(350))
                     if !Task.isCancelled { emit(eventId, hex) }
+                }
+            }
+    }
+}
+
+/// icon · title / subtitle · trailing controls. A subtitle stays one line;
+/// trailing nodes are laid out by the same renderer (toggle, buttons, a
+/// compact textfield).
+private struct SurfaceListRow: View {
+    let node: [String: Any]
+    let emit: (String, Any?) -> Void
+    let render: ([String: Any]) -> AnyView
+
+    var body: some View {
+        let trailing = node["trailing"] as? [[String: Any]] ?? []
+        let content = HStack(alignment: .center, spacing: 10) {
+            if let hex = node["swatch"] as? String, let color = Profile.color(hex: hex) {
+                Circle().fill(Color(nsColor: color)).frame(width: 12, height: 12)
+            } else if let path = node["path"] as? String, let image = ImageCache.load(path) {
+                Image(nsImage: image).resizable().interpolation(.high)
+                    .frame(width: 18, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
+            } else if let symbol = node["symbol"] as? String {
+                Image(systemName: symbol).font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary).frame(width: 18)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(node["title"] as? String ?? "").font(.system(size: 13)).lineLimit(1)
+                if let subtitle = node["subtitle"] as? String, !subtitle.isEmpty {
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            ForEach(Array(trailing.enumerated()), id: \.offset) { _, child in
+                render(child)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        Group {
+            if let eventId = node["event"] as? String {
+                Button(action: { emit(eventId, node["payload"]) }) { content }.buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(.separator).frame(height: 0.5).opacity(0.6)
+        }
+    }
+}
+
+/// A macOS switch. Emits its new value on change (with payload, when given,
+/// as {"on": bool, "payload": …} so one event id can serve a list).
+private struct SurfaceToggle: View {
+    let eventId: String
+    let initial: Bool
+    let payload: Any?
+    let label: String
+    let emit: (String, Any?) -> Void
+
+    @State private var on: Bool
+
+    init(eventId: String, initial: Bool, payload: Any?, label: String, emit: @escaping (String, Any?) -> Void) {
+        self.eventId = eventId
+        self.initial = initial
+        self.payload = payload
+        self.label = label
+        self.emit = emit
+        // Seeded at init, NOT in onAppear: assigning state on appear fired
+        // onChange with the initial value, so every render of a list of
+        // switches "toggled" every row — it flipped mods on and off.
+        _on = State(initialValue: initial)
+    }
+
+    var body: some View {
+        Toggle(label, isOn: $on)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+            .onChange(of: on) { _, value in
+                if let payload {
+                    emit(eventId, ["on": value, "payload": payload])
+                } else {
+                    emit(eventId, value)
                 }
             }
     }

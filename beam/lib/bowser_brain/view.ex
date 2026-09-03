@@ -70,6 +70,41 @@ defmodule BowserBrain.View do
     }
   end
 
+  @doc """
+  A list row: title + optional one-line subtitle on the left (with an
+  optional leading SF Symbol / image path / color swatch), controls on the
+  right. The pattern every settings and extensions list uses (icon · name ·
+  description · toggle). opts: subtitle:, symbol:, path:, swatch: "#rrggbb",
+  trailing: [nodes], event:/payload: (whole row clickable when given).
+  """
+  def row(title, opts \\ []) do
+    %{
+      t: "row",
+      title: to_string(title),
+      subtitle: Keyword.get(opts, :subtitle),
+      symbol: Keyword.get(opts, :symbol),
+      path: Keyword.get(opts, :path),
+      swatch: Keyword.get(opts, :swatch),
+      trailing: Keyword.get(opts, :trailing, []),
+      event: Keyword.get(opts, :event) && to_string(Keyword.get(opts, :event)),
+      payload: Keyword.get(opts, :payload)
+    }
+  end
+
+  @doc "A switch. Sends {id, true|false} on change. opts: on:, payload:, label:."
+  def toggle(event, opts \\ []) do
+    %{
+      t: "toggle",
+      event: to_string(event),
+      on: Keyword.get(opts, :on, false),
+      payload: Keyword.get(opts, :payload),
+      label: Keyword.get(opts, :label, "")
+    }
+  end
+
+  @doc "A small-caps group header, like the category labels in a settings sidebar."
+  def section(title), do: %{t: "section", value: to_string(title)}
+
   @doc "Sends {id, value} on Enter."
   def textfield(event, opts \\ []) do
     %{
