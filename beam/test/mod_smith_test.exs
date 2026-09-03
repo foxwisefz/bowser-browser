@@ -150,8 +150,8 @@ defmodule BowserBrain.ModSmithTest do
   end
 
   describe "timeout_ms/1" do
-    test "defaults to 10 minutes when unset" do
-      assert ModSmith.timeout_ms(nil) == 600_000
+    test "defaults to 15 minutes when unset" do
+      assert ModSmith.timeout_ms(nil) == 900_000
     end
 
     test "owner override via :set modsmith_timeout_ms" do
@@ -159,9 +159,9 @@ defmodule BowserBrain.ModSmithTest do
     end
 
     test "garbage or non-positive values fall back to the default" do
-      assert ModSmith.timeout_ms("soon") == 600_000
-      assert ModSmith.timeout_ms("0") == 600_000
-      assert ModSmith.timeout_ms("-5") == 600_000
+      assert ModSmith.timeout_ms("soon") == 900_000
+      assert ModSmith.timeout_ms("0") == 900_000
+      assert ModSmith.timeout_ms("-5") == 900_000
     end
   end
 
@@ -285,6 +285,41 @@ defmodule BowserBrain.ModSmithTest do
       assert Enum.map(rows, & &1.compact) == [true, true]
       assert Enum.map(rows, & &1.active) == [false, true]
       assert Enum.any?(kids, &(&1.t == "hstack"))
+    end
+  end
+
+  describe "run salvage" do
+    defp acc, do: %{events: [], raw: [], partial: "", session: nil, started: System.monotonic_time(:millisecond)}
+
+    test "session_of reads the id from init and result events only" do
+      assert ModSmith.session_of(%{"type" => "system", "subtype" => "init", "session_id" => "s1"}) == "s1"
+      assert ModSmith.session_of(%{"type" => "result", "session_id" => "s2"}) == "s2"
+      assert ModSmith.session_of(%{"type" => "assistant", "session_id" => "s3"}) == nil
+    end
+
+    test "stream_loop keeps the session id and reports it on timeout" do
+      fake = make_ref()
+      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-9"})}}})
+      deadline = System.monotonic_time(:millisecond) + 60
+      assert {:timeout, "sess-9"} = ModSmith.stream_loop(fake, deadline, fn _ -> :ok end, acc())
+    end
+
+    test "stream_loop returns events, raw lines and session on exit" do
+      fake = make_ref()
+      me = self()
+      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-1"})}}})
+      send(self(), {fake, {:data, {:eol, "not json"}}})
+      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "hi"}]}})}}})
+      send(self(), {fake, {:exit_status, 0}})
+      deadline = System.monotonic_time(:millisecond) + 5_000
+      assert {:done, 0, events, ["not json"], "sess-1"} = ModSmith.stream_loop(fake, deadline, &send(me, {:p, &1}), acc())
+      assert length(events) == 2
+      assert_received {:p, "hi"}
+    end
+
+    test "finish_prompt demands the envelope and allows an honest handoff" do
+      assert ModSmith.finish_prompt() =~ "ONLY the JSON envelope"
+      assert ModSmith.finish_prompt() =~ "NEEDS THE RESIDENT AGENT"
     end
   end
 end

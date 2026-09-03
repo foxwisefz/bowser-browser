@@ -18,7 +18,10 @@ defmodule BowserBrain.ModSmith do
   # 180s proved too short: a rate-limited router makes the CLI retry 502s
   # for minutes, and the whole request died as "claude timed out"
   # (bowser-browser-3l4). Tune live with `:set modsmith_timeout_ms`.
-  @default_timeout_ms 600_000
+  # 600s killed the follow-tracker run mid-envelope (bowser-browser-XXX):
+  # compositions with live verification need longer, and a timeout now
+  # salvages via resume instead of discarding.
+  @default_timeout_ms 900_000
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
@@ -204,7 +207,25 @@ defmodule BowserBrain.ModSmith do
 
       {:error, reason} ->
         Logger.error("modsmith: #{request} failed: #{reason}")
-        state = %{state | busy: nil, last_status: "Failed: #{String.slice(reason, 0, 120)}"}
+
+        # A failed run with a known session is still resumable — keep it in
+        # the list so :do+N / a click can pick it up and finish.
+        sessions =
+          if session do
+            remember_session(state.sessions, %{
+              id: session,
+              request: request,
+              summary: "⏱ #{String.slice(reason, 0, 56)}",
+              host: host,
+              at: System.system_time(:millisecond),
+              refined: resumed
+            })
+          else
+            state.sessions
+          end
+
+        if session, do: persist_sessions(sessions)
+        state = %{state | busy: nil, sessions: sessions, last_status: "Failed: #{String.slice(reason, 0, 120)}"}
         render(state)
         {:noreply, state}
     end
@@ -450,6 +471,12 @@ defmodule BowserBrain.ModSmith do
     already exists. A file marked OFF still counts: modify it and say in the
     summary that it is disabled (the owner toggles it in :mods).
 
+    TIME BUDGET: about #{div(timeout_ms(BowserBrain.Settings.get("modsmith_timeout_ms")), 60_000)}
+    minutes total, verification included. Work incrementally: install drafts early
+    (put_payload / store_put), and return the envelope as soon as the core works —
+    unfinished parts go in "notes". If time runs out you will be asked to return
+    what you have; a partial working envelope beats a lost run.
+
     SCOPE RULE: a request about a specific page/site must be limited to that
     site by default. Payloads are auto host-scoped. A tier-"mod" for
     page-specific behavior MUST declare its host:
@@ -562,69 +589,127 @@ defmodule BowserBrain.ModSmith do
 
         timeout = timeout_ms(BowserBrain.Settings.get("modsmith_timeout_ms"))
 
-        # sh wrapper: claude waits 3s on the port's dangling stdin without an
-        # explicit < /dev/null.
-        port =
-          Port.open({:spawn_executable, "/bin/sh"}, [
-            :binary,
-            :exit_status,
-            :stderr_to_stdout,
-            {:line, 4_000_000},
-            {:args, ["-c", ~s(exec "$0" "$@" < /dev/null), claude | args]},
-            {:env, Enum.map(env, fn {k, v} -> {to_charlist(k), to_charlist(v)} end)}
-          ])
-
-        deadline = System.monotonic_time(:millisecond) + timeout
-
-        case stream_loop(port, deadline, on_progress, %{events: [], raw: [], partial: ""}) do
-          {:done, 0, events, raw} ->
+        case run_port(claude, args, env, timeout, on_progress) do
+          {:done, 0, events, raw, _session} ->
             case stream_result(events) do
               {session, text} when is_binary(text) and text != "" -> {session, {:output, text}}
               _ -> {nil, {:output, Enum.join(raw, "\n")}}
             end
 
-          {:done, code, events, raw} ->
+          {:done, code, events, raw, _session} ->
             {_session, text} = stream_result(events)
             detail = text || Enum.join(raw, " ")
             {nil, {:error, "claude exited #{code}: #{String.slice(detail, 0, 300)} | #{auth_hint(route)}"}}
 
-          :timeout ->
+          # Out of time with a known session: the work is in the CLI's
+          # transcript — resume it and ask for the envelope NOW instead of
+          # throwing the run away (the follow-tracker run died this way).
+          {:timeout, session} when is_binary(session) ->
+            on_progress.("⏱ time budget hit — asking for the envelope now")
+
+            finish_args =
+              ["-p", finish_prompt(), "--output-format", "stream-json", "--verbose", "--resume", session] ++
+                mcp_args() ++ model_args()
+
+            case run_port(claude, finish_args, env, @finish_ms, on_progress) do
+              {:done, 0, events, _raw, _} ->
+                case stream_result(events) do
+                  {new_session, text} when is_binary(text) and text != "" ->
+                    {new_session || session, {:output, text}}
+
+                  _ ->
+                    {session, {:error, "timed out after #{div(timeout, 1000)}s; finish reply empty — session saved, :do+ to continue"}}
+                end
+
+              _ ->
+                {session, {:error, "timed out after #{div(timeout, 1000)}s — session saved, :do+ to continue"}}
+            end
+
+          {:timeout, _none} ->
             {nil, {:error, "claude timed out after #{div(timeout, 1000)}s"}}
         end
     end
   end
 
-  defp stream_loop(port, deadline, on_progress, acc) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+  @finish_ms 240_000
+  @heartbeat_ms 30_000
 
-    receive do
-      {^port, {:data, {:noeol, chunk}}} ->
-        stream_loop(port, deadline, on_progress, %{acc | partial: acc.partial <> chunk})
+  @doc "What a run that ran out of time is asked on resume. Public for tests."
+  def finish_prompt do
+    """
+    TIME BUDGET EXCEEDED — stop working now. Reply with ONLY the JSON envelope
+    (same contract) for whatever is complete and working, with FULL file
+    contents, and describe what is unfinished in "notes". If nothing is usable
+    yet, reply with a zero-file envelope whose summary starts
+    "NEEDS THE RESIDENT AGENT:" and say what was blocking.
+    """
+  end
 
-      {^port, {:data, {:eol, chunk}}} ->
-        line = acc.partial <> chunk
-        acc = %{acc | partial: ""}
+  # Launch the CLI and stream it. sh wrapper: claude waits 3s on the port's
+  # dangling stdin without an explicit < /dev/null.
+  defp run_port(claude, args, env, timeout, on_progress) do
+    port =
+      Port.open({:spawn_executable, "/bin/sh"}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        {:line, 4_000_000},
+        {:args, ["-c", ~s(exec "$0" "$@" < /dev/null), claude | args]},
+        {:env, Enum.map(env, fn {k, v} -> {to_charlist(k), to_charlist(v)} end)}
+      ])
 
-        acc =
-          case JSON.decode(line) do
-            {:ok, event} when is_map(event) ->
-              for text <- progress_lines(event), do: on_progress.(text)
-              %{acc | events: [event | acc.events]}
+    now = System.monotonic_time(:millisecond)
+    stream_loop(port, now + timeout, on_progress, %{events: [], raw: [], partial: "", session: nil, started: now})
+  end
 
-            _ ->
-              if String.trim(line) == "", do: acc, else: %{acc | raw: Enum.take([line | acc.raw], 40)}
+  @doc false
+  # Public so tests can drive it with a fake port tag (any ref works).
+  def stream_loop(port, deadline, on_progress, acc) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      catch_close(port)
+      {:timeout, acc.session}
+    else
+      receive do
+        {^port, {:data, {:noeol, chunk}}} ->
+          stream_loop(port, deadline, on_progress, %{acc | partial: acc.partial <> chunk})
+
+        {^port, {:data, {:eol, chunk}}} ->
+          line = acc.partial <> chunk
+          acc = %{acc | partial: ""}
+
+          acc =
+            case JSON.decode(line) do
+              {:ok, event} when is_map(event) ->
+                for text <- progress_lines(event), do: on_progress.(text)
+                %{acc | events: [event | acc.events], session: session_of(event) || acc.session}
+
+              _ ->
+                if String.trim(line) == "", do: acc, else: %{acc | raw: Enum.take([line | acc.raw], 40)}
+            end
+
+          stream_loop(port, deadline, on_progress, acc)
+
+        {^port, {:exit_status, code}} ->
+          {:done, code, Enum.reverse(acc.events), Enum.reverse(acc.raw), acc.session}
+      after
+        min(remaining, @heartbeat_ms) ->
+          # A long generation is one silent message: say we're alive.
+          if remaining > @heartbeat_ms do
+            elapsed = div(System.monotonic_time(:millisecond) - acc.started, 1000)
+            on_progress.("… still working (#{elapsed}s, writing)")
           end
 
-        stream_loop(port, deadline, on_progress, acc)
-
-      {^port, {:exit_status, code}} ->
-        {:done, code, Enum.reverse(acc.events), Enum.reverse(acc.raw)}
-    after
-      remaining ->
-        catch_close(port)
-        :timeout
+          stream_loop(port, deadline, on_progress, acc)
+      end
     end
   end
+
+  @doc "The CLI session id a stream announces (init or result event); nil otherwise. Public for tests."
+  def session_of(%{"type" => "system", "session_id" => sid}) when is_binary(sid), do: sid
+  def session_of(%{"type" => "result", "session_id" => sid}) when is_binary(sid), do: sid
+  def session_of(_event), do: nil
 
   defp catch_close(port) do
     Port.close(port)
