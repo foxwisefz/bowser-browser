@@ -463,7 +463,11 @@ final class SurfaceManager {
         for (id, panel) in panels where panel !== parent {
             let screenAttached = edgeConfigs[id]?.attach == "screen"
             let windowAttachedEdge = edgeConfigs[id] != nil && !screenAttached
-            if overlayHostings[id] != nil {
+            // Edges keep their hosting view in overlayHostings too — a
+            // toolbar overlay is one WITHOUT an edge config. Treating the
+            // dock as an overlay re-parented it into the focused window and
+            // laid it out as a 1200x64 strip over the title bar.
+            if overlayHostings[id] != nil, edgeConfigs[id] == nil {
                 // The toolbar overlay rides the FOCUSED window too.
                 if panel.parent !== parent {
                     panel.parent?.removeChildWindow(panel)
