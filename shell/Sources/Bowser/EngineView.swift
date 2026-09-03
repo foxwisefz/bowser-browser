@@ -116,18 +116,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     /// anchor there instead of hiding under our chrome — while content still
     /// scrolls beneath it. Private API (_topContentInset), so probed once;
     /// without it we fall back to the body margin-top rule.
-    /// OFF (bowser-browser-jpb follow-up): with the inset, WebKit's layout
-    /// viewport is taller than the visible one by the inset, so 100%-height
-    /// app layouts (HubSpot, Gmail) end up 32px taller than the window and
-    /// sit scrolled by that at rest — layouts broke. Back to the body
-    /// margin until the inset semantics are understood on a test page.
-    static let usesNativeInset: Bool = false
-
-    static var nativeInsetAvailable: Bool {
+    /// ON. (It was switched off once on a misdiagnosis: a page squeeze that
+    /// was really the reader mod's global stylesheet, and a 32px overflow
+    /// that is present with the inset off too.)
+    static let usesNativeInset: Bool = {
         let probe = WKWebView(frame: .zero)
         return probe.responds(to: Selector(("_setTopContentInset:")))
             && probe.responds(to: Selector(("_setAutomaticallyAdjustsContentInsets:")))
-    }
+    }()
 
     /// Invoke an ObjC setter taking a primitive (no KVC, no NSInvocation).
     private static func callPrivateSetter(_ target: NSObject, _ name: String, bool value: Bool) {
