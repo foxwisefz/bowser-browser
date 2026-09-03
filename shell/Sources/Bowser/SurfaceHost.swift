@@ -32,7 +32,10 @@ final class SurfaceManager {
     }
 
     private func setFloatingPanels(level: NSWindow.Level, front: Bool = false) {
-        for (id, panel) in panels where edgeConfigs[id] == nil {
+        // Independent floating panels only: a child window (toolbar overlay,
+        // window-attached edge) ordered front raises its PARENT — on app
+        // reactivation that shoved the overlay's original window on top.
+        for (id, panel) in panels where edgeConfigs[id] == nil && panel.parent == nil {
             panel.level = level
             if front { panel.orderFront(nil) }
         }
@@ -460,8 +463,27 @@ final class SurfaceManager {
         for (id, panel) in panels where panel !== parent {
             let screenAttached = edgeConfigs[id]?.attach == "screen"
             let windowAttachedEdge = edgeConfigs[id] != nil && !screenAttached
-            if windowAttachedEdge, panel.parent == nil {
-                parent.addChildWindow(panel, ordered: .above)
+            if overlayHostings[id] != nil {
+                // The toolbar overlay rides the FOCUSED window too.
+                if panel.parent !== parent {
+                    panel.parent?.removeChildWindow(panel)
+                    parent.addChildWindow(panel, ordered: .above)
+                    positionOverlay(panel)
+                }
+                continue
+            }
+            if windowAttachedEdge {
+                // The edge rides with the FOCUSED window: re-parent when
+                // another window takes focus. Ordering a child window front
+                // raises its parent's whole group — with the dock still
+                // parented to the previous window, every focus change (and
+                // every app reactivation) shoved that window back on top.
+                if panel.parent !== parent {
+                    panel.parent?.removeChildWindow(panel)
+                    parent.addChildWindow(panel, ordered: .above)
+                    positionEdge(id: id, panel: panel, animated: false)
+                }
+                continue // children are ordered with their parent; never orderFront them
             }
             if !screenAttached,
                !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(panel.frame) }) {
@@ -469,7 +491,7 @@ final class SurfaceManager {
                                                   size: panel.frame.size,
                                                   in: parent.screen?.visibleFrame))
             }
-            panel.orderFront(nil)
+            if panel.parent == nil { panel.orderFront(nil) }
         }
     }
 
