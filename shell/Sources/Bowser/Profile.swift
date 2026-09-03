@@ -24,6 +24,11 @@ struct Profile: Codable, Equatable {
         all.first { $0.id == id } ?? defaultProfile
     }
 
+    /// The default profile AS CONFIGURED (icon/tint from the file) — never
+    /// the bare constant: a window born from the constant ignored the
+    /// owner's customization until the next profiles push.
+    @MainActor static var main: Profile { find("default") }
+
     /// The brain's `profiles` op payload.
     @MainActor static func apply(_ raw: [[String: Any]]) {
         guard let data = try? JSONSerialization.data(withJSONObject: raw),

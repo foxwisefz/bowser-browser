@@ -81,7 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var currentWebviewId: UInt64? { currentController?.activeTab?.webviewId }
 
     @discardableResult
-    func openWindow(profile: Profile = .defaultProfile) -> BrowserWindowController {
+    func openWindow(profile requested: Profile? = nil) -> BrowserWindowController {
+        let profile = requested ?? Profile.main
         let isFirstWindow = BrowserWindowController.all.isEmpty
         // The controller brings its own first tab and emits tab_opened.
         let controller = BrowserWindowController(profile: profile)
@@ -160,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newWindow(_ sender: Any?) {
-        openWindow(profile: currentController?.profile ?? .defaultProfile)
+        openWindow(profile: currentController?.profile ?? Profile.main)
     }
 
     @objc func newWindowInProfile(_ sender: NSMenuItem) {

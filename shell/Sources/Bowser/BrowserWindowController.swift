@@ -41,7 +41,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         profile.id == "default" ? "BowserWindowFrame" : "BowserWindowFrame." + profile.id
     }
 
-    convenience init(profile: Profile = .defaultProfile) {
+    convenience init(profile requested: Profile? = nil) {
+        let profile = requested ?? Profile.main
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -397,8 +398,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func applyThemeColor(_ pageColor: NSColor?) {
         guard let window else { return }
-        // A profile's tint is its identity: it wins over the page's theme.
-        let color = profile.color ?? pageColor
+        // The band shows the PAGE's theme color through its scrim — the
+        // profile tint lives on the ⌘K keycap only (owner's call).
+        let color = pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
