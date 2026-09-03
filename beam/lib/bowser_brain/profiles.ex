@@ -152,13 +152,25 @@ defmodule BowserBrain.Profiles do
 
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
-    Chrome.register_command("profile", "Window in a profile — :profile work · :profile new work blue 🧪")
+    Chrome.register_command("profile", "Window in a profile — :profile work · :profile new work blue 🧪 · :profile delete work")
     Chrome.register_command("profiles", "Profiles: open a window, create one")
     {:noreply, state}
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profile new " <> rest}}, state) do
     {:noreply, create_and_open(rest, state)}
+  end
+
+  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profile delete " <> name}}, state) do
+    case by_name(name) do
+      nil -> {:noreply, render(%{state | status: "No profile “#{String.trim(name)}”"})}
+      %{"id" => "default"} -> {:noreply, render(%{state | status: "The default profile stays"})}
+      p ->
+        :ok = delete(p["id"])
+        # Its windows stay open until closed; its data store stays on disk
+        # (WebKit's identified store) until a future purge command.
+        {:noreply, render(%{state | status: "Deleted #{label(p)} — close its windows; logins for it remain on disk"})}
+    end
   end
 
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profile " <> name}}, state) do
