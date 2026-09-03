@@ -16,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // menu ever sees them — intercept ours ahead of window dispatch.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // ⌘` / ⌘⇧` by PHYSICAL key (kVK_ANSI_Grave): the typed character
+            // for that key varies by layout, and a miss here beeps.
+            if event.keyCode == 50 || event.keyCode == 10, flags == .command || flags == [.command, .shift] {
+                self?.cycleWindows(forward: flags == .command)
+                return nil
+            }
             // ⌘⇧[ / ⌘⇧] cycle tabs (Safari muscle memory; arrows would
             // collide with select-to-line-edge in text fields).
             if flags == [.command, .shift] {
