@@ -255,6 +255,32 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         // its viewport anchors, and sticky headers slide under the band on
         // scroll — the intended look.
         s.textContent = "body { margin-top: \(Int(EngineView.pageTopInset))px !important; }";
+        // The strip under the chrome band is the body's top margin, so it
+        // shows the <html> background. Many apps leave <html> transparent
+        // (Google AI Studio: body #1f1f1f, html none) and WebKit paints its
+        // base gray there — a visible bar. Copy the body's color onto <html>
+        // when it is transparent so the band blends into the page.
+        var bowserSyncHtmlBg = function () {
+          try {
+            var html = document.documentElement, body = document.body;
+            if (!body) return;
+            var hb = getComputedStyle(html).backgroundColor;
+            var bb = getComputedStyle(body).backgroundColor;
+            var transparent = function (c) { return !c || c === "transparent" || /rgba\\(.*,\\s*0\\)$/.test(c); };
+            if (transparent(hb) && !transparent(bb) && html.style.backgroundColor !== bb) {
+              html.style.backgroundColor = bb;
+            }
+          } catch (e) {}
+        };
+        bowserSyncHtmlBg();
+        document.addEventListener("DOMContentLoaded", bowserSyncHtmlBg);
+        window.addEventListener("load", bowserSyncHtmlBg);
+        // SPAs paint their theme late: keep syncing for a while, then stop.
+        var bowserSyncTicks = 0;
+        var bowserSyncTimer = setInterval(function () {
+          bowserSyncHtmlBg();
+          if (++bowserSyncTicks > 20) clearInterval(bowserSyncTimer);
+        }, 1500);
         (document.head || document.documentElement).appendChild(s);
       }
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply);
