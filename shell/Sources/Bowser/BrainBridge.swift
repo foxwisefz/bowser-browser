@@ -206,6 +206,29 @@ final class BrainBridge {
             let webviewId = view.webviewId
             view.webView.evaluateJavaScript(code) { [weak self] value, error in
                 MainActor.assumeIsolated {
+                    if let error, error.localizedDescription.contains("unsupported type") {
+                        // A Promise came back (async IIFE / fetch): await it.
+                        // Agents lost minutes to "async eval isn't supported".
+                        EngineView.live[webviewId]?.webView.callAsyncJavaScript(
+                            "return (\(code));", arguments: [:], in: nil, in: .page
+                        ) { result in
+                            MainActor.assumeIsolated {
+                                switch result {
+                                case .success(let awaited):
+                                    self?.send([
+                                        "op": "js_result", "id": id, "webview": webviewId,
+                                        "ok": true, "value": Self.jsonify(awaited),
+                                    ])
+                                case .failure(let asyncError):
+                                    self?.send([
+                                        "op": "js_result", "id": id, "webview": webviewId,
+                                        "ok": false, "value": asyncError.localizedDescription,
+                                    ])
+                                }
+                            }
+                        }
+                        return
+                    }
                     if let error {
                         self?.send([
                             "op": "js_result", "id": id, "webview": webviewId,
