@@ -506,6 +506,11 @@ defmodule BowserBrain.ModSmith do
     value:, label:), textfield(event, placeholder:), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    PANEL RULE: the panel chrome already shows the title and a close button —
+    NEVER add a title text of your own. Panels size to their content (up to
+    480px) and the owner can resize and move them; still prefer one item per
+    row (vstack) over crowded hstacks, keep labels short, and put counts in a
+    single caption line.
     STORE (durable memory across days and restarts): BowserBrain.Store.get(__MODULE__,
     "key", default) / put(__MODULE__, "key", value) / update(__MODULE__, "key", default,
     fn v -> ... end) / delete / all. Values are JSON-shaped and come back with STRING

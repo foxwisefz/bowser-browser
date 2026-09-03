@@ -9,3 +9,17 @@ final class SurfaceRootViewTests: XCTestCase {
         XCTAssertEqual(SurfaceRootView.closeClickId(for: "mods"), "panel:mods")
     }
 }
+
+final class PanelSizingTests: XCTestCase {
+    func testContentFitBeatsTheModsGuessButIsCapped() {
+        XCTAssertEqual(SurfaceManager.preferredWidth(requested: 260, natural: 372.2, remembered: nil), 373)
+        XCTAssertEqual(SurfaceManager.preferredWidth(requested: 320, natural: 200, remembered: nil), 320)
+        XCTAssertEqual(SurfaceManager.preferredWidth(requested: 260, natural: 900, remembered: nil), 480)
+    }
+
+    func testOwnersRememberedWidthWins() {
+        XCTAssertEqual(SurfaceManager.preferredWidth(requested: 260, natural: 900, remembered: 410), 410)
+        // a nonsense remembered width falls back to fit
+        XCTAssertEqual(SurfaceManager.preferredWidth(requested: 260, natural: 300, remembered: 10), 300)
+    }
+}

@@ -312,22 +312,35 @@ final class SurfaceManager {
 
         if let panel = panels[id], let hosting = hostings[id] {
             // Update in place: SwiftUI diffs the tree; replacing the view
-            // caused stuck-state artifacts.
+            // caused stuck-state artifacts. Width: the owner's (resized or
+            // remembered) wins, else content-fit; height grows to fit
+            // content but never fights a taller owner-set frame.
             hosting.rootView = root
-            panel.setContentSize(NSSize(width: width, height: hosting.fittingSize.height))
+            let natural = hosting.fittingSize
+            let w = Self.preferredWidth(requested: width, natural: natural.width,
+                                        remembered: userSized.contains(id) ? panel.frame.width : nil)
+            let h = max(natural.height, userSized.contains(id) ? panel.frame.height : 0)
+            panel.setContentSize(NSSize(width: w, height: h))
             panel.invalidateShadow()
             return
         }
 
         let hosting = NSHostingView(rootView: root)
-        let height = max(60, hosting.fittingSize.height)
+        let natural = hosting.fittingSize
+        let remembered = Self.rememberedFrame(id)
+        if remembered != nil { userSized.insert(id) }
+        let fitted = Self.preferredWidth(requested: width, natural: natural.width, remembered: remembered?.width)
+        let height = max(60, natural.height, remembered?.height ?? 0)
 
+        // .resizable on a borderless panel = edge-drag resizing, no title bar.
         let panel = SurfacePanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: NSRect(x: 0, y: 0, width: fitted, height: height),
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
+        panel.minSize = NSSize(width: 220, height: 60)
+        panel.maxSize = NSSize(width: Self.maxPanelWidth, height: 1400)
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
@@ -365,11 +378,56 @@ final class SurfaceManager {
         effect.addSubview(hosting)
         panel.contentView = effect
 
-        position(panel, anchor: anchor)
+        if let remembered, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(remembered) }) {
+            panel.setFrame(remembered, display: false)
+        } else {
+            position(panel, anchor: anchor)
+        }
         panel.orderFront(nil)
         panel.invalidateShadow()
         panels[id] = panel
         hostings[id] = hosting
+        rememberFrame(of: panel, id: id)
+    }
+
+    // MARK: - Windows remember themselves
+
+    /// Content-fit width capped so a long hstack cannot run off the screen.
+    nonisolated static let maxPanelWidth: CGFloat = 480
+
+    /// Ids whose frame the owner set (resized/moved, or remembered): their
+    /// width is never overridden by a re-render.
+    private var userSized: Set<String> = []
+
+    /// The width a panel gets: the owner's remembered/resized width wins;
+    /// otherwise the larger of what the mod asked for and what the content
+    /// needs, capped. Pure — tested.
+    nonisolated static func preferredWidth(requested: CGFloat, natural: CGFloat, remembered: CGFloat?) -> CGFloat {
+        if let remembered, remembered >= 220 { return min(remembered, maxPanelWidth) }
+        return min(max(requested, natural.rounded(.up)), maxPanelWidth)
+    }
+
+    private static func frameKey(_ id: String) -> String { "BowserPanelFrame." + id }
+
+    static func rememberedFrame(_ id: String) -> NSRect? {
+        guard let text = UserDefaults.standard.string(forKey: frameKey(id)) else { return nil }
+        let rect = NSRectFromString(text)
+        return rect.width >= 220 && rect.height >= 40 ? rect : nil
+    }
+
+    /// Persist the frame whenever the owner moves or resizes the panel, so a
+    /// re-show or a restart puts it back exactly where it was.
+    private func rememberFrame(of panel: NSPanel, id: String) {
+        let center = NotificationCenter.default
+        for name in [NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification] {
+            center.addObserver(forName: name, object: panel, queue: .main) { [weak self, weak panel] _ in
+                MainActor.assumeIsolated {
+                    guard let panel else { return }
+                    self?.userSized.insert(id)
+                    UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey(id))
+                }
+            }
+        }
     }
 
     /// Focus follows the main window: re-front every live surface. Only
