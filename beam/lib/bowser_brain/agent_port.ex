@@ -92,7 +92,11 @@ defmodule BowserBrain.AgentPort do
   def accept_loop(listener) do
     case :gen_tcp.accept(listener) do
       {:ok, sock} ->
-        Task.start(fn -> serve(sock) end)
+        # External call here too: the connection already being awaited when
+        # this file hot-reloads must be served by CURRENT code, not by a
+        # closure the old version created (that made exactly one request
+        # after every reload answer "unknown tool").
+        Task.start(fn -> __MODULE__.serve(sock) end)
         __MODULE__.accept_loop(listener)
 
       {:error, _closed} ->
@@ -100,7 +104,8 @@ defmodule BowserBrain.AgentPort do
     end
   end
 
-  defp serve(sock) do
+  @doc false
+  def serve(sock) do
     case :gen_tcp.recv(sock, 0, 120_000) do
       {:ok, line} ->
         reply =
