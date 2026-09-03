@@ -232,14 +232,28 @@ defmodule BowserBrain.AgentPort do
 
       true ->
         case BowserBrain.Store.put(mod, key, Map.get(args, "value")) do
-          :ok -> %{ok: true, mod: mod, key: key}
-          {:error, reason} -> %{ok: false, error: "not JSON-shaped: #{reason}"}
+          :ok ->
+            # The mod did not see this write: tell it, so a panel rendered
+            # from the Store does not sit stale on a seeded/cleaned state
+            # (the Follow Flywheel showed an 08:49 fixture at 10:36).
+            notify_store_changed(mod, key)
+            %{ok: true, mod: mod, key: key, notified: "store_changed"}
+
+          {:error, reason} ->
+            %{ok: false, error: "not JSON-shaped: #{reason}"}
         end
     end
   end
 
   def dispatch(%{"tool" => other}), do: %{ok: false, error: "unknown tool: #{other}"}
   def dispatch(_), do: %{ok: false, error: "missing tool field"}
+
+  defp notify_store_changed(mod, key) do
+    case Registry.lookup(BowserBrain.ModRegistry, Module.concat([mod])) do
+      [{pid, _}] -> send(pid, {:browser_event, %{"event" => "store_changed", "mod" => mod, "key" => key}})
+      _ -> :ok
+    end
+  end
 
   defp safe_eval(webview, js) do
     Bridge.eval_js(webview, js, 10_000)

@@ -27,4 +27,13 @@ defmodule BowserBrain.AgentPortStoreTest do
     assert %{ok: false} = AgentPort.dispatch(%{"tool" => "store_get", "args" => %{}})
     assert %{ok: false} = AgentPort.dispatch(%{"tool" => "store_put", "args" => %{"mod" => "X"}})
   end
+
+  test "store_put tells the owning mod process the Store changed" do
+    {:ok, _} = Registry.register(BowserBrain.ModRegistry, NotifiedMod, nil)
+    assert %{ok: true, notified: "store_changed"} =
+             AgentPort.dispatch(%{"tool" => "store_put", "args" => %{"mod" => "NotifiedMod", "key" => "k", "value" => 1}})
+    assert_receive {:browser_event, %{"event" => "store_changed", "mod" => "NotifiedMod", "key" => "k"}}
+    # no process for the mod: still a normal write
+    assert %{ok: true} = AgentPort.dispatch(%{"tool" => "store_put", "args" => %{"mod" => "NobodyMod", "key" => "k", "value" => 1}})
+  end
 end

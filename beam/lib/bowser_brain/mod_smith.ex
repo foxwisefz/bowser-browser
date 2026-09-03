@@ -491,7 +491,7 @@ defmodule BowserBrain.ModSmith do
       def handle_event(event, state), do: state   # events are string-keyed maps
     end
     Events: "url_changed"(url,webview) "title_changed"(title) "load_status"(status 0|2)
-    "chrome_click"(id) "omnibar_command"(text) "page"(payload via window.bowser.emit in
+    "chrome_click"(id) "omnibar_command"(text) "store_changed"(mod,key) "page"(payload via window.bowser.emit in
     injected JS) "tab_opened"(webview,opener) "tab_activated"(webview) "hello" "mod_reloaded".
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
@@ -514,7 +514,11 @@ defmodule BowserBrain.ModSmith do
     STORE (durable memory across days and restarts): BowserBrain.Store.get(__MODULE__,
     "key", default) / put(__MODULE__, "key", value) / update(__MODULE__, "key", default,
     fn v -> ... end) / delete / all. Values are JSON-shaped and come back with STRING
-    keys; one file per mod under ~/.bowser/data/. Anything that must survive a restart
+    keys; one file per mod under ~/.bowser/data/. When the Store is written from
+    outside the mod (you seeding with store_put, the owner editing) the mod gets
+    "store_changed"(mod, key): a mod that renders a panel from the Store MUST handle
+    it by re-rendering. Always REMOVE the fixtures you seeded when done, and the
+    panel will follow. Anything that must survive a restart
     (who you followed and when, counters, owner choices) lives here, never only in
     process state. Timestamps: System.system_time(:second) integers.
     ACTION BUDGET: before ANY automated site action (follow, unfollow, like, post, DM)
