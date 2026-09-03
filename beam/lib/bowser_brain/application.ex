@@ -14,6 +14,7 @@ defmodule BowserBrain.Application do
       {Registry, keys: :duplicate, name: BowserBrain.Events},
       # Before every mod: mods read their durable state in init_mod.
       BowserBrain.Store,
+      BowserBrain.Profiles,
       # Session and UserContent register for events before Bridge can
       # broadcast a hello.
       BowserBrain.Session,

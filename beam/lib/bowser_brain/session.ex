@@ -41,7 +41,8 @@ defmodule BowserBrain.Session do
     # tabs. Logins survive via WebKit's own on-disk store.
     # restore: %{remaining: n} — counts tab_opened events after a restore
     # until the remembered active tab's webview appears, then activates it.
-    {:ok, %{tabs: %{}, active: nil, cookies: %{}, disk: load_disk(), restore: nil}}
+    # profiles: %{webview => profile id} — which window family a tab lives in.
+    {:ok, %{tabs: %{}, active: nil, cookies: %{}, disk: load_disk(), restore: nil, profiles: %{}}}
   end
 
   @impl true
@@ -60,7 +61,8 @@ defmodule BowserBrain.Session do
 
   def handle_info({:browser_event, %{"event" => "webview_closed", "webview" => wv}}, state) do
     active = if state.active == wv, do: nil, else: state.active
-    {:noreply, persist(%{state | tabs: Map.delete(state.tabs, wv), active: active})}
+    profiles = Map.delete(Map.get(state, :profiles, %{}), wv)
+    {:noreply, persist(%{state | tabs: Map.delete(state.tabs, wv), active: active} |> Map.put(:profiles, profiles))}
   end
 
   def handle_info({:browser_event, %{"event" => "tab_activated", "webview" => wv}}, state) do
@@ -71,9 +73,11 @@ defmodule BowserBrain.Session do
   # coming back with its webview id. When the countdown hits the remembered
   # active tab, put it on screen.
   def handle_info(
-        {:browser_event, %{"event" => "tab_opened", "webview" => wv}},
+        {:browser_event, %{"event" => "tab_opened", "webview" => wv} = ev},
         %{restore: %{remaining: n}} = state
       ) do
+    state = note_profile(state, wv, ev["profile"])
+
     case n - 1 do
       0 ->
         Logger.info("session: restore complete — activating webview #{wv}")
@@ -87,6 +91,10 @@ defmodule BowserBrain.Session do
       left ->
         {:noreply, %{state | restore: %{remaining: left}}}
     end
+  end
+
+  def handle_info({:browser_event, %{"event" => "tab_opened", "webview" => wv} = ev}, state) do
+    {:noreply, note_profile(state, wv, ev["profile"])}
   end
 
   # Page finished loading: snapshot its origin's cookie jar.
@@ -111,7 +119,10 @@ defmodule BowserBrain.Session do
         adopted =
           for %{"id" => id, "url" => u} <- engine_tabs, real_url?(u), into: %{}, do: {id, u}
 
-        {:noreply, persist(%{state | tabs: adopted, active: Map.get(hello, "active", state.active)})}
+        profiles = for %{"id" => id} = t <- engine_tabs, is_binary(t["profile"]), into: %{}, do: {id, t["profile"]}
+
+        {:noreply,
+         persist(%{state | tabs: adopted, active: Map.get(hello, "active", state.active)} |> Map.put(:profiles, profiles))}
 
       # Full-stack restart: brain memory is empty but disk remembers.
       remembered == [] and engine_urls == [] and state.disk.urls != [] ->
@@ -121,7 +132,7 @@ defmodule BowserBrain.Session do
 
         # Styles BEFORE navigations, deterministically (bowser-browser-6eu).
         BowserBrain.UserContent.push_now()
-        restore = rebuild(state.disk.urls, state.disk.active, engine_tabs)
+        restore = rebuild(disk_entries(state.disk), state.disk.active, engine_tabs)
         {:noreply, %{state | restore: restore}}
 
       remembered != [] ->
@@ -140,9 +151,9 @@ defmodule BowserBrain.Session do
             cookie <- cookies,
             do: Bridge.set_cookie(url, cookie)
 
-        restore = rebuild(remembered, active_index(state.tabs, state.active), engine_tabs)
+        restore = rebuild(entries(state), active_index(state.tabs, state.active), engine_tabs)
         # Old ids are meaningless now; url_changed events rebuild the map.
-        {:noreply, %{state | tabs: %{}, active: nil, restore: restore}}
+        {:noreply, %{state | tabs: %{}, active: nil, restore: restore} |> Map.put(:profiles, %{})}
 
       true ->
         {:noreply, state}
@@ -151,24 +162,75 @@ defmodule BowserBrain.Session do
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  # Rebuild a remembered session into a fresh engine: first URL into the
-  # webview the engine already has, the rest as background tabs. Returns the
-  # restore countdown (nil when the visible first tab IS the active one).
-  defp rebuild([first | rest], active_idx, engine_tabs) do
+  # Rebuild a remembered session into a fresh engine. The engine starts with
+  # ONE window (default profile) holding one blank webview: the first
+  # default-profile tab loads there; everything else is opened as a tab —
+  # with its profile, so the shell routes it to (or creates) that profile's
+  # window. Returns the restore countdown (nil when the visible first tab IS
+  # the active one).
+  defp rebuild(entries, active_idx, engine_tabs) do
     first_webview = engine_tabs |> Enum.map(& &1["id"]) |> Enum.min(fn -> 0 end)
-    Browser.navigate(first, first_webview)
-    for url <- rest, do: Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url})
+    {first, rest, remaining} = restore_plan(entries, active_idx)
 
-    case min(active_idx, length(rest)) do
+    if first, do: Browser.navigate(first, first_webview)
+
+    for %{url: url, profile: profile} <- rest do
+      Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url, profile: profile})
+    end
+
+    case remaining do
       0 ->
-        # The visible first tab IS the active one: restore is complete the
-        # moment it paints.
         Bridge.cast_msg(%{op: "restore_done", webview: first_webview})
         nil
 
       n ->
         %{remaining: n}
     end
+  end
+
+  @doc """
+  Plan a restore: `{first_url | nil, rest_entries, remaining}`. The first
+  DEFAULT-profile entry is pulled to the front (it loads into the engine's
+  existing default window); `remaining` is how many `tab_opened` events
+  precede the remembered active tab (0 = it is the first/visible one).
+  Public for tests.
+  """
+  def restore_plan(entries, active_idx) do
+    entries = Enum.map(entries, &normalize_entry/1)
+    active = Enum.at(entries, min(max(active_idx, 0), max(length(entries) - 1, 0)))
+
+    case Enum.find_index(entries, &(&1.profile == "default")) do
+      nil ->
+        # No default tab: the blank first webview stays; the active one is
+        # the nth open_tab (1-based).
+        {nil, entries, (Enum.find_index(entries, &(&1 == active)) || 0) + 1}
+
+      i ->
+        first = Enum.at(entries, i)
+        rest = List.delete_at(entries, i)
+        remaining = if active == first, do: 0, else: (Enum.find_index(rest, &(&1 == active)) || 0) + 1
+        {first.url, rest, remaining}
+    end
+  end
+
+  # A disk record from before profiles (or a hot-swapped state) has only urls.
+  defp disk_entries(%{tabs: tabs}) when is_list(tabs), do: tabs
+  defp disk_entries(%{urls: urls}), do: Enum.map(urls, &%{url: &1, profile: "default"})
+  defp disk_entries(_), do: []
+
+  defp normalize_entry(%{url: u, profile: p}), do: %{url: u, profile: p || "default"}
+  defp normalize_entry(%{"url" => u} = e), do: %{url: u, profile: e["profile"] || "default"}
+  defp normalize_entry(u) when is_binary(u), do: %{url: u, profile: "default"}
+
+  defp note_profile(state, wv, profile) when is_binary(profile),
+    do: Map.put(state, :profiles, Map.put(Map.get(state, :profiles, %{}), wv, profile))
+
+  defp note_profile(state, _wv, _none), do: state
+
+  # Remembered tabs as %{url, profile} entries, ordered by webview id.
+  defp entries(state) do
+    profiles = Map.get(state, :profiles, %{})
+    for {id, url} <- real_tabs(state.tabs), do: %{url: url, profile: Map.get(profiles, id, "default")}
   end
 
   defp ordered_urls(tabs) do
@@ -210,20 +272,28 @@ defmodule BowserBrain.Session do
     with {:ok, raw} <- File.read(disk_path()),
          {:ok, decoded} <- JSON.decode(raw) do
       case decoded do
+        %{"tabs" => tabs, "active" => active} when is_list(tabs) ->
+          tabs = for %{"url" => u} = t <- tabs, real_url?(u), do: %{url: u, profile: t["profile"] || "default"}
+          disk(tabs, active)
+
         %{"urls" => urls, "active" => active} when is_list(urls) ->
-          urls = Enum.filter(urls, &real_url?/1)
-          active = if is_integer(active) and active in 0..max(length(urls) - 1, 0), do: active, else: 0
-          %{urls: urls, active: active}
+          disk(Enum.map(Enum.filter(urls, &real_url?/1), &%{url: &1, profile: "default"}), active)
 
         urls when is_list(urls) ->
-          %{urls: Enum.filter(urls, &real_url?/1), active: 0}
+          disk(Enum.map(Enum.filter(urls, &(is_binary(&1) and real_url?(&1))), &%{url: &1, profile: "default"}), 0)
 
         _ ->
-          %{urls: [], active: 0}
+          disk([], 0)
       end
     else
-      _ -> %{urls: [], active: 0}
+      _ -> disk([], 0)
     end
+  end
+
+  # %{tabs, urls, active} — urls kept alongside tabs for anything still reading it.
+  defp disk(tabs, active) do
+    active = if is_integer(active) and active in 0..max(length(tabs) - 1, 0), do: active, else: 0
+    %{tabs: tabs, urls: Enum.map(tabs, & &1.url), active: active}
   end
 
   defp persist(state) do
@@ -232,7 +302,7 @@ defmodule BowserBrain.Session do
     if urls != [] do
       File.write(
         disk_path(),
-        JSON.encode!(%{urls: urls, active: active_index(state.tabs, state.active)})
+        JSON.encode!(%{tabs: entries(state), urls: urls, active: active_index(state.tabs, state.active)})
       )
     end
 

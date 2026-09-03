@@ -13,5 +13,6 @@ if config_env() == :test do
     watch_sites: false,
     session_path: Path.join(System.tmp_dir!(), "bowser-test-session.json"),
     data_dir: Path.join(System.tmp_dir!(), "bowser-test-data"),
+    profiles_path: Path.join(System.tmp_dir!(), "bowser-test-profiles.json"),
     modsmith_sessions_path: Path.join(System.tmp_dir!(), "bowser-test-modsmith-sessions.json")
 end

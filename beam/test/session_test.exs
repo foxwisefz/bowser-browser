@@ -64,16 +64,20 @@ defmodule BowserBrain.SessionTest do
     assert urls == ["https://a.example/", "https://b.example/", "https://c.example/"]
   end
 
-  test "load_disk accepts the new map format and the legacy bare list", %{path: path} do
+  test "load_disk accepts tabs-with-profile, the urls map and the legacy bare list", %{path: path} do
+    File.write!(path, JSON.encode!(%{tabs: [%{url: "https://w.example/", profile: "work"}, %{url: "https://a.example/"}], active: 1}))
+    assert %{tabs: [%{url: "https://w.example/", profile: "work"}, %{url: "https://a.example/", profile: "default"}],
+             urls: ["https://w.example/", "https://a.example/"], active: 1} = Session.load_disk()
+
     File.write!(path, JSON.encode!(%{urls: ["https://a.example/"], active: 0}))
-    assert Session.load_disk() == %{urls: ["https://a.example/"], active: 0}
+    assert %{tabs: [%{url: "https://a.example/", profile: "default"}], urls: ["https://a.example/"], active: 0} = Session.load_disk()
 
     File.write!(path, JSON.encode!(["https://a.example/", "https://b.example/"]))
-    assert Session.load_disk() == %{urls: ["https://a.example/", "https://b.example/"], active: 0}
+    assert %{urls: ["https://a.example/", "https://b.example/"], active: 0} = Session.load_disk()
 
     # Out-of-range active clamps to 0 rather than pointing past the list.
     File.write!(path, JSON.encode!(%{urls: ["https://a.example/"], active: 7}))
-    assert Session.load_disk() == %{urls: ["https://a.example/"], active: 0}
+    assert %{urls: ["https://a.example/"], active: 0} = Session.load_disk()
   end
 
   test "hello adoption takes the engine's active tab" do
@@ -143,5 +147,34 @@ defmodule BowserBrain.SessionTest do
   test "tab_opened outside a restore leaves state alone" do
     state = base_state() |> event(%{"event" => "tab_opened", "webview" => 5})
     assert state.restore == nil
+  end
+
+  describe "profiles (restore_plan/2)" do
+    alias BowserBrain.Session
+
+    test "the first default-profile tab loads into the existing window; the rest open with their profile" do
+      entries = [
+        %{url: "https://w.example/1", profile: "work"},
+        %{url: "https://p.example/1", profile: "default"},
+        %{url: "https://p.example/2", profile: "default"}
+      ]
+
+      assert {"https://p.example/1", rest, 0} = Session.restore_plan(entries, 1)
+      assert Enum.map(rest, & &1.url) == ["https://w.example/1", "https://p.example/2"]
+      # active = the work tab: it is the FIRST open_tab -> 1 tab_opened to wait for
+      assert {_, _, 1} = Session.restore_plan(entries, 0)
+      # active = second default tab: second open_tab
+      assert {_, _, 2} = Session.restore_plan(entries, 2)
+    end
+
+    test "no default tab: the blank first webview stays and everything opens by profile" do
+      entries = [%{url: "https://w.example/1", profile: "work"}, %{url: "https://w.example/2", profile: "work"}]
+      assert {nil, ^entries, 2} = Session.restore_plan(entries, 1)
+    end
+
+    test "legacy bare urls are default-profile entries" do
+      assert {"https://a", [%{url: "https://b", profile: "default"}], 1} =
+               Session.restore_plan(["https://a", "https://b"], 1)
+    end
   end
 end

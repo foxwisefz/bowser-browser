@@ -67,12 +67,16 @@ defmodule BowserBrain.Chrome do
   user is looking at doesn't move. Switch later with `Surface.activate_tab/1`.
   """
   def open_tab(url \\ nil, opts \\ []) do
-    Bridge.cast_msg(%{
-      op: "chrome",
-      chrome: "open_tab",
-      url: url,
-      activate: Keyword.get(opts, :activate, false)
-    })
+    msg = %{op: "chrome", chrome: "open_tab", url: url, activate: Keyword.get(opts, :activate, false)}
+    # profile: the tab goes to (or creates) a window of that profile; tabs
+    # never cross profiles.
+    msg = if p = Keyword.get(opts, :profile), do: Map.put(msg, :profile, p), else: msg
+    Bridge.cast_msg(msg)
+  end
+
+  @doc "A new browser window bound to a profile (see BowserBrain.Profiles)."
+  def open_window(profile_id) do
+    Bridge.cast_msg(%{op: "chrome", chrome: "open_window", profile: profile_id})
   end
 
   @doc """
