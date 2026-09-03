@@ -171,6 +171,9 @@ final class BrainBridge {
             if let favicon = EngineView.live[id]?.faviconPath {
                 tab["favicon"] = favicon
             }
+            if let profile = EngineView.live[id]?.profileId {
+                tab["profile"] = profile
+            }
             return tab
         }
         var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs]
@@ -296,6 +299,11 @@ final class BrainBridge {
             if let cookie = HTTPCookie(properties: properties) {
                 WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie)
             }
+
+        case "profiles":
+            // The brain changed the profile list: refresh ours and the menu.
+            Profile.apply(message["profiles"] as? [[String: Any]] ?? [])
+            (NSApp.delegate as? AppDelegate)?.rebuildProfileMenu()
 
         case "chrome":
             ChromeSurface.handle(message)

@@ -30,15 +30,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
+    /// The profile every tab of this window belongs to. Set once, right
+    /// after the window exists and before its first tab is born.
+    private(set) var profile: Profile = .defaultProfile
+    private let profileBadge = NSTextField(labelWithString: "")
 
-    convenience init() {
+    /// Windows of different profiles remember their frames separately (the
+    /// default keeps the pre-profiles key).
+    static func frameKey(for profile: Profile) -> String {
+        profile.id == "default" ? "BowserWindowFrame" : "BowserWindowFrame." + profile.id
+    }
+
+    convenience init(profile: Profile = .defaultProfile) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        if let saved = UserDefaults.standard.string(forKey: "BowserWindowFrame") {
+        if let saved = UserDefaults.standard.string(forKey: Self.frameKey(for: profile)) {
             window.setFrame(NSRectFromString(saved), display: false)
         } else {
             window.center()
@@ -57,6 +67,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
         self.init(window: window)
+        self.profile = profile
 
         window.delegate = self
         container.autoresizingMask = [.width, .height]
@@ -110,6 +121,20 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             ])
         }
         clusterHosting = hosting
+
+        // Profile identity in the title bar: "🧪 Work" in the profile's tint,
+        // trailing edge. The default profile shows nothing — today's look.
+        if profile.id != "default", let titlebar = window.standardWindowButton(.closeButton)?.superview {
+            profileBadge.stringValue = profile.label
+            profileBadge.font = .systemFont(ofSize: 11, weight: .semibold)
+            profileBadge.textColor = profile.color ?? .secondaryLabelColor
+            profileBadge.translatesAutoresizingMaskIntoConstraints = false
+            titlebar.addSubview(profileBadge)
+            NSLayoutConstraint.activate([
+                profileBadge.trailingAnchor.constraint(equalTo: titlebar.trailingAnchor, constant: -14),
+                profileBadge.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
+            ])
+        }
 
         let isFirstWindow = Self.all.isEmpty
         Self.all.append(self)
@@ -212,7 +237,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     ) -> EngineView {
         // Born at the mount size so a background tab lays out for the real
         // viewport instead of loading into a 0×0 window.
-        let view = EngineView(frame: container.bounds, configuration: configuration)
+        let view = EngineView(frame: container.bounds, configuration: configuration, profile: profile)
         view.autoresizingMask = [.width, .height]
         wire(view)
         tabs.append(view)
@@ -223,6 +248,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             "op": "event", "event": "tab_opened", "webview": view.webviewId,
         ]
         if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
+        opened["profile"] = profile.id
         BrainBridge.shared.send(opened)
 
         if shouldActivate { activate(view) }
@@ -349,12 +375,15 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func applyTitle(_ title: String) {
-        window?.title = title.isEmpty ? "Bowser" : title
+        let shown = title.isEmpty ? "Bowser" : title
+        window?.title = profile.icon.map { "\($0) \(shown)" } ?? shown
         titleLabel.stringValue = title
     }
 
-    private func applyThemeColor(_ color: NSColor?) {
+    private func applyThemeColor(_ pageColor: NSColor?) {
         guard let window else { return }
+        // A profile's tint is its identity: it wins over the page's theme.
+        let color = profile.color ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
@@ -429,7 +458,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func persistWindowState() {
         guard let window else { return }
         if !window.styleMask.contains(.fullScreen) {
-            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "BowserWindowFrame")
+            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.frameKey(for: profile))
         }
     }
 

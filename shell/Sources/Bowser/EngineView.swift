@@ -122,10 +122,18 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     /// Popups (target=_blank) must be created with the configuration WebKit
     /// hands us in createWebViewWith — hence the injectable configuration.
-    init(frame frameRect: NSRect, configuration external: WKWebViewConfiguration?) {
+    /// Which profile this webview belongs to (its window's). Popups arrive
+    /// with WebKit's configuration — the opener's store — and their window
+    /// is the opener's, so the id still matches the store.
+    let profileId: String
+
+    init(frame frameRect: NSRect, configuration external: WKWebViewConfiguration?, profile: Profile = .defaultProfile) {
+        profileId = profile.id
         let configuration = external ?? {
             let c = WKWebViewConfiguration()
-            c.websiteDataStore = .default() // cookies/storage persist
+            // The profile's own cookies/logins/storage (default profile =
+            // the default store, so pre-profile logins stay put).
+            c.websiteDataStore = profile.dataStore
             return c
         }()
         // Media resume after a respawn needs programmatic play().

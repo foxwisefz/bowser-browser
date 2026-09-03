@@ -87,8 +87,15 @@ enum ChromeSurface {
             // (or an explicit activate_tab) decides what the user sees.
             delegate.openTab(
                 url: object["url"] as? String,
-                activate: object["activate"] as? Bool ?? false
+                activate: object["activate"] as? Bool ?? false,
+                profile: object["profile"] as? String
             )
+            return
+        case "open_window":
+            guard let delegate = NSApp.delegate as? AppDelegate else { return }
+            let controller = delegate.openWindow(profile: Profile.find(object["profile"] as? String))
+            controller.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate()
             return
         default:
             NSLog("Bowser: unknown chrome op \(action)")
