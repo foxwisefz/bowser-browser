@@ -407,7 +407,9 @@ defmodule BowserBrain.ModSmith do
     page_eval (run JS, check computed styles, probe selectors), put_payload
     (install a draft payload NOW — applies within ~1s after you reload via
     page_eval "location.reload()"), list_mods (every existing mod/payload:
-    path, on/off, scope, what it does), read_mod (full source of one by path). WORKFLOW: inspect the real DOM first; draft;
+    path, on/off, scope, what it does), read_mod (full source of one by path),
+    store_get / store_put (a mod's durable Store — read it to check what a mod
+    remembered; SEED it to verify time-based behavior without waiting). WORKFLOW: inspect the real DOM first; draft;
     put_payload; reload; page_eval to VERIFY the change actually took (selector
     matched, style applied); iterate until it does. Do not finish while unverified.
 
@@ -427,12 +429,18 @@ defmodule BowserBrain.ModSmith do
     credit-card, or one-time-code fields; keep CSS resilient (avoid brittle
     generated class names; prefer semantic/aria/structural selectors).
 
-    SIZE RULE: you are the small fast path. If the request needs multiple
-    subsystems (audio/media pipelines, external API integrations beyond one
-    fetch, new brain-side services, anything you cannot VERIFY with your
-    tools), do NOT attempt it — reply IMMEDIATELY with an envelope of zero
-    files and a summary starting "NEEDS THE RESIDENT AGENT:" plus one line
-    on why. A fast honest handoff beats a ten-minute timeout.
+    SIZE RULE: you are the small fast path — but COMPOSITIONS of the
+    primitives in this prompt are IN scope even when they span concerns. An
+    injected-JS page hook (window.bowser.emit) + Store for memory + processing
+    on url_changed/tab_activated/page events + a Surface panel with buttons is
+    ONE tier-"mod" file: build it. Verify stateful, time-based behavior by
+    SEEDING — store_put an entry with an old timestamp, reload the page,
+    confirm the mod acted on it. Hand off ONLY when the request needs a
+    genuinely new brain-side service: browsing in the background while the
+    owner is elsewhere, scheduled work when no tab is open, audio/media
+    pipelines, external integrations beyond one fetch. Then reply IMMEDIATELY
+    with a zero-file envelope whose summary starts "NEEDS THE RESIDENT AGENT:"
+    plus one line on why. A fast honest handoff beats a ten-minute timeout.
 
     MODIFY RULE: the EXISTING MODS catalog below is what the owner already has.
     If the request refers to behavior that exists — by name, by what it does,
@@ -471,6 +479,16 @@ defmodule BowserBrain.ModSmith do
     value:, label:), textfield(event, placeholder:), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    STORE (durable memory across days and restarts): BowserBrain.Store.get(__MODULE__,
+    "key", default) / put(__MODULE__, "key", value) / update(__MODULE__, "key", default,
+    fn v -> ... end) / delete / all. Values are JSON-shaped and come back with STRING
+    keys; one file per mod under ~/.bowser/data/. Anything that must survive a restart
+    (who you followed and when, counters, owner choices) lives here, never only in
+    process state. Timestamps: System.system_time(:second) integers.
+    ACTION BUDGET: before ANY automated site action (follow, unfollow, like, post, DM)
+    call BowserBrain.Budget.take(__MODULE__, host) and STOP on {:error, :exhausted}
+    (surface it; never bypass). The owner tunes `action_budget` in :settings
+    (default 30 per mod per host per day).
     SETTINGS (for API keys etc.): in init_mod declare what you need —
     BowserBrain.Settings.declare("service_api_key", secret: true, about: "why/what for")
     — the owner fills it in the :settings panel; read with
@@ -688,6 +706,7 @@ defmodule BowserBrain.ModSmith do
   #   - nothing set: your own claude CLI login (`claude` once in a terminal)
   #   - both dodorouter_* keys: requests route through that endpoint
   defp declare_settings do
+    BowserBrain.Budget.declare_setting()
     alias BowserBrain.Settings
 
     Settings.declare("dodorouter_endpoint",
@@ -774,7 +793,7 @@ defmodule BowserBrain.ModSmith do
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
   @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
-               "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod"
+               "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args do
     config = Path.join(System.user_home!(), ".bowser/agent-mcp.json")

@@ -202,6 +202,37 @@ defmodule BowserBrain.AgentPort do
     end
   end
 
+  # A mod's durable Store: read to check what it remembered, write to SEED
+  # state (an old timestamp) so time-based behavior is verifiable now.
+  def dispatch(%{"tool" => "store_get"} = request) do
+    args = Map.get(request, "args", %{})
+    mod = Map.get(args, "mod", "")
+    key = Map.get(args, "key")
+
+    cond do
+      mod == "" -> %{ok: false, error: "mod (the defmodule name) is required"}
+      key in [nil, ""] -> %{ok: true, mod: mod, all: BowserBrain.Store.all(mod)}
+      true -> %{ok: true, mod: mod, key: key, value: BowserBrain.Store.get(mod, key)}
+    end
+  end
+
+  def dispatch(%{"tool" => "store_put"} = request) do
+    args = Map.get(request, "args", %{})
+    mod = Map.get(args, "mod", "")
+    key = Map.get(args, "key", "")
+
+    cond do
+      mod == "" or key == "" ->
+        %{ok: false, error: "mod and key are required"}
+
+      true ->
+        case BowserBrain.Store.put(mod, key, Map.get(args, "value")) do
+          :ok -> %{ok: true, mod: mod, key: key}
+          {:error, reason} -> %{ok: false, error: "not JSON-shaped: #{reason}"}
+        end
+    end
+  end
+
   def dispatch(%{"tool" => other}), do: %{ok: false, error: "unknown tool: #{other}"}
   def dispatch(_), do: %{ok: false, error: "missing tool field"}
 

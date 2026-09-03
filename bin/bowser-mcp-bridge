@@ -78,6 +78,27 @@ TOOLS = [
             "required": ["path"],
         },
     },
+    {
+        "name": "store_get",
+        "description": "Read a mod's durable Store (BowserBrain.Store): mod = the defmodule "
+                       "name; omit key for everything it stored.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"mod": {"type": "string"}, "key": {"type": "string"}},
+            "required": ["mod"],
+        },
+    },
+    {
+        "name": "store_put",
+        "description": "Write one key into a mod's durable Store — SEED state (e.g. a follow "
+                       "with a 4-day-old timestamp) to verify time-based behavior now. "
+                       "value is any JSON.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"mod": {"type": "string"}, "key": {"type": "string"}, "value": {}},
+            "required": ["mod", "key", "value"],
+        },
+    },
 ]
 
 
