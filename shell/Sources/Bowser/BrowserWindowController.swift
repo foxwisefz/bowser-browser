@@ -467,6 +467,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         // Panels ride with the focused browser window (bowser-browser-fwz).
         if let window { SurfaceManager.shared.orderAllFront(parent: window) }
+        // Same reveal as a tab switch: the dock slides out for a beat so the
+        // switch to this window/profile shows its tabs.
+        SurfaceManager.shared.pulseEdges()
         guard let id = activeTab?.webviewId else { return }
         BrainBridge.shared.send([
             "op": "event", "event": "tab_activated", "webview": id,

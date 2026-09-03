@@ -94,6 +94,20 @@ defmodule EdgeDockTabs do
 
   # -- helpers ---------------------------------------------------------------
 
+  @doc """
+  The dock shows only the ACTIVE window's profile: tabs whose profile is the
+  active tab's (a tab with no recorded profile counts as default). With no
+  active tab yet, everything shows. Public for tests.
+  """
+  def visible_order(state) do
+    case state.active && profile_of(state, state.active) do
+      nil -> state.order
+      active_profile -> Enum.filter(state.order, &(profile_of(state, &1) == active_profile))
+    end
+  end
+
+  defp profile_of(state, wv), do: Map.get(Map.get(state.tabs, wv, %{}), :profile) || "default"
+
   defp put_tab(state, wv, attrs) do
     tab = Map.get(state.tabs, wv, %{favicon: nil, title: nil})
 
@@ -115,7 +129,7 @@ defmodule EdgeDockTabs do
     tints = Map.new(profiles, &{&1["id"], &1["tint"]})
 
     grouped =
-      Enum.sort_by(state.order, fn wv ->
+      Enum.sort_by(visible_order(state), fn wv ->
         Map.get(rank, Map.get(Map.get(state.tabs, wv, %{}), :profile) || "default", 99)
       end)
 

@@ -40,4 +40,17 @@ defmodule EdgeDockTabsTest do
     state = base() |> ev(%{"event" => "tab_opened", "webview" => 1})
     assert ^state = EdgeDockTabs.handle_event(%{"event" => "webview_closed", "webview" => 9}, state)
   end
+
+  test "visible_order shows only the active tab's profile; unknown profile = default; no active = all" do
+    state =
+      base()
+      |> ev(%{"event" => "tab_opened", "webview" => 1, "profile" => "default"})
+      |> ev(%{"event" => "tab_opened", "webview" => 2, "profile" => "work"})
+      |> ev(%{"event" => "tab_opened", "webview" => 3})
+      |> ev(%{"event" => "tab_opened", "webview" => 4, "profile" => "work"})
+
+    assert EdgeDockTabs.visible_order(state) == [1, 2, 3, 4]
+    assert EdgeDockTabs.visible_order(%{state | active: 2}) == [2, 4]
+    assert EdgeDockTabs.visible_order(%{state | active: 3}) == [1, 3]
+  end
 end
