@@ -523,7 +523,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         _ webView: WKWebView,
         runOpenPanelWith parameters: WKOpenPanelParameters,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping ([URL]?) -> Void
+        // WK_SWIFT_UI_ACTOR in the SDK: the handler MUST be @MainActor
+        // @Sendable or this is not the protocol witness — the compiler only
+        // says "nearly matches" and WebKit silently never calls it.
+        completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
     ) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
