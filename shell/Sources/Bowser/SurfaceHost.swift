@@ -896,13 +896,23 @@ struct MagnifyStripView: View {
 
     @ViewBuilder
     private func icon(for item: [String: Any]) -> some View {
-        if let path = item["path"] as? String, let image = ImageCache.load(path) {
-            Image(nsImage: image).resizable().interpolation(.high)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-        } else {
-            Image(systemName: item["symbol"] as? String ?? "globe")
-                .resizable().scaledToFit()
-                .foregroundStyle(.secondary)
+        // tint: the tab's profile color as a ring — which "you" a tab is.
+        let ring = Profile.color(hex: item["tint"] as? String)
+        Group {
+            if let path = item["path"] as? String, let image = ImageCache.load(path) {
+                Image(nsImage: image).resizable().interpolation(.high)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                Image(systemName: item["symbol"] as? String ?? "globe")
+                    .resizable().scaledToFit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .overlay {
+            if let ring {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: ring), lineWidth: 1.5)
+            }
         }
     }
 }

@@ -26,7 +26,7 @@ defmodule EdgeDockTabs do
             acc
 
           wv ->
-            acc = put_tab(acc, wv, favicon: Map.get(t, "favicon"), title: Map.get(t, "title"))
+            acc = put_tab(acc, wv, favicon: Map.get(t, "favicon"), title: Map.get(t, "title"), profile: Map.get(t, "profile"))
             acc
         end
       end)
@@ -35,8 +35,8 @@ defmodule EdgeDockTabs do
     render(state)
   end
 
-  def handle_event(%{"event" => "tab_opened", "webview" => wv}, state) do
-    state |> put_tab(wv, []) |> render()
+  def handle_event(%{"event" => "tab_opened", "webview" => wv} = ev, state) do
+    state |> put_tab(wv, profile: ev["profile"]) |> render()
   end
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
@@ -108,15 +108,29 @@ defmodule EdgeDockTabs do
   end
 
   defp render(state) do
+    # Grouped by profile (default first, then the profiles list order), each
+    # icon ringed in its profile's tint — which "you" a tab belongs to.
+    profiles = BowserBrain.Profiles.list()
+    rank = profiles |> Enum.map(& &1["id"]) |> Enum.with_index() |> Map.new()
+    tints = Map.new(profiles, &{&1["id"], &1["tint"]})
+
+    grouped =
+      Enum.sort_by(state.order, fn wv ->
+        Map.get(rank, Map.get(Map.get(state.tabs, wv, %{}), :profile) || "default", 99)
+      end)
+
     items =
-      Enum.map(state.order, fn wv ->
+      Enum.map(grouped, fn wv ->
         tab = Map.get(state.tabs, wv, %{favicon: nil, title: nil})
+        tint = Map.get(tints, Map.get(tab, :profile) || "default")
 
         base = %{
           id: to_string(wv),
           active: wv == state.active,
           title: tab.title || "Tab #{wv}"
         }
+
+        base = if tint, do: Map.put(base, :tint, tint), else: base
 
         case tab.favicon do
           nil -> Map.put(base, :symbol, "globe")
