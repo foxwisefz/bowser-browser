@@ -111,6 +111,32 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     /// through the chrome.
     static let pageTopInset: CGFloat = 34
 
+    /// WebKit's own top content inset (what Safari uses under its toolbar):
+    /// the page's viewport starts below the band — position:fixed headers
+    /// anchor there instead of hiding under our chrome — while content still
+    /// scrolls beneath it. Private API (_topContentInset), so probed once;
+    /// without it we fall back to the body margin-top rule.
+    static let usesNativeInset: Bool = {
+        let probe = WKWebView(frame: .zero)
+        return probe.responds(to: Selector(("_setTopContentInset:")))
+            && probe.responds(to: Selector(("_setAutomaticallyAdjustsContentInsets:")))
+    }()
+
+    /// Invoke an ObjC setter taking a primitive (no KVC, no NSInvocation).
+    private static func callPrivateSetter(_ target: NSObject, _ name: String, bool value: Bool) {
+        let sel = Selector((name))
+        guard target.responds(to: sel), let imp = target.method(for: sel) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector, ObjCBool) -> Void
+        unsafeBitCast(imp, to: Fn.self)(target, sel, ObjCBool(value))
+    }
+
+    private static func callPrivateSetter(_ target: NSObject, _ name: String, double value: CGFloat) {
+        let sel = Selector((name))
+        guard target.responds(to: sel), let imp = target.method(for: sel) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector, CGFloat) -> Void
+        unsafeBitCast(imp, to: Fn.self)(target, sel, value)
+    }
+
     override func layout() {
         super.layout()
         webView.frame = bounds
@@ -159,6 +185,16 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
+        if Self.usesNativeInset {
+            // Private setters, called directly: these keys are NOT KVC-coded
+            // (setValue:forKey: throws NSUnknownKeyException — it took the
+            // engine down on every webview).
+            Self.callPrivateSetter(webView, "_setAutomaticallyAdjustsContentInsets:", bool: false)
+            Self.callPrivateSetter(webView, "_setTopContentInset:", double: Self.pageTopInset)
+            // Public half: CSS viewport units (lvh/svh) know about the band.
+            let insets = NSEdgeInsets(top: Self.pageTopInset, left: 0, bottom: 0, right: 0)
+            webView.setMinimumViewportInset(insets, maximumViewportInset: insets)
+        }
         // Full Safari impersonation: WKWebView's default UA lacks the
         // "Version/x Safari/x" suffix and sites like YouTube Music sniff it.
         webView.customUserAgent =
@@ -254,7 +290,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         // With margin, flow content starts below the band, fixed UI keeps
         // its viewport anchors, and sticky headers slide under the band on
         // scroll — the intended look.
-        s.textContent = "body { margin-top: \(Int(EngineView.pageTopInset))px !important; }";
+        s.textContent = "body { margin-top: \(EngineView.usesNativeInset ? 0 : Int(EngineView.pageTopInset))px !important; }";
         // The strip under the chrome band is the body's top margin, so it
         // shows the <html> background. Many apps leave <html> transparent
         // (Google AI Studio: body #1f1f1f, html none) and WebKit paints its
