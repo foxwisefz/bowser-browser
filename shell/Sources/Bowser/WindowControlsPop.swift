@@ -4,7 +4,7 @@ import SwiftUI
 /// The window controls, popped ABOVE the window on hover of ⌘K: a tiny
 /// borderless child window sitting on the top edge, three lights on a small
 /// arc. Native buttons cannot leave the window; these call the same actions
-/// (performClose / miniaturize / zoom). Falls back to just below the band
+/// (performClose / performMiniaturize / performZoom). Falls back to just below the band
 /// when there is no room above (window at the menu bar, fullscreen).
 @MainActor
 final class WindowControlsPop {
@@ -83,6 +83,32 @@ final class WindowControlsPop {
         })
     }
 
+    /// Detach and hide the pop before changing the owner window. A child
+    /// panel can prevent miniaturization, and a zoom otherwise leaves it at
+    /// the owner's old screen coordinates until the next hover.
+    private func perform(_ action: WindowControlAction) {
+        guard let owner else { return }
+        hideWork?.cancel()
+        inZone = false
+        inPop = false
+        inCluster = false
+        onVisibility?(false)
+
+        if let panel {
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+            panel.alphaValue = 0
+        }
+
+        // Change the owner explicitly after the child has left its window
+        // group and this mouse event unwinds. Responder dispatch to NSWindow
+        // returned without minimizing in the installed app.
+        DispatchQueue.main.async { [weak owner] in
+            guard let owner else { return }
+            action.perform(on: owner)
+        }
+    }
+
     private func make(owner: NSWindow) -> NSPanel {
         let p = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -99,9 +125,9 @@ final class WindowControlsPop {
                                      onExit: { [weak self] in self?.popHover(false) })
         let hosting = NSHostingView(rootView: LightsArc(
             onHover: { _ in },
-            close: { [weak owner] in owner?.performClose(nil) },
-            minimize: { [weak owner] in owner?.miniaturize(nil) },
-            zoom: { [weak owner] in owner?.zoom(nil) }
+            close: { [weak self] in self?.perform(.close) },
+            minimize: { [weak self] in self?.perform(.minimize) },
+            zoom: { [weak self] in self?.perform(.zoom) }
         ))
         hosting.frame = host.bounds
         hosting.autoresizingMask = [.width, .height]
