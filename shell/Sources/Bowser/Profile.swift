@@ -38,7 +38,7 @@ struct Profile: Codable, Equatable {
     }
 
     static var fileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".bowser/profiles.json")
+        BowserPaths.home.appendingPathComponent("profiles.json")
     }
 
     static func load() -> [Profile] {

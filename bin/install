@@ -54,7 +54,7 @@ fi
 
 # ---------------------------------------------------------------- helpers
 say "bin: engine-wrapper, mcp bridge, bowser"
-cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$APP_DIR/bin/"
+cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$APP_DIR/bin/"
 chmod +x "$APP_DIR/bin/"*
 
 # ---------------------------------------------------------------- brain

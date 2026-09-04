@@ -17,7 +17,7 @@ defmodule BowserBrain.AgentPort do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def socket_path, do: Path.join(System.user_home!(), ".bowser/agent.sock")
+  def socket_path, do: Path.join(BowserBrain.Paths.home(), "agent.sock")
 
   @impl true
   def init(nil) do

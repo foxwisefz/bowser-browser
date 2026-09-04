@@ -34,6 +34,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// after the window exists and before its first tab is born.
     private(set) var profile: Profile = .defaultProfile
     private let profileBadge = NSTextField(labelWithString: "")
+    /// Minimal chrome: the traffic lights stay hidden until the cursor is
+    /// near ⌘K; then they fade in and the keycap slides right to make room.
+    private let reveal = ChromeReveal()
+    private var revealHide: DispatchWorkItem?
 
     /// Windows of different profiles remember their frames separately (the
     /// default keeps the pre-profiles key).
@@ -122,6 +126,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             ])
         }
         clusterHosting = hosting
+
+        // Hover zone over the title bar's leading edge (geometric tracking,
+        // so it fires even under the cluster view): reveals the window
+        // buttons. Native buttons — real close/minimize/zoom behavior.
+        if let titlebar = window.standardWindowButton(.closeButton)?.superview {
+            let zone = RevealZone(onEnter: { [weak self] in self?.setWindowButtons(shown: true) },
+                                  onExit: { [weak self] in self?.setWindowButtons(shown: false) })
+            zone.translatesAutoresizingMaskIntoConstraints = false
+            titlebar.addSubview(zone, positioned: .below, relativeTo: nil)
+            NSLayoutConstraint.activate([
+                zone.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor),
+                zone.topAnchor.constraint(equalTo: titlebar.topAnchor),
+                zone.bottomAnchor.constraint(equalTo: titlebar.bottomAnchor),
+                zone.widthAnchor.constraint(equalToConstant: 150),
+            ])
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.alphaValue = 0
+            }
+        }
 
         // Profile identity in the title bar: "🧪 Work" in the profile's tint,
         // trailing edge. Hidden for an unstyled default profile — today's look.
@@ -385,6 +408,30 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         applyThemeColor(activeTab?.themeColor)
     }
 
+    private func setWindowButtons(shown: Bool) {
+        revealHide?.cancel()
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window?.standardWindowButton($0) }
+        if shown {
+            reveal.lights = true
+            for b in buttons {
+                b.isHidden = false
+                // Above the cluster view, which was added to the title bar later.
+                b.superview?.addSubview(b, positioned: .above, relativeTo: nil)
+                b.animator().alphaValue = 1
+            }
+        } else {
+            // A beat of grace so moving from ⌘K onto a light does not flicker.
+            let work = DispatchWorkItem { [weak self] in
+                self?.reveal.lights = false
+                for b in buttons { b.animator().alphaValue = 0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { for b in buttons where b.alphaValue == 0 { b.isHidden = true } }
+            }
+            revealHide = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        }
+    }
+
     private func adoptChrome(from view: EngineView) {
         applyTitle(view.webView.title ?? "")
         applyThemeColor(view.themeColor)
@@ -415,6 +462,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func clusterView() -> some View {
         CmdCluster(
+            reveal: reveal,
             tint: profile.color.map { Color(nsColor: $0) },
             openBar: { [weak self] in
                 guard let self else { return }
@@ -498,7 +546,33 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 /// The titlebar cluster: cloverleaf always visible; back/forward and mod
 /// buttons fade in on hover. Regular key window titlebar — hover is
 /// reliable here, unlike non-activating panels.
+/// Shared hover state between the AppKit reveal zone and the SwiftUI cluster.
+final class ChromeReveal: ObservableObject {
+    @Published var lights = false
+}
+
+/// Transparent, geometric hover zone (tracking areas fire by location, not
+/// hit-testing, so it works beneath the cluster view).
+private final class RevealZone: NSView {
+    let onEnter: () -> Void
+    let onExit: () -> Void
+    init(onEnter: @escaping () -> Void, onExit: @escaping () -> Void) {
+        self.onEnter = onEnter; self.onExit = onExit
+        super.init(frame: .zero)
+    }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { onEnter() }
+    override func mouseExited(with event: NSEvent) { onExit() }
+}
+
 private struct CmdCluster: View {
+    @ObservedObject var reveal: ChromeReveal
     /// The window's profile tint — painted on the ⌘K keycap only (the
     /// owner's call: not the whole bar, not the command palette).
     let tint: Color?
@@ -550,6 +624,9 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
+        // Slide right when the window buttons are revealed to their left.
+        .padding(.leading, reveal.lights ? 64 : 0)
+        .animation(.easeOut(duration: 0.16), value: reveal.lights)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .leading)

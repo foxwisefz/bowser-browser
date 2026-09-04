@@ -34,7 +34,7 @@ defmodule BowserBrain.Bridge do
     cast_msg(%{op: "set_cookie", url: url, cookie: cookie})
   end
 
-  def socket_path, do: Path.join(System.user_home!(), ".bowser/brain.sock")
+  def socket_path, do: Path.join(BowserBrain.Paths.home(), "brain.sock")
 
   @doc "Is the engine currently connected?"
   def connected?, do: GenServer.call(__MODULE__, :connected?)

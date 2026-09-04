@@ -17,8 +17,7 @@ final class BrainBridge {
     nonisolated(unsafe) private var connFD: Int32 = -1
 
     func start() {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".bowser")
+        let dir = BowserPaths.home
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent("brain.sock").path
 

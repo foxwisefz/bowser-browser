@@ -715,8 +715,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     private static var fetchedHosts: Set<String> = []
 
     private static func faviconFile(for host: String) -> URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".bowser/favicons")
+        let dir = BowserPaths.home
+            .appendingPathComponent("favicons")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = host.replacingOccurrences(of: "/", with: "_")
         return dir.appendingPathComponent("\(safe).img")

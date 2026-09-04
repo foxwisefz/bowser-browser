@@ -261,7 +261,7 @@ defmodule BowserBrain.Session do
     Application.get_env(
       :bowser_brain,
       :session_path,
-      Path.join(System.user_home!(), ".bowser/session.json")
+      Path.join(BowserBrain.Paths.home(), "session.json")
     )
   end
 

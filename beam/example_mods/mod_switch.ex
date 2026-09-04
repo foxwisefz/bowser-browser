@@ -45,11 +45,11 @@ defmodule ModSwitchMod do
         state
 
       {:site, host, name} ->
-        dir = Path.join([System.user_home!(), ".bowser/sites", host])
+        dir = Path.join([BowserBrain.Paths.home(), "sites", host])
         File.rename(Path.join(dir, name), Path.join(dir, toggle_path(name)))
 
       {:mod, name} ->
-        dir = Path.join(System.user_home!(), ".bowser/mods")
+        dir = Path.join(BowserBrain.Paths.home(), "mods")
         path = Path.join(dir, name)
 
         if enabled?(name) do
@@ -209,7 +209,7 @@ defmodule ModSwitchMod do
   defp render(state, activate \\ false) do
     host = host_of(state)
 
-    sites_dir = host && Path.join([System.user_home!(), ".bowser/sites", host])
+    sites_dir = host && Path.join([BowserBrain.Paths.home(), "sites", host])
 
     site_rows =
       case sites_dir && File.ls(sites_dir) do
@@ -224,7 +224,7 @@ defmodule ModSwitchMod do
           []
       end
 
-    mods_dir = Path.join(System.user_home!(), ".bowser/mods")
+    mods_dir = Path.join(BowserBrain.Paths.home(), "mods")
 
     mod_rows =
       case File.ls(mods_dir) do

@@ -24,7 +24,7 @@ defmodule BowserBrain.Settings do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def path, do: Path.join(System.user_home!(), ".bowser/settings.json")
+  def path, do: Path.join(BowserBrain.Paths.home(), "settings.json")
 
   def all do
     case File.read(path()) do

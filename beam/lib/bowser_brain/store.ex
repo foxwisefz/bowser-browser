@@ -19,7 +19,7 @@ defmodule BowserBrain.Store do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def data_dir do
-    Application.get_env(:bowser_brain, :data_dir, Path.join(System.user_home!(), ".bowser/data"))
+    Application.get_env(:bowser_brain, :data_dir, Path.join(BowserBrain.Paths.home(), "data"))
   end
 
   @doc "Every key/value this mod has stored (empty map when none)."

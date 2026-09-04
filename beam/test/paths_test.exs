@@ -10,4 +10,10 @@ defmodule BowserBrain.PathsTest do
     assert String.ends_with?(Paths.engine_binary(%{}), "shell/.build/debug/Bowser")
     assert String.ends_with?(Paths.engine_binary(%{"BOWSER_ENGINE" => ""}), "shell/.build/debug/Bowser")
   end
+
+  test "BOWSER_HOME relocates the whole state dir; default is ~/.bowser" do
+    assert Paths.home(%{"BOWSER_HOME" => "~/.bowser-dev"}) == Path.expand("~/.bowser-dev")
+    assert Paths.home(%{}) == Path.join(System.user_home!(), ".bowser")
+    assert Paths.home(%{"BOWSER_HOME" => ""}) == Path.join(System.user_home!(), ".bowser")
+  end
 end

@@ -18,8 +18,8 @@ enum ResurrectFrame {
     static let freshnessSeconds: TimeInterval = 120
 
     static var fileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".bowser/resurrect.jpg")
+        BowserPaths.home
+            .appendingPathComponent("resurrect.jpg")
     }
 
     /// Only a RECENT past is worth showing — a frame from hours ago

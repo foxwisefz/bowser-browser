@@ -356,7 +356,7 @@ defmodule BowserBrain.ModSmith do
     Application.get_env(
       :bowser_brain,
       :modsmith_sessions_path,
-      Path.join(System.user_home!(), ".bowser/modsmith-sessions.json")
+      Path.join(BowserBrain.Paths.home(), "modsmith-sessions.json")
     )
   end
 
@@ -891,7 +891,7 @@ defmodule BowserBrain.ModSmith do
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args do
-    config = Path.join(System.user_home!(), ".bowser/agent-mcp.json")
+    config = Path.join(BowserBrain.Paths.home(), "agent-mcp.json")
 
     File.write!(
       config,
@@ -989,7 +989,7 @@ defmodule BowserBrain.ModSmith do
   end
 
   defp write_file(%{"path" => path, "content" => content}) do
-    target = Path.join(Path.join(System.user_home!(), ".bowser"), path)
+    target = Path.join(BowserBrain.Paths.home(), path)
     File.mkdir_p!(Path.dirname(target))
     File.write!(target, content)
     path

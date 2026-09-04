@@ -18,7 +18,7 @@ defmodule BowserBrain.Loader do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def mods_dir, do: Path.join(System.user_home!(), ".bowser/mods")
+  def mods_dir, do: Path.join(BowserBrain.Paths.home(), "mods")
 
   @impl true
   def init(nil) do

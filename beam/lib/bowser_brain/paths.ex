@@ -17,6 +17,20 @@ defmodule BowserBrain.Paths do
   # beam/lib/bowser_brain -> repo root is three levels up.
   @compiled_root Path.expand("../../..", __DIR__)
 
+  @doc """
+  The state dir: sockets, session, mods, sites, data, settings, profiles.
+  BOWSER_HOME overrides ~/.bowser so a dev brain+browser can run beside the
+  installed one (bin/dev uses ~/.bowser-dev). Public for tests via home/1.
+  """
+  def home, do: home(System.get_env())
+
+  def home(env) when is_map(env) do
+    case Map.get(env, "BOWSER_HOME") do
+      dir when is_binary(dir) and dir != "" -> Path.expand(dir)
+      _ -> Path.join(System.user_home!(), ".bowser")
+    end
+  end
+
   def root do
     Application.get_env(:bowser_brain, :root) ||
       System.get_env("BOWSER_ROOT") ||

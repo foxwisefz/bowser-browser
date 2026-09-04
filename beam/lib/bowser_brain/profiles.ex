@@ -26,7 +26,7 @@ defmodule BowserBrain.Profiles do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def path do
-    Application.get_env(:bowser_brain, :profiles_path, Path.join(System.user_home!(), ".bowser/profiles.json"))
+    Application.get_env(:bowser_brain, :profiles_path, Path.join(BowserBrain.Paths.home(), "profiles.json"))
   end
 
   @doc "Every profile, the default first. Never empty."

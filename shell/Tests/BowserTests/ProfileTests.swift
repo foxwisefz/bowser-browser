@@ -36,3 +36,11 @@ final class ColorPickerHexTests: XCTestCase {
         }
     }
 }
+
+final class BowserPathsTests: XCTestCase {
+    func testDefaultHomeIsDotBowser() {
+        if ProcessInfo.processInfo.environment["BOWSER_HOME"] == nil {
+            XCTAssertEqual(BowserPaths.home.lastPathComponent, ".bowser")
+        }
+    }
+}

@@ -14,7 +14,7 @@ defmodule BowserBrain.SiteMods do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def sites_dir, do: Path.join(System.user_home!(), ".bowser/sites")
+  def sites_dir, do: Path.join(BowserBrain.Paths.home(), "sites")
 
   @doc "Write a payload file (ModSmith calls this); applied within a second."
   def put(host, name, content) do

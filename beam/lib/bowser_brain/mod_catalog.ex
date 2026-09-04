@@ -13,8 +13,8 @@ defmodule BowserBrain.ModCatalog do
 
   @type entry :: %{path: String.t(), enabled: boolean, host: String.t() | nil, about: String.t()}
 
-  def mods_dir, do: Path.join(System.user_home!(), ".bowser/mods")
-  def sites_dir, do: Path.join(System.user_home!(), ".bowser/sites")
+  def mods_dir, do: Path.join(BowserBrain.Paths.home(), "mods")
+  def sites_dir, do: Path.join(BowserBrain.Paths.home(), "sites")
 
   @doc "Every mod and site payload, enabled or `.off`, sorted by path."
   @spec catalog(String.t(), String.t()) :: [entry]
