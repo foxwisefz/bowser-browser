@@ -25,7 +25,12 @@ dev_brains() {
 
 case "${1:-status}" in
   start)
-    if [ -n "$(brain_pid)" ]; then echo "already running (pid $(brain_pid))"; exit 0; fi
+    if [ -n "$(brain_pid)" ]; then
+      # Brain up but the browser was quit (Cmd-Q): the brain stays and
+      # simply reconnects to a relaunched app, like a Dock click would.
+      if ! pgrep -f "$BUNDLE/Contents/MacOS/Bowser" >/dev/null; then open "$BUNDLE"; echo "browser relaunched (brain pid $(brain_pid))"; else echo "already running (pid $(brain_pid))"; fi
+      exit 0
+    fi
     [ -x "$APP_DIR/brain/bin/bowser_brain" ] || { echo "nothing installed at $APP_DIR — run bin/install" >&2; exit 1; }
     [ -x "$BUNDLE/Contents/MacOS/Bowser" ] || { echo "no $BUNDLE — run bin/install" >&2; exit 1; }
     echo "$(date '+%H:%M:%S') --- installed brain start ($(cat "$APP_DIR/VERSION" 2>/dev/null)) ---" >> "$LOG"

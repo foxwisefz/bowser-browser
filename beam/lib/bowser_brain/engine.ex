@@ -67,11 +67,18 @@ defmodule BowserBrain.Engine do
     {:noreply, state}
   end
 
-  # Clean exit = the user quit on purpose (Cmd-Q, closed last window).
-  # Respawning would fight the user. Only dirty exits are crashes.
+  # Spawning is off (the user quit): the check loop stops here. A later
+  # `open Bowser.app` (Dock, bin/bowser start) is adopted by the Bridge on
+  # its own; bin/bowser restart makes the brain own the browser again.
+  def handle_info(:check, state), do: {:noreply, state}
+
+  # Clean exit = the user quit on purpose (Cmd-Q, Dock > Quit, closed last
+  # window). Respawning would fight the user — and the periodic :check used
+  # to do exactly that a few seconds later, so quitting was impossible.
+  # Only dirty exits are crashes.
   def handle_info({port, {:exit_status, 0}}, %{port: port} = state) do
     Logger.info("engine: exited cleanly — user quit, not respawning")
-    {:noreply, %{state | port: nil, os_pid: nil}}
+    {:noreply, %{state | port: nil, os_pid: nil, enabled: false}}
   end
 
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do

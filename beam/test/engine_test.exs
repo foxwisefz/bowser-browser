@@ -52,4 +52,22 @@ defmodule BowserBrain.EngineTest do
       assert Engine.roll_kill_args(21481) == ["-TERM", "21481"]
     end
   end
+
+  describe "user quit" do
+    test "a clean exit disables spawning and the check loop stops" do
+      port = make_ref()
+      state = %{port: port, os_pid: 123, enabled: true}
+      assert {:noreply, quit} = BowserBrain.Engine.handle_info({port, {:exit_status, 0}}, state)
+      assert quit.enabled == false and quit.port == nil
+      assert {:noreply, ^quit} = BowserBrain.Engine.handle_info(:check, quit)
+      refute_receive :check, 100
+    end
+
+    test "a dirty exit still schedules a respawn" do
+      port = make_ref()
+      state = %{port: port, os_pid: 1, enabled: true, last_spawn_at: 0}
+      assert {:noreply, s} = BowserBrain.Engine.handle_info({port, {:exit_status, 133}}, state)
+      assert s.enabled == true and s.port == nil
+    end
+  end
 end
