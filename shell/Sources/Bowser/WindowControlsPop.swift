@@ -15,12 +15,25 @@ final class WindowControlsPop {
 
     init(owner: NSWindow) { self.owner = owner }
 
-    func set(shown: Bool) {
+    // Two hover areas overlap by a few points (the pop sits on the window's
+    // top edge), so their enter/exit events arrive in either order. Shown =
+    // cursor in EITHER; only when it has left both does the grace timer run.
+    private var inZone = false
+    private var inPop = false
+
+    /// The title-bar zone around ⌘K.
+    func set(shown: Bool) { inZone = shown; reconcile() }
+
+    private func popHover(_ inside: Bool) { inPop = inside; reconcile() }
+
+    private func reconcile() {
         hideWork?.cancel()
-        if shown { show() } else {
+        if inZone || inPop {
+            show()
+        } else {
             let work = DispatchWorkItem { [weak self] in self?.hide() }
             hideWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
         }
     }
 
@@ -32,6 +45,9 @@ final class WindowControlsPop {
         // No room above: tuck it just under the band instead.
         let origin = roomAbove ? above : NSPoint(x: above.x, y: owner.frame.maxY - 34 - size.height)
         let start = NSRect(origin: NSPoint(x: origin.x, y: origin.y - 6), size: size)
+        // Already up: leave the frame alone (a re-animated frame churns the
+        // pop's own tracking area); just make sure it is fully opaque.
+        if panel.isVisible && panel.alphaValue > 0.9 { return }
         if !panel.isVisible {
             panel.alphaValue = 0
             panel.setFrame(start, display: false)
@@ -71,8 +87,8 @@ final class WindowControlsPop {
         // AppKit tracking, not SwiftUI onHover: hover in a never-key panel
         // only reports reliably through an .activeAlways tracking area.
         let host = HoverTrackingView(frame: NSRect(origin: .zero, size: size),
-                                     onEnter: { [weak self] in self?.set(shown: true) },
-                                     onExit: { [weak self] in self?.set(shown: false) })
+                                     onEnter: { [weak self] in self?.popHover(true) },
+                                     onExit: { [weak self] in self?.popHover(false) })
         let hosting = NSHostingView(rootView: LightsArc(
             onHover: { _ in },
             close: { [weak owner] in owner?.performClose(nil) },
