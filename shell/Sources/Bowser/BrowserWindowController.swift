@@ -111,7 +111,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(titleLabel)
             NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 15),
+                // Leave the traffic lights' native spot free: they fade in
+                // there on hover and ⌘K never moves out from under the cursor.
+                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 72),
                 // titlebar view is 28pt but the band is 34 — +3 centers in the band
                 hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
@@ -624,9 +626,6 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
-        // Slide right when the window buttons are revealed to their left.
-        .padding(.leading, reveal.lights ? 64 : 0)
-        .animation(.easeOut(duration: 0.16), value: reveal.lights)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .leading)
