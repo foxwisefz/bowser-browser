@@ -20,7 +20,7 @@ final class WindowControlsPop {
         if shown { show() } else {
             let work = DispatchWorkItem { [weak self] in self?.hide() }
             hideWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
         }
     }
 
@@ -67,15 +67,43 @@ final class WindowControlsPop {
         p.hasShadow = false
         p.isReleasedWhenClosed = false
         p.level = .floating
-        p.contentView = NSHostingView(rootView: LightsArc(
-            onHover: { [weak self] in self?.set(shown: $0) },
+        p.acceptsMouseMovedEvents = true
+        // AppKit tracking, not SwiftUI onHover: hover in a never-key panel
+        // only reports reliably through an .activeAlways tracking area.
+        let host = HoverTrackingView(frame: NSRect(origin: .zero, size: size),
+                                     onEnter: { [weak self] in self?.set(shown: true) },
+                                     onExit: { [weak self] in self?.set(shown: false) })
+        let hosting = NSHostingView(rootView: LightsArc(
+            onHover: { _ in },
             close: { [weak owner] in owner?.performClose(nil) },
             minimize: { [weak owner] in owner?.miniaturize(nil) },
             zoom: { [weak owner] in owner?.zoom(nil) }
         ))
+        hosting.frame = host.bounds
+        hosting.autoresizingMask = [.width, .height]
+        host.addSubview(hosting)
+        p.contentView = host
         panel = p
         return p
     }
+}
+
+/// Geometric hover tracking for the pop (fires whether or not the panel is key).
+private final class HoverTrackingView: NSView {
+    let onEnter: () -> Void
+    let onExit: () -> Void
+    init(frame: NSRect, onEnter: @escaping () -> Void, onExit: @escaping () -> Void) {
+        self.onEnter = onEnter; self.onExit = onExit
+        super.init(frame: frame)
+    }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { onEnter() }
+    override func mouseExited(with event: NSEvent) { onExit() }
 }
 
 /// Three lights on a shallow arc (the middle one highest), with the
