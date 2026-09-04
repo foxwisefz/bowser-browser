@@ -408,7 +408,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         applyThemeColor(activeTab?.themeColor)
     }
 
-    private lazy var controlsPop: WindowControlsPop? = window.map { WindowControlsPop(owner: $0) }
+    private lazy var controlsPop: WindowControlsPop? = window.map { w in
+        let pop = WindowControlsPop(owner: w)
+        pop.onVisibility = { [weak self] shown in self?.reveal.lights = shown }
+        return pop
+    }
 
     private func setWindowButtons(shown: Bool) {
         controlsPop?.set(shown: shown)
@@ -455,7 +459,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             reload: { [weak self] in self?.activeTab?.webView.reload() },
             modClick: { id in
                 ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
-            }
+            },
+            onHoverChanged: { [weak self] inside in self?.controlsPop?.set(cluster: inside) }
         )
     }
 
@@ -563,8 +568,7 @@ private struct CmdCluster: View {
     let goForward: () -> Void
     let reload: () -> Void
     let modClick: (String) -> Void
-
-    @State private var hovering = false
+    let onHoverChanged: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 7) {
@@ -592,7 +596,8 @@ private struct CmdCluster: View {
             }
             .buttonStyle(.plain)
             .help("Command bar (⌘K)")
-            if hovering {
+            // Revealed together with the window lights, same grace/fade.
+            if reveal.lights {
                 clusterButton("chevron.left", action: goBack)
                 clusterButton("chevron.right", action: goForward)
                 clusterButton("arrow.clockwise", action: reload)
@@ -606,10 +611,11 @@ private struct CmdCluster: View {
             }
             Spacer(minLength: 0)
         }
+        .animation(.easeOut(duration: 0.15), value: reveal.lights)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onHover { hovering = $0 }
+        .onHover { onHoverChanged($0) }
     }
 
     private func clusterButton(_ symbol: String, action: @escaping () -> Void) -> some View {

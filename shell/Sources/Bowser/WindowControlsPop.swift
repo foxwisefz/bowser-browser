@@ -20,15 +20,22 @@ final class WindowControlsPop {
     // cursor in EITHER; only when it has left both does the grace timer run.
     private var inZone = false
     private var inPop = false
+    private var inCluster = false
+    /// Mirrors the pop's visibility to the chrome (chevrons/reload/mods
+    /// reveal and fade on exactly the same timing).
+    var onVisibility: ((Bool) -> Void)?
 
     /// The title-bar zone around ⌘K.
     func set(shown: Bool) { inZone = shown; reconcile() }
+    /// The ⌘K cluster itself (keycap + revealed buttons, wherever they extend).
+    func set(cluster: Bool) { inCluster = cluster; reconcile() }
 
     private func popHover(_ inside: Bool) { inPop = inside; reconcile() }
 
     private func reconcile() {
         hideWork?.cancel()
-        if inZone || inPop {
+        if inZone || inPop || inCluster {
+            onVisibility?(true)
             show()
         } else {
             let work = DispatchWorkItem { [weak self] in self?.hide() }
@@ -63,6 +70,7 @@ final class WindowControlsPop {
     }
 
     private func hide() {
+        onVisibility?(false)
         guard let panel, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.14
