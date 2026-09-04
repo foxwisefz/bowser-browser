@@ -409,7 +409,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Where the revealed traffic lights start: right after the ⌘K keycap.
-    static let lightsX: CGFloat = 78
+    static let lightsX: CGFloat = 74
 
     private func setWindowButtons(shown: Bool) {
         revealHide?.cancel()
@@ -421,7 +421,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             // buttons, repositioned each reveal (AppKit re-lays them out on
             // resize, harmlessly, while they are hidden).
             for (i, b) in buttons.enumerated() {
-                b.setFrameOrigin(NSPoint(x: Self.lightsX + CGFloat(i) * 20, y: b.frame.origin.y))
+                // Centered on the keycap, not on the title bar: the band is
+                // 6pt taller than the title bar and the keycap sits +3 in it.
+                let midY = (b.superview?.bounds.midY ?? b.frame.midY) + 3
+                b.setFrameOrigin(NSPoint(x: Self.lightsX + CGFloat(i) * 20, y: midY - b.frame.height / 2))
                 b.isHidden = false
                 // Above the cluster view, which was added to the title bar later.
                 b.superview?.addSubview(b, positioned: .above, relativeTo: nil)
@@ -619,7 +622,7 @@ private struct CmdCluster: View {
             .help("Command bar (⌘K)")
             // Room for the revealed traffic lights (they sit right after ⌘K);
             // only the hover-only chevrons shift, the keycap stays put.
-            Color.clear.frame(width: reveal.lights ? 64 : 0, height: 1)
+            Color.clear.frame(width: reveal.lights ? 58 : 0, height: 1)
                 .animation(.easeOut(duration: 0.14), value: reveal.lights)
             if hovering {
                 clusterButton("chevron.left", action: goBack)
