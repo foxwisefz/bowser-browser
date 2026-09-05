@@ -112,7 +112,7 @@ h1 em { color: var(--orange); font-weight: 500; }
 .card-number { position: absolute; top: 24px; right: 27px; font: 500 11px DM Mono, monospace; opacity: .45; }
 .feature-card h3 { margin: 24px 0 12px; font: 600 29px Fraunces, serif; letter-spacing: -.03em; }
 .feature-card p { margin: 0; font-size: 14px; line-height: 1.7; }
-.window-demo, .process-demo, .memory-demo { height: 290px; }
+.window-demo, .personal-demo, .memory-demo { height: 290px; }
 .window-demo { margin: 35px -70px 0 20px; border: 1px solid var(--ink); border-radius: 13px 13px 0 0; overflow: hidden; background: var(--paper); box-shadow: var(--shadow); transform: rotate(-2deg); }
 .window-top { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-bottom: 1px solid var(--line); }
 .window-top span { width: 7px; height: 7px; border: 1px solid var(--ink); border-radius: 50%; }
@@ -121,12 +121,12 @@ h1 em { color: var(--orange); font-weight: 500; }
 .window-lines { padding: 35px 8px; display: grid; gap: 12px; }
 .window-lines i { height: 8px; border-radius: 3px; background: rgba(94,39,35,.11); }
 .window-lines i:nth-child(2) { width: 72%; }
-.process-demo { position: relative; display: grid; place-items: center; }
-.process-center, .process-node { position: absolute; z-index: 2; display: grid; place-items: center; border-radius: 50%; font: 500 10px DM Mono, monospace; }
-.process-center { width: 108px; height: 108px; color: white; background: var(--green); box-shadow: 0 0 0 18px rgba(82,123,63,.1); }
-.process-node { width: 57px; height: 57px; color: var(--brown); background: var(--yellow); border: 1px solid rgba(94,39,35,.35); }
+.personal-demo { position: relative; display: grid; place-items: center; }
+.personal-center, .personal-node { position: absolute; z-index: 2; display: grid; place-items: center; border-radius: 50%; font: 500 10px DM Mono, monospace; }
+.personal-center { width: 108px; height: 108px; color: white; background: var(--green); box-shadow: 0 0 0 18px rgba(82,123,63,.1); }
+.personal-node { width: 57px; height: 57px; color: var(--brown); background: var(--yellow); border: 1px solid rgba(94,39,35,.35); }
 .node-a { top: 45px; left: 25px; }.node-b { top: 47px; right: 30px; }.node-c { bottom: 35px; right: 70px; }
-.process-demo i { position: absolute; z-index: 1; height: 1px; width: 105px; background: var(--brown); transform-origin: left; opacity: .4; }
+.personal-demo i { position: absolute; z-index: 1; height: 1px; width: 105px; background: var(--brown); transform-origin: left; opacity: .4; }
 .line-a { transform: rotate(-145deg); }.line-b { transform: rotate(-35deg); }.line-c { transform: rotate(48deg); }
 .memory-demo { position: relative; perspective: 800px; }
 .tab-stack { position: absolute; width: 78%; height: 180px; left: 11%; top: 58px; border: 1px solid var(--ink); border-radius: 13px; background: var(--paper); box-shadow: 0 16px 28px rgba(64,35,31,.1); transform-origin: bottom center; }
