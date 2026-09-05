@@ -11,6 +11,44 @@ final class SettingsWindowTests: XCTestCase {
         ]
         XCTAssertEqual(SettingsWindow.ordered(s).map(\.id), ["settings", "profiles", "zeta", "mods"])
     }
+
+    @MainActor
+    func testDefaultBrowserStatusRequiresBothSchemes() {
+        XCTAssertEqual(DefaultBrowserSettingsModel.status(httpIsBowser: true, httpsIsBowser: true), .isDefault)
+        XCTAssertEqual(DefaultBrowserSettingsModel.status(httpIsBowser: false, httpsIsBowser: false), .notDefault)
+        XCTAssertEqual(DefaultBrowserSettingsModel.status(httpIsBowser: true, httpsIsBowser: false), .partial)
+        XCTAssertEqual(DefaultBrowserSettingsModel.status(httpIsBowser: false, httpsIsBowser: true), .partial)
+    }
+
+    func testExternalURLFilteringAcceptsOnlyWebSchemes() {
+        let urls = [
+            URL(string: "https://example.com/a")!,
+            URL(string: "HTTP://example.com/b")!,
+            URL(string: "file:///tmp/index.html")!,
+            URL(string: "mailto:test@example.com")!,
+        ]
+
+        XCTAssertEqual(AppDelegate.webURLs(from: urls).map(\.absoluteString), [
+            "https://example.com/a",
+            "HTTP://example.com/b",
+        ])
+    }
+
+    func testBundleDeclaresWebURLSchemes() throws {
+        let plistURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("bin/Info.plist")
+        let data = try Data(contentsOf: plistURL)
+        let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        let types = try XCTUnwrap(plist["CFBundleURLTypes"] as? [[String: Any]])
+        let schemes = types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+
+        XCTAssertTrue(schemes.contains("http"))
+        XCTAssertTrue(schemes.contains("https"))
+    }
 }
 
 final class WindowCyclingTests: XCTestCase {

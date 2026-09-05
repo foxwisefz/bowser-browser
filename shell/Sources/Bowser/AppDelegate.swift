@@ -3,13 +3,23 @@ import WebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var didFinishLaunching = false
+    private var pendingExternalURLs: [URL] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        didFinishLaunching = true
         buildMenu()
         // Before any webview exists: embedded players need real third-party
         // cookies (bowser-browser-yll).
         EngineView.disableTrackingPrevention()
         BrainBridge.shared.start()
-        openWindow()
+        if pendingExternalURLs.isEmpty {
+            openWindow()
+        } else {
+            let urls = pendingExternalURLs
+            pendingExternalURLs.removeAll()
+            openExternalURLs(urls)
+        }
         NSApp.activate()
 
         // WKWebView (as first responder) claims ⌘-key equivalents before the
@@ -77,6 +87,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let urls = Self.webURLs(from: urls)
+        guard !urls.isEmpty else { return }
+        guard didFinishLaunching else {
+            pendingExternalURLs.append(contentsOf: urls)
+            return
+        }
+        openExternalURLs(urls)
+        application.activate()
+    }
+
+    nonisolated static func webURLs(from urls: [URL]) -> [URL] {
+        urls.filter { url in
+            guard let scheme = url.scheme?.lowercased() else { return false }
+            return scheme == "http" || scheme == "https"
+        }
+    }
+
+    private func openExternalURLs(_ urls: [URL]) {
+        for url in urls {
+            openTab(url: url.absoluteString)
+        }
     }
 
     /// The window that owns new tabs: the key/main browser window, else the

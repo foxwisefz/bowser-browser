@@ -56,6 +56,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Open (or front) the window; `select` picks a section. Tells the brain
     /// so every section re-renders fresh.
     func show(select id: String? = nil) {
+        DefaultBrowserSettingsModel.shared.refresh()
         if window == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
@@ -97,6 +98,10 @@ struct SettingsRootView: View {
                         Text(section.title)
                             .font(.system(size: 22, weight: .bold))
                             .padding(.bottom, 8)
+                        if section.id == "settings" {
+                            DefaultBrowserSettingsView(model: .shared)
+                                .padding(.bottom, 14)
+                        }
                         SurfaceTreeView(surfaceId: section.id, node: section.tree)
                             .id("\(section.id)-\(model.revision)")
                     }
@@ -108,6 +113,112 @@ struct SettingsRootView: View {
                 Text("No settings sections yet — the brain is still connecting.")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+@MainActor
+final class DefaultBrowserSettingsModel: ObservableObject {
+    static let shared = DefaultBrowserSettingsModel()
+
+    enum Status: Equatable {
+        case unavailable
+        case checking
+        case notDefault
+        case partial
+        case isDefault
+        case failed(String)
+    }
+
+    @Published private(set) var status: Status = .checking
+    @Published private(set) var isSetting = false
+
+    static func status(httpIsBowser: Bool, httpsIsBowser: Bool) -> Status {
+        switch (httpIsBowser, httpsIsBowser) {
+        case (true, true): .isDefault
+        case (false, false): .notDefault
+        default: .partial
+        }
+    }
+
+    var canSetDefault: Bool {
+        Self.isInstalledApplication(Bundle.main) && !isSetting
+    }
+
+    var statusText: String {
+        switch status {
+        case .unavailable: "Open the installed Bowser.app to change this setting."
+        case .checking: "Checking the macOS default browser…"
+        case .notDefault: "Bowser is not your default browser."
+        case .partial: "Bowser handles only some web links."
+        case .isDefault: "Bowser is your default browser."
+        case .failed(let message): message
+        }
+    }
+
+    func refresh() {
+        guard Self.isInstalledApplication(Bundle.main) else {
+            status = .unavailable
+            return
+        }
+        guard !isSetting else { return }
+        status = .checking
+        status = Self.status(
+            httpIsBowser: Self.isBowserHandler(for: URL(string: "http://example.com")!),
+            httpsIsBowser: Self.isBowserHandler(for: URL(string: "https://example.com")!)
+        )
+    }
+
+    func setDefault() {
+        guard canSetDefault else { return }
+        isSetting = true
+        Task {
+            do {
+                for scheme in ["http", "https"] {
+                    try await NSWorkspace.shared.setDefaultApplication(
+                        at: Bundle.main.bundleURL,
+                        toOpenURLsWithScheme: scheme
+                    )
+                }
+                isSetting = false
+                refresh()
+            } catch {
+                isSetting = false
+                status = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    nonisolated static func isInstalledApplication(_ bundle: Bundle) -> Bool {
+        bundle.bundleIdentifier == "com.gezim.bowser" && bundle.bundleURL.pathExtension == "app"
+    }
+
+    private static func isBowserHandler(for url: URL) -> Bool {
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: url),
+              let bundle = Bundle(url: applicationURL)
+        else { return false }
+        return bundle.bundleIdentifier == "com.gezim.bowser"
+    }
+}
+
+private struct DefaultBrowserSettingsView: View {
+    @ObservedObject var model: DefaultBrowserSettingsModel
+
+    var body: some View {
+        GroupBox("Default Browser") {
+            HStack(spacing: 16) {
+                Text(model.statusText)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if model.isSetting {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if model.status != .isDefault {
+                    Button("Set as Default Browser") { model.setDefault() }
+                        .disabled(!model.canSetDefault)
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 }
