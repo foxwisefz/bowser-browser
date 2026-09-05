@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Bowser is a fast, personalizable web browser for Apple Silicon Macs.">
+  <meta name="theme-color" content="#f6edcf">
+  <title>Bowser — Your browser, made personal</title>
+  <link rel="icon" href="app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Bowser home">
+      <img src="app-icon.svg" alt="" width="42" height="42">
+      <span>Bowser</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#inside">How it works</a>
+      <a href="#requirements">Requirements</a>
+      <a class="nav-download" href="Bowser.zip" download>Download</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-copy reveal">
+        <p class="eyebrow"><span></span> A browser that belongs to you</p>
+        <h1>The web,<br><em>on your terms.</em></h1>
+        <p class="lede">Bowser is a native macOS browser built to be reshaped while it runs. Change the chrome, reorganize your tabs, or rewrite a website to fit the way you work.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="Bowser.zip" download>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+            Download for macOS
+          </a>
+          <a class="text-link" href="#inside">Look under the hood <span>↓</span></a>
+        </div>
+        <p class="fine-print">For Apple Silicon · macOS 15 or later · No account required</p>
+      </div>
+
+      <div class="hero-art reveal" aria-label="Bowser app icon artwork">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="icon-shadow"></div>
+        <img src="app-icon.svg" alt="The illustrated Bowser app icon" width="560" height="560">
+        <div class="status-card status-card-one">
+          <span class="status-light"></span>
+          Native macOS browser
+        </div>
+        <div class="status-card status-card-two">
+          <strong>&lt; 1 sec</strong>
+          <span>live mod reload</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="marquee" aria-label="Bowser features">
+      <div class="marquee-track">
+        <span>Native speed</span><i>✦</i><span>Live mods</span><i>✦</i><span>Real web compatibility</span><i>✦</i><span>Session memory</span><i>✦</i>
+        <span aria-hidden="true">Native speed</span><i aria-hidden="true">✦</i><span aria-hidden="true">Live mods</span><i aria-hidden="true">✦</i><span aria-hidden="true">Real web compatibility</span><i aria-hidden="true">✦</i><span aria-hidden="true">Session memory</span><i aria-hidden="true">✦</i>
+      </div>
+    </section>
+
+    <section class="manifesto reveal">
+      <p class="section-label">01 — The idea</p>
+      <blockquote>Most browsers ask you to adapt to them. <strong>Bowser adapts to you.</strong></blockquote>
+      <p>Its interface and behavior can evolve without waiting for a vendor, an extension review, or the next release. Your browser becomes a personal instrument instead of a sealed appliance.</p>
+    </section>
+
+    <section class="inside" id="inside">
+      <div class="section-heading reveal">
+        <p class="section-label">02 — Under the hood</p>
+        <h2>Native where it matters.<br>Alive where it counts.</h2>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card feature-shell reveal">
+          <div class="card-number">01</div>
+          <div class="window-demo" aria-hidden="true">
+            <div class="window-top"><span></span><span></span><span></span></div>
+            <div class="window-page">
+              <div class="window-command">⌘ K&nbsp;&nbsp; Search or command…</div>
+              <div class="window-lines"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <h3>A truly native shell</h3>
+          <p>AppKit owns the windows, tabs, and keyboard. WKWebView brings modern web compatibility. The result feels at home on the Mac.</p>
+        </article>
+
+        <article class="feature-card feature-brain reveal">
+          <div class="card-number">02</div>
+          <div class="process-demo" aria-hidden="true">
+            <span class="process-center">BEAM</span>
+            <span class="process-node node-a">mod</span>
+            <span class="process-node node-b">mod</span>
+            <span class="process-node node-c">mod</span>
+            <i class="line-a"></i><i class="line-b"></i><i class="line-c"></i>
+          </div>
+          <h3>Mods that stay alive</h3>
+          <p>Each mod runs as a supervised Elixir process. Edit one and it hot-reloads. Break one and it restarts alone—not your browser.</p>
+        </article>
+
+        <article class="feature-card feature-memory reveal">
+          <div class="card-number">03</div>
+          <div class="memory-demo" aria-hidden="true">
+            <div class="tab-stack tab-one"><span></span></div>
+            <div class="tab-stack tab-two"><span></span></div>
+            <div class="tab-stack tab-three"><span></span></div>
+          </div>
+          <h3>Your session remembers</h3>
+          <p>The brain preserves tabs and session state while the shell comes and goes. Updates feel more like a blink than a restart.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="command-section">
+      <div class="command-copy reveal">
+        <p class="section-label">03 — Make it yours</p>
+        <h2>Say what you want.<br>Watch it change.</h2>
+        <p>Use the command bar to navigate, control the browser, or ask an AI agent to create a site mod against the page you are looking at.</p>
+      </div>
+      <div class="command-stage reveal">
+        <div class="command-window">
+          <div class="command-title"><span>⌘ K</span><span>Command bar</span></div>
+          <div class="command-input"><b>:</b><span id="typed-command">do remove the distractions and leave the article</span><i></i></div>
+          <div class="command-result"><span class="check">✓</span><div><strong>Article focus mod applied</strong><small>Running now · hot-loaded in 0.8s</small></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="requirements" id="requirements">
+      <div class="requirements-card reveal">
+        <div>
+          <p class="section-label">04 — Evaluation build</p>
+          <h2>Try Bowser<br>on your Mac.</h2>
+          <p>This preview is intended for evaluation. It browses standard HTTP and HTTPS destinations directly and does not require a Bowser account.</p>
+        </div>
+        <div class="specs">
+          <div><span>Platform</span><strong>macOS 15+</strong></div>
+          <div><span>Processor</span><strong>Apple Silicon</strong></div>
+          <div><span>Web engine</span><strong>WKWebView</strong></div>
+          <div><span>Account</span><strong>Not required</strong></div>
+        </div>
+        <a class="button button-light" href="Bowser.zip" download>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+          Download Bowser
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a class="brand footer-brand" href="#top">
+      <img src="app-icon.svg" alt="" width="38" height="38">
+      <span>Bowser</span>
+    </a>
+    <p>A completely personalizable browser.</p>
+    <p class="copyright">© <span id="year"></span> Bowser</p>
+  </footer>
+</body>
+</html>
