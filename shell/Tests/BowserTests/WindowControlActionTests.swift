@@ -8,7 +8,15 @@ final class WindowControlActionTests: XCTestCase {
         XCTAssertEqual(WindowControlAction.minimize.selectorName, "performMiniaturize:")
         XCTAssertEqual(WindowControlAction.zoom.selectorName, "performZoom:")
 
-        let window = NSWindow()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        XCTAssertTrue(window.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
+
         for action in WindowControlAction.allCases {
             XCTAssertTrue(window.responds(to: action.selector), "NSWindow must handle \(action.selectorName)")
         }

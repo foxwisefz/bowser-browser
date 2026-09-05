@@ -18,6 +18,7 @@ enum WindowControlAction: CaseIterable {
 
     @MainActor
     func perform(on window: NSWindow) {
+        NSLog("Bowser: controls action=\(selectorName) window=\(window.windowNumber) miniaturizable=\(window.styleMask.contains(.miniaturizable)) beforeMini=\(window.isMiniaturized)")
         switch self {
         case .close:
             window.performClose(nil)
@@ -25,6 +26,10 @@ enum WindowControlAction: CaseIterable {
             window.miniaturize(nil)
         case .zoom:
             window.performZoom(nil)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak window] in
+            guard let window else { return }
+            NSLog("Bowser: controls result=\(self.selectorName) window=\(window.windowNumber) afterMini=\(window.isMiniaturized) visible=\(window.isVisible)")
         }
     }
 }

@@ -141,9 +141,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 zone.bottomAnchor.constraint(equalTo: titlebar.bottomAnchor),
                 zone.widthAnchor.constraint(equalToConstant: 150),
             ])
-            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(kind)?.alphaValue = 0
-            }
         }
 
         // Profile identity in the title bar: "🧪 Work" in the profile's tint,
