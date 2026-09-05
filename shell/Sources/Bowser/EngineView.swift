@@ -478,6 +478,11 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         return modifierFlags.contains(.shift) ? .foregroundTab : .backgroundTab
     }
 
+    nonisolated static func shouldOpenExternally(_ url: URL?) -> Bool {
+        guard let scheme = url?.scheme?.lowercased() else { return false }
+        return !["about", "blob", "data", "file", "http", "https", "javascript"].contains(scheme)
+    }
+
     // A ⌘+click reaches us as an ordinary main-frame navigation: WebKit
     // carries the modifiers but has no opinion about tabs, so without this
     // the link just replaced the page the user meant to keep.
@@ -493,6 +498,12 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
+        if Self.shouldOpenExternally(navigationAction.request.url),
+           let url = navigationAction.request.url {
+            decisionHandler(.cancel)
+            NSWorkspace.shared.open(url)
+            return
+        }
         // `<a download>` and app-scheme links ask WebKit to download rather
         // than navigate (bowser-browser-9ew).
         if navigationAction.shouldPerformDownload {

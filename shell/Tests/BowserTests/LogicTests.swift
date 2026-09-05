@@ -306,6 +306,34 @@ final class WarmTabTests: XCTestCase {
     }
 }
 
+final class ExternalApplicationHandoffTests: XCTestCase {
+    func testHandsApplicationSchemesToMacOS() {
+        for value in [
+            "whatsapp://send?phone=971545695868&text=Hi",
+            "mailto:test@example.com",
+            "tel:+15551234567",
+            "zoommtg://zoom.us/join",
+        ] {
+            XCTAssertTrue(EngineView.shouldOpenExternally(URL(string: value)), value)
+        }
+    }
+
+    func testKeepsBrowserAndInternalSchemesInWebKit() {
+        for value in [
+            "https://example.com",
+            "http://example.com",
+            "file:///tmp/index.html",
+            "about:blank",
+            "data:text/plain,hello",
+            "blob:https://example.com/id",
+            "javascript:void(0)",
+        ] {
+            XCTAssertFalse(EngineView.shouldOpenExternally(URL(string: value)), value)
+        }
+        XCTAssertFalse(EngineView.shouldOpenExternally(nil))
+    }
+}
+
 final class LinkClickIntentTests: XCTestCase {
     // ⌘+click opens the link in a new tab and stays put; ⌘⇧+click opens it
     // and switches (bowser-browser-0ia).
