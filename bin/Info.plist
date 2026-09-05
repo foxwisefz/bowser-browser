@@ -7,6 +7,7 @@
   <key>CFBundleIdentifier</key><string>com.gezim.bowser</string>
   <key>CFBundleExecutable</key><string>Bowser</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>
   <key>CFBundleVersion</key><string>__BUILD__</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>

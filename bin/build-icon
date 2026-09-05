@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
+ARTWORK="$REPO/assets/BowserArtwork.svg"
+ICON="$REPO/assets/AppIcon.svg"
+OUTPUT="$REPO/assets/AppIcon.icns"
+TMP="$(mktemp -d)"
+ICONSET="$TMP/AppIcon.iconset"
+trap 'rm -rf "$TMP"' EXIT
+
+command -v rsvg-convert >/dev/null || { echo "rsvg-convert is required" >&2; exit 1; }
+command -v iconutil >/dev/null || { echo "iconutil is required" >&2; exit 1; }
+[ -f "$ARTWORK" ] || { echo "missing $ARTWORK" >&2; exit 1; }
+
+BODY="$(tail -n +2 "$ARTWORK" | sed '$d')"
+cat > "$ICON" <<EOF
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#56261F" flood-opacity="0.24"/>
+    </filter>
+    <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFDF7"/>
+      <stop offset="1" stop-color="#F6EACB"/>
+    </linearGradient>
+    <clipPath id="plate">
+      <rect x="100" y="100" width="824" height="824" rx="190"/>
+    </clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="#56261F" opacity="0.25" filter="url(#shadow)"/>
+  <g clip-path="url(#plate)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#cream)"/>
+    <g transform="translate(137 137) scale(5)">
+$BODY
+    </g>
+  </g>
+  <rect x="110" y="110" width="804" height="804" rx="180" fill="none" stroke="#5E2723" stroke-width="12" opacity="0.78"/>
+  <path d="M292 124H732C824 124 900 200 900 292" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.32"/>
+</svg>
+EOF
+
+mkdir -p "$ICONSET"
+render() {
+  rsvg-convert --width "$1" --height "$1" --output "$ICONSET/$2" "$ICON"
+}
+render 16 icon_16x16.png
+render 32 icon_16x16@2x.png
+render 32 icon_32x32.png
+render 64 icon_32x32@2x.png
+render 128 icon_128x128.png
+render 256 icon_128x128@2x.png
+render 256 icon_256x256.png
+render 512 icon_256x256@2x.png
+render 512 icon_512x512.png
+render 1024 icon_512x512@2x.png
+iconutil --convert icns --output "$OUTPUT" "$ICONSET"

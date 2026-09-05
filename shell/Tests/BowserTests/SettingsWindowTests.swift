@@ -48,6 +48,14 @@ final class SettingsWindowTests: XCTestCase {
 
         XCTAssertTrue(schemes.contains("http"))
         XCTAssertTrue(schemes.contains("https"))
+        XCTAssertEqual(plist["CFBundleIconFile"] as? String, "AppIcon")
+
+        let iconURL = plistURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("assets/AppIcon.icns")
+        let attributes = try FileManager.default.attributesOfItem(atPath: iconURL.path)
+        XCTAssertGreaterThan(attributes[.size] as? Int ?? 0, 0)
     }
 }
 
