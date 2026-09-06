@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Rebuild the macOS icon directly from the supplied friendly Bowser sprite.
+# Rebuild the macOS icon from the supplied application artwork.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
-ARTWORK="$REPO/shell/Sources/Bowser/Resources/ProfileCharacters/friendly-bowser.png"
+ARTWORK="$REPO/assets/AppIconArtwork.png"
 OUTPUT="$REPO/assets/AppIcon.icns"
 ICON_TMP="$(mktemp -d)"
 ICONSET="$ICON_TMP/AppIcon.iconset"
@@ -12,7 +12,7 @@ trap 'rm -rf "$ICON_TMP"' EXIT
 command -v iconutil >/dev/null || { echo "iconutil is required" >&2; exit 1; }
 [ -f "$ARTWORK" ] || { echo "missing $ARTWORK" >&2; exit 1; }
 mkdir -p "$ICONSET"
-swift "$REPO/bin/render-profile-app-icon.swift" "$ARTWORK" "$ICONSET"
+swift "$REPO/bin/render-app-icon.swift" "$ARTWORK" "$ICONSET"
 iconutil --convert icns --output "$OUTPUT" "$ICONSET"
 cp -f "$ICONSET/icon_512x512@2x.png" "$REPO/assets/AppIcon.png"
 echo "Built $OUTPUT and $REPO/assets/AppIcon.png"
