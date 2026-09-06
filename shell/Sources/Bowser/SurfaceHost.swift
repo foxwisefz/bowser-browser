@@ -785,7 +785,7 @@ struct SurfaceTreeView: View {
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
         case "magnify_strip":
-            return AnyView(MagnifyStripView(node: node, emit: emit))
+            return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit))
         case "particles":
             return AnyView(ParticlesNodeView(
                 chars: node["chars"] as? [String] ?? ["♪", "♫", "♩", "♬"],
@@ -889,6 +889,7 @@ enum ImageCache {
 /// distance-falloff scaling natively, emitting only discrete select events.
 /// Reads cursor position from the edge surface's CursorModel.
 struct MagnifyStripView: View {
+    let surfaceId: String
     let node: [String: Any]
     let emit: (String, Any?) -> Void
 
@@ -960,6 +961,12 @@ struct MagnifyStripView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .overlay {
+                        if surfaceId == "edge_dock", let id = item["id"] as? String,
+                           let webviewID = UInt64(id) {
+                            TabAppDragTarget(webviewID: webviewID) { emit(eventId, item["id"]) }
+                        }
+                    }
                     .help(item["title"] as? String ?? "")
                     .animation(.easeOut(duration: 0.09), value: cursor.point)
                     // The hop: out fast, settle back springy. The left-edge
