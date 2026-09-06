@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Build Bowser and install it under ~/.bowser/app, then (re)start the
-# installed system. The working copy is never executed by the installed
-# brain: it runs its own release and spawns its own Bowser.app, so builds
-# and edits here do not touch the browser you are using until you run this.
+# Build Bowser, install the app in ~/Applications, then (re)start the
+# installed system. The brain release and helpers remain under ~/.bowser/app.
+# The working copy is never executed by the installed brain: it runs its own
+# release and spawns the installed Bowser.app, so builds and edits here do not
+# touch the browser you are using until you run this.
 #
 #   bin/install                 release shell + brain release, restart everything
 #   bin/install --shell-only    rebuild + reinstall only the browser (rolls it, brain stays)
@@ -16,7 +17,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
-BUNDLE="$APP_DIR/Bowser.app"
+BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
 SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=1; RESTART=1
 for a in "$@"; do case "$a" in
   --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) RESTART=0;;
@@ -27,7 +28,7 @@ VERSION="$(cd "$REPO" && (jj log -r @- --no-graph -T 'change_id.short()' 2>/dev/
 BUILD="$(date +%Y%m%d%H%M%S)"
 say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
 
-mkdir -p "$APP_DIR/bin"
+mkdir -p "$APP_DIR/bin" "$(dirname "$BUNDLE")"
 
 # ---------------------------------------------------------------- shell
 if [ "$BRAIN_ONLY" = 0 ]; then
@@ -70,24 +71,24 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
-say "installed $VERSION → $APP_DIR"
+say "installed $VERSION → $BUNDLE (runtime: $APP_DIR)"
 
 # ---------------------------------------------------------------- run
 if [ "$RESTART" = 1 ]; then
-  if [ "$SHELL_ONLY" = 1 ] && "$APP_DIR/bin/bowser" status >/dev/null 2>&1; then
+  if [ "$SHELL_ONLY" = 1 ] && BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" status >/dev/null 2>&1; then
     BEFORE_PID="$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1 || true)"
     if [ -z "$BEFORE_PID" ]; then
-      say "browser was quit — relaunching"; "$APP_DIR/bin/bowser" start
+      say "browser was quit — relaunching"; BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" start
     else
       say "waiting for the brain's blue-green roll"
       for i in 1 2 3 4 5 6 7 8; do sleep 1; [ "$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1)" != "$BEFORE_PID" ] && break; done
       if [ "$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1)" = "$BEFORE_PID" ]; then
-        say "no roll (browser not owned by the brain) — restarting"; "$APP_DIR/bin/bowser" restart
+        say "no roll (browser not owned by the brain) — restarting"; BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" restart
       else
         say "rolled"
       fi
     fi
   else
-    "$APP_DIR/bin/bowser" restart
+    BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" restart
   fi
 fi

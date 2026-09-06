@@ -7,11 +7,11 @@ defmodule BowserBrain.Paths do
 
   Overrides, strongest first: `:root` app env (tests), BOWSER_ROOT env
   var (an INSTALLED brain — bin/install sets it to ~/.bowser/app, which
-  holds bin/ and the app bundle), then this checkout.
+  holds the brain release and helpers), then this checkout.
 
   BOWSER_ENGINE names the browser binary explicitly; the installed brain
-  points it at Bowser.app inside the install dir so working-copy builds
-  never touch the running browser.
+  points it at ~/Applications/Bowser.app so working-copy builds never touch
+  the running browser.
   """
 
   # beam/lib/bowser_brain -> repo root is three levels up.

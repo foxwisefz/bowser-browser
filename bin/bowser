@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run the INSTALLED Bowser (~/.bowser/app): the brain release supervises
-# Bowser.app. Dev brains started from a checkout are separate — this
+# Run the INSTALLED Bowser: the brain release under ~/.bowser/app supervises
+# ~/Applications/Bowser.app. Dev brains started from a checkout are separate —
 # script only manages the installed one (and, on `stop --all`, any dev
 # brain running from this machine's checkouts, so two brains never fight
 # over ~/.bowser sockets).
@@ -10,7 +10,7 @@ set -euo pipefail
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 PIDFILE="$APP_DIR/brain.pid"
 LOG="$HOME/.bowser/brain.log"
-BUNDLE="$APP_DIR/Bowser.app"
+BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
 
 # The release launcher forks the VM as a child, so a recorded launcher pid
 # is worthless: find the BEAM whose runtime lives under the install dir.
