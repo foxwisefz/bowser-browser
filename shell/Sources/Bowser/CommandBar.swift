@@ -12,6 +12,10 @@ final class CommandBar: NSObject, NSTextFieldDelegate {
     private weak var target: BrowserWindowController?
 
     func show(for controller: BrowserWindowController) {
+        if SiteAppConfiguration.current != nil {
+            SiteAppCommands.shared.show(for: controller)
+            return
+        }
         target = controller
         let panel = ensurePanel()
 

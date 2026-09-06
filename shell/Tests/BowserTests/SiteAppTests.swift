@@ -90,6 +90,7 @@ final class SiteAppTests: XCTestCase {
         XCTAssertFalse(mainPIDs.contains(running.processIdentifier))
         let connected = expectation(description: "site socket connected")
         let seeded = expectation(description: "profile cookie seeded before navigation")
+        let controls = expectation(description: "app-specific controls")
         var channel: SiteAppConnection?
         var sentBootstrap = false
         let expectedSession = UUID().uuidString
@@ -117,12 +118,24 @@ final class SiteAppTests: XCTestCase {
                     let cookies = message["cookies"] as? [[String: Any]] ?? []
                     XCTAssertTrue(cookies.contains { $0["name"] as? String == "site-test-session" && $0["value"] as? String == expectedSession && $0["http_only"] as? Bool == true })
                     seeded.fulfill()
+                    connection?.send(["op": "site_app_info", "id": 733])
+                }
+                if message["op"] as? String == "site_app_info", message["id"] as? Int == 733 {
+                    let titles = message["menu_titles"] as? [String] ?? []
+                    XCTAssertFalse(titles.contains("New Tab"))
+                    XCTAssertFalse(titles.contains("New Window In"))
+                    XCTAssertFalse(titles.contains("Open Location"))
+                    XCTAssertFalse(titles.contains("Settings…"))
+                    XCTAssertTrue(titles.contains("App Actions"))
+                    XCTAssertEqual(message["profile"] as? String, "default")
+                    XCTAssertEqual(message["windows"] as? Int, 1)
+                    controls.fulfill()
                 }
             }
             connection?.startReading()
             connected.fulfill()
         }
-        await fulfillment(of: [connected, seeded], timeout: 10)
+        await fulfillment(of: [connected, seeded, controls], timeout: 10)
         // Keep the connection alive throughout the assertions and app quit.
         XCTAssertNotNil(channel)
         channel?.send(["op": "eval_js", "webview": 0, "id": 732,

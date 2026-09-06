@@ -392,7 +392,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func refreshProfileBadge() {
         profileBadge.stringValue = profile.label
         profileBadge.textColor = profile.color ?? .secondaryLabelColor
-        profileBadge.isHidden = profile.id == "default" && profile.icon == nil && profile.tint == nil
+        profileBadge.isHidden = SiteAppConfiguration.current != nil || (profile.id == "default" && profile.icon == nil && profile.tint == nil)
     }
 
     /// The brain changed the profile list (edited in Settings): re-read our

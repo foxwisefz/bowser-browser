@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.currentController?.activeTab?.webView.reload()
                 return nil
             case ",":
-                SettingsWindow.shared.show()
+                self?.openSettings(nil)
                 return nil
             case "`":
                 self?.cycleWindows(forward: true)
@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @discardableResult
     func openWindow(profile requested: Profile? = nil) -> BrowserWindowController {
-        let profile = requested ?? Profile.main
+        let profile = SiteAppConfiguration.current.map { Profile.find($0.profile) } ?? requested ?? Profile.main
         let isFirstWindow = BrowserWindowController.all.isEmpty
         // The controller brings its own first tab and emits tab_opened.
         let controller = BrowserWindowController(profile: profile)
@@ -214,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⌘T: a new webview, switched to at once, omnibar up. No tab group is
     /// created and no tab bar appears — there is no native tabbing left.
     @objc func newTab(_ sender: Any?) {
-        if SiteAppConfiguration.current != nil { newWindow(sender); return }
+        if SiteAppConfiguration.current != nil { return }
         guard let controller = currentController else {
             openWindow()
             return
@@ -249,14 +249,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// ⌘,: the conventional Settings window.
     @objc func openSettings(_ sender: Any?) {
+        if SiteAppConfiguration.current != nil, let controller = currentController {
+            SiteAppCommands.shared.show(for: controller)
+            return
+        }
         SettingsWindow.shared.show()
     }
 
     @objc func newWindow(_ sender: Any?) {
+        if SiteAppConfiguration.current != nil { currentController?.window?.makeKeyAndOrderFront(nil); return }
         openWindow(profile: currentController?.profile ?? Profile.main)
     }
 
     @objc func newWindowInProfile(_ sender: NSMenuItem) {
+        guard SiteAppConfiguration.current == nil else { return }
         guard let id = sender.representedObject as? String else { return }
         openWindow(profile: Profile.find(id))
     }
@@ -358,7 +364,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        if SiteAppConfiguration.current == nil {
+            appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        }
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit " + (SiteAppConfiguration.current?.url.host ?? "Bowser"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
@@ -366,6 +374,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
+        if SiteAppConfiguration.current != nil {
+            fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w")
+        } else {
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newTab(_:)), keyEquivalent: "t")
         fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
         let inItem = NSMenuItem(title: "New Window In", action: nil, keyEquivalent: "")
@@ -379,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w"
         )
         closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
+        }
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -412,13 +424,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let goMenuItem = NSMenuItem()
         let goMenu = NSMenu(title: "Go")
-        goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
-        goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
+        goMenu.addItem(withTitle: SiteAppConfiguration.current == nil ? "Command Bar" : "App Actions", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
+        if SiteAppConfiguration.current == nil {
+            goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
+        }
         let copyURLItem = goMenu.addItem(
             withTitle: "Copy URL", action: #selector(copyCurrentURL(_:)), keyEquivalent: "c"
         )
         copyURLItem.keyEquivalentModifierMask = [.command, .shift]
         goMenu.addItem(.separator())
+        if SiteAppConfiguration.current == nil {
         let previousItem = goMenu.addItem(
             withTitle: "Previous Tab", action: #selector(previousTab(_:)), keyEquivalent: "["
         )
@@ -427,6 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Next Tab", action: #selector(nextTabInOrder(_:)), keyEquivalent: "]"
         )
         nextItem.keyEquivalentModifierMask = [.command, .shift]
+        }
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)
 

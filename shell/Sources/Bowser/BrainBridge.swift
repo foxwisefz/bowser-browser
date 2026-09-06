@@ -261,6 +261,14 @@ final class BrainBridge {
                 }
             }
 
+        case "site_app_info":
+            guard let config = SiteAppConfiguration.current else { return }
+            let titles = NSApp.mainMenu?.items.flatMap { $0.submenu?.items.map(\.title) ?? [] } ?? []
+            send(["op": "site_app_info", "id": message["id"] ?? 0,
+                  "app": config.identifier, "profile": config.profile,
+                  "windows": BrowserWindowController.all.count, "menu_titles": titles,
+                  "actions": SiteAppCommands.Action.allCases.map(\.rawValue)])
+
         case "site_bootstrap":
             SiteAppRuntime.shared.bootstrap(message)
 
