@@ -48,6 +48,7 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   STAGE="$(mktemp -d)"; mkdir -p "$STAGE/Bowser.app/Contents/MacOS" "$STAGE/Bowser.app/Contents/Resources"
   cp "$BIN" "$STAGE/Bowser.app/Contents/MacOS/Bowser"
   cp "$REPO/assets/AppIcon.icns" "$STAGE/Bowser.app/Contents/Resources/AppIcon.icns"
+  cp -Rf "$REPO/shell/Sources/Bowser/Resources/ProfileCharacters" "$STAGE/Bowser.app/Contents/Resources/ProfileCharacters"
   sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$REPO/bin/Info.plist" > "$STAGE/Bowser.app/Contents/Info.plist"
   printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
   codesign --force --deep --sign - "$STAGE/Bowser.app" >/dev/null 2>&1 || echo "  (codesign skipped)"

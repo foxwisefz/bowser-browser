@@ -11,7 +11,8 @@ let package = Package(
         .executableTarget(name: "BowserIconWorker", dependencies: ["IconRendering"]),
         .executableTarget(
             name: "Bowser",
-            path: "Sources/Bowser"
+            path: "Sources/Bowser",
+            resources: [.copy("Resources/ProfileCharacters")]
         ),
         .testTarget(
             name: "BowserTests",

@@ -34,6 +34,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// after the window exists and before its first tab is born.
     private(set) var profile: Profile = .defaultProfile
     private let profileBadge = NSTextField(labelWithString: "")
+    private let profilePortrait = NSImageView()
     /// Minimal chrome: the traffic lights stay hidden until the cursor is
     /// near ⌘K; then they fade in and the keycap slides right to make room.
     private let reveal = ChromeReveal()
@@ -149,9 +150,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             profileBadge.font = .systemFont(ofSize: 11, weight: .semibold)
             profileBadge.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(profileBadge)
+            profilePortrait.translatesAutoresizingMaskIntoConstraints = false
+            profilePortrait.imageScaling = .scaleProportionallyUpOrDown
+            titlebar.addSubview(profilePortrait)
             NSLayoutConstraint.activate([
                 profileBadge.trailingAnchor.constraint(equalTo: titlebar.trailingAnchor, constant: -14),
                 profileBadge.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
+                profilePortrait.trailingAnchor.constraint(equalTo: profileBadge.leadingAnchor, constant: -5),
+                profilePortrait.centerYAnchor.constraint(equalTo: profileBadge.centerYAnchor),
+                profilePortrait.widthAnchor.constraint(equalToConstant: 24),
+                profilePortrait.heightAnchor.constraint(equalToConstant: 24),
             ])
         }
         refreshProfileBadge()
@@ -392,7 +400,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private func refreshProfileBadge() {
         profileBadge.stringValue = profile.label
         profileBadge.textColor = profile.color ?? .secondaryLabelColor
-        profileBadge.isHidden = SiteAppConfiguration.current != nil || (profile.id == "default" && profile.icon == nil && profile.tint == nil)
+        profileBadge.isHidden = SiteAppConfiguration.current != nil || (profile.id == "default" && profile.icon == nil && profile.tint == nil && profile.avatar == nil)
+        profilePortrait.image = profile.avatar?.image
+        profilePortrait.isHidden = profileBadge.isHidden || profilePortrait.image == nil
+        profilePortrait.toolTip = profile.avatar?.title
+        profilePortrait.setAccessibilityLabel(profile.avatar.map { "\($0.title), \(profile.name) profile" })
     }
 
     /// The brain changed the profile list (edited in Settings): re-read our

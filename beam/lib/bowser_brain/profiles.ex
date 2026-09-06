@@ -17,6 +17,7 @@ defmodule BowserBrain.Profiles do
   alias BowserBrain.{Bridge, Chrome, Surface}
 
   @default %{"id" => "default", "name" => "Personal", "tint" => nil, "icon" => nil, "uuid" => nil}
+  @characters ~w(mario luigi peach yoshi toad bowser wario waluigi daisy donkey-kong diddy-kong rosalina captain-toad toadette birdo bowser-jr kamek shy-guy)
   @named %{
     "red" => "#e5484d", "orange" => "#f76b15", "yellow" => "#f5d90a", "green" => "#30a46c",
     "teal" => "#12a594", "blue" => "#3e63dd", "purple" => "#8e4ec6", "pink" => "#d6409f",
@@ -47,19 +48,21 @@ defmodule BowserBrain.Profiles do
     Enum.find(list(), &(String.downcase(&1["name"]) == n or &1["id"] == n))
   end
 
-  @doc "Create a profile: `{:ok, profile}` or `{:error, why}`. opts: tint:, icon:."
+  @doc "Create a profile: `{:ok, profile}` or `{:error, why}`. opts: tint:, icon:, character:."
   def create(name, opts \\ []) do
     name = String.trim(name || "")
 
     cond do
       name == "" -> {:error, "a profile needs a name"}
       by_name(name) -> {:error, "profile “#{name}” already exists"}
+      opts[:character] != nil and opts[:character] not in @characters -> {:error, "choose a character from the roster"}
       true ->
         profile = %{
           "id" => unique_id(slug(name), list()),
           "name" => name,
           "tint" => normalize_tint(opts[:tint]),
           "icon" => present(opts[:icon]),
+          "character" => opts[:character],
           "uuid" => uuid4()
         }
 
@@ -76,6 +79,7 @@ defmodule BowserBrain.Profiles do
           Enum.reduce(attrs, p, fn
             {"tint", v}, acc -> Map.put(acc, "tint", normalize_tint(v))
             {"icon", v}, acc -> Map.put(acc, "icon", present(v))
+            {"character", v}, acc when v in @characters -> acc |> Map.put("character", v) |> Map.put("icon", nil)
             {"name", v}, acc when is_binary(v) and v != "" -> Map.put(acc, "name", String.trim(v))
             _, acc -> acc
           end)
@@ -97,7 +101,7 @@ defmodule BowserBrain.Profiles do
   @doc "\"tint|work\" -> {\"tint\", \"work\"}; nil for anything else."
   def edit_event(id) when is_binary(id) do
     case String.split(id, "|", parts: 2) do
-      [field, pid] when field in ["name", "icon", "tint"] and pid != "" -> {field, pid}
+      [field, pid] when field in ["name", "icon", "tint", "character"] and pid != "" -> {field, pid}
       _ -> nil
     end
   end
@@ -109,12 +113,13 @@ defmodule BowserBrain.Profiles do
   or a duplicate name is refused; an unknown color is refused rather than
   silently clearing the tint; an empty icon/tint clears it.
   """
-  def edit(id, field, value) when field in ["name", "icon", "tint"] do
+  def edit(id, field, value) when field in ["name", "icon", "tint", "character"] do
     value = value |> to_string() |> String.trim()
     existing = by_name(value)
 
     cond do
       get(id) == nil -> {:error, "no profile #{id}"}
+      field == "character" and value not in @characters -> {:error, "choose a character from the roster"}
       field == "name" and value == "" -> {:error, "a profile needs a name"}
       field == "name" and existing != nil and existing["id"] != id -> {:error, "profile “#{value}” already exists"}
       field == "tint" and value != "" and normalize_tint(value) == nil -> {:error, "unknown color “#{value}” — blue/red/green/… or #rrggbb"}
@@ -220,7 +225,25 @@ defmodule BowserBrain.Profiles do
   end
 
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "new", "value" => text}}, state) do
-    {:noreply, create_and_open(to_string(text), state)}
+    if is_map(text) do
+      result = create_from_form(text)
+      response = %{id: System.unique_integer([:positive, :monotonic]), created: false, error: nil}
+
+      {response, status} =
+        case result do
+          {:ok, p} ->
+            Chrome.open_window(p["id"])
+            {%{response | created: true}, "Created #{label(p)}"}
+
+          {:error, why} ->
+            {%{response | error: why}, nil}
+        end
+
+      {:noreply, render(state |> Map.put(:form_response, response) |> Map.put(:status, status))}
+    else
+      # Backwards compatibility with the old shell and command-style input.
+      {:noreply, create_and_open(to_string(text), state)}
+    end
   end
 
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "delete", "value" => id}}, state) do
@@ -269,6 +292,18 @@ defmodule BowserBrain.Profiles do
 
   def handle_info(_other, state), do: {:noreply, state}
 
+  @doc "Structured creation keeps names literal and validates the bundled character id."
+  def create_from_form(%{"name" => name, "character" => character, "tint" => tint})
+      when is_binary(name) and is_binary(character) and is_binary(tint) do
+    if normalize_tint(tint) do
+      create(name, character: character, tint: tint)
+    else
+      {:error, "choose a window color"}
+    end
+  end
+
+  def create_from_form(_), do: {:error, "enter a name and choose a character"}
+
   defp create_and_open(rest, state) do
     {name, tint, icon} = parse_new(rest)
 
@@ -283,6 +318,7 @@ defmodule BowserBrain.Profiles do
   end
 
   defp render(state, activate \\ false) do
+    response = Map.get(state, :form_response, %{id: 0, created: false, error: nil})
     rows =
       Enum.flat_map(list(), fn p ->
         id = p["id"]
@@ -295,10 +331,8 @@ defmodule BowserBrain.Profiles do
               [button("Open window", event: "open", payload: id, compact: true)] ++
                 if(id == "default", do: [], else: [button("Delete", event: "delete", payload: id, compact: true)])
           ),
-          hstack([
-            textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
-            textfield("icon|" <> id, value: p["icon"] || "", placeholder: "icon (emoji) ⏎")
-          ]),
+          textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
+          %{t: "profile_character_picker", event: "character|" <> id, value: p["character"]},
           hstack([
             colorpicker("pick|" <> id, value: p["tint"], label: "Tint"),
             textfield("tint|" <> id, value: p["tint"] || "", placeholder: "or type: blue / #3e63dd / empty clears ⏎")
@@ -310,7 +344,7 @@ defmodule BowserBrain.Profiles do
     Surface.show(
       :profiles,
       vstack(
-        [section("New profile"), textfield("new", placeholder: "work blue 🧪 ⏎  (name, color, emoji — any order)")] ++
+        [%{t: "profile_creator", response_id: response.id, created: response.created, error: response.error}] ++
           if(state.status, do: [text(state.status, style: :caption)], else: []) ++
           [section("Profiles")] ++ rows
       ),

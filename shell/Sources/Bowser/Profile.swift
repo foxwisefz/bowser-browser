@@ -13,6 +13,7 @@ struct Profile: Codable, Equatable {
     var tint: String?
     var icon: String?
     var uuid: String?
+    var character: String? = nil
 
     static let defaultProfile = Profile(id: "default", name: "Personal", tint: nil, icon: nil, uuid: nil)
 
@@ -55,7 +56,9 @@ struct Profile: Codable, Equatable {
     }
 
     /// "🧪 Work" / "Work".
-    var label: String { [icon, name].compactMap { $0 }.joined(separator: " ") }
+    var label: String { [avatar == nil ? icon : nil, name].compactMap { $0 }.joined(separator: " ") }
+
+    var avatar: ProfileCharacter? { character.flatMap(ProfileCharacter.init(rawValue:)) }
 
     var color: NSColor? { Self.color(hex: tint) }
 

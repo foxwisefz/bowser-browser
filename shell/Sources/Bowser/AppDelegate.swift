@@ -285,7 +285,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for profile in Profile.all {
             let item = NSMenuItem(title: profile.label, action: #selector(newWindowInProfile(_:)), keyEquivalent: "")
             item.representedObject = profile.id
-            if let color = profile.color {
+            if let portrait = profile.avatar?.image?.copy() as? NSImage {
+                portrait.size = NSSize(width: 20, height: 20)
+                item.image = portrait
+            } else if let color = profile.color {
                 let dot = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
                     color.setFill(); NSBezierPath(ovalIn: rect).fill(); return true
                 }
@@ -294,10 +297,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             profileMenu.addItem(item)
         }
         profileMenu.addItem(.separator())
-        let hint = NSMenuItem(title: "New profile: type  :profile new <name> [color] [emoji]", action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        profileMenu.addItem(hint)
+        profileMenu.addItem(NSMenuItem(title: "New Profile…", action: #selector(showProfiles), keyEquivalent: ""))
     }
+
+    @objc func showProfiles() { SettingsWindow.shared.show(select: "profiles") }
 
     /// ⌘W closes the TAB now; the window goes with the last one. When the
     /// key window is not a browser window (Settings, a panel), ⌘W closes

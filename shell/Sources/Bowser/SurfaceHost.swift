@@ -768,14 +768,28 @@ struct SurfaceTreeView: View {
                 placeholder: node["placeholder"] as? String ?? "",
                 initial: node["value"] as? String ?? "",
                 emit: emit
-            ))
+            ).id("\(eventId)|\(node["value"] as? String ?? "")"))
+        case "profile_creator":
+            return AnyView(ProfileCreationForm(node: node, emit: emit))
+        case "profile_character_picker":
+            let selected = (node["value"] as? String).flatMap(ProfileCharacter.init(rawValue:))
+            return AnyView(DisclosureGroup {
+                ProfileCharacterPicker(selected: selected,
+                    choose: { emit(node["event"] as? String ?? "character", $0.rawValue) })
+            } label: {
+                HStack(spacing: 8) {
+                    if let selected { ProfileCharacterPortrait(character: selected, size: 26) }
+                    Text(selected.map { "Character · \($0.title)" } ?? "Choose a character")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }.id(node["event"] as? String ?? "character"))
         case "colorpicker":
             return AnyView(SurfaceColorPicker(
                 eventId: node["event"] as? String ?? "color",
                 initialHex: node["value"] as? String,
                 label: node["label"] as? String ?? "",
                 emit: emit
-            ))
+            ).id("\(node["event"] as? String ?? "color")|\(node["value"] as? String ?? "")"))
         case "divider":
             return AnyView(
                 Rectangle()

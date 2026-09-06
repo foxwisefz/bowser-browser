@@ -38,6 +38,47 @@ defmodule BowserBrain.ProfilesTest do
     assert Profiles.normalize_tint(nil) == nil
   end
 
+  test "character form preserves literal names and persists identity across reloads" do
+    {:ok, profile} = Profiles.create_from_form(%{"name" => " Blue Team ", "character" => "luigi", "tint" => "#30a46c"})
+    assert profile["name"] == "Blue Team"
+    assert profile["icon"] == nil
+    assert Profiles.get(profile["id"])["character"] == "luigi"
+    assert {:error, _} = Profiles.create_from_form(%{"name" => "blue team", "character" => "mario", "tint" => "red"})
+    assert length(Profiles.list()) == 2
+  end
+
+  test "character form refuses missing, malformed and unknown choices without creating profiles" do
+    for attrs <- [
+      %{},
+      %{"name" => 123, "character" => "mario", "tint" => "red"},
+      %{"name" => " ", "character" => "mario", "tint" => "red"},
+      %{"name" => "Work", "character" => "../../external", "tint" => "red"},
+      %{"name" => "Work", "character" => "mario", "tint" => "unknown"}
+    ] do
+      assert {:error, _} = Profiles.create_from_form(attrs)
+    end
+    assert length(Profiles.list()) == 1
+  end
+
+  test "all additional supplied characters can be created and restored" do
+    for character <- ~w(wario waluigi daisy donkey-kong diddy-kong rosalina captain-toad toadette birdo bowser-jr kamek shy-guy) do
+      assert {:ok, profile} = Profiles.create_from_form(%{"name" => character, "character" => character, "tint" => "blue"})
+      assert Profiles.get(profile["id"])["character"] == character
+    end
+  end
+
+  test "choosing a character replaces a legacy emoji without changing its login store" do
+    {:ok, legacy} = Profiles.create("Work", icon: "🧪", tint: "blue")
+    assert Profiles.edit_event("character|work") == {"character", "work"}
+    {:ok, updated} = Profiles.edit("work", "character", "bowser")
+    assert updated["character"] == "bowser"
+    assert updated["icon"] == nil
+    assert updated["uuid"] == legacy["uuid"]
+    assert updated["tint"] == legacy["tint"]
+    assert {:error, _} = Profiles.edit("work", "character", "unknown")
+    assert Profiles.get("work")["character"] == "bowser"
+  end
+
   test "parse_new pulls tint and emoji out of the words" do
     assert Profiles.parse_new("work blue 🧪") == {"work", "#3e63dd", "🧪"}
     assert Profiles.parse_new("🎮 gaming #ff0000") == {"gaming", "#ff0000", "🎮"}

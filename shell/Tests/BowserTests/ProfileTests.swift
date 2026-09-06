@@ -26,6 +26,48 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(Profile.ensureDefault(list).map(\.id), ["default", "work"])
         XCTAssertEqual(Profile.ensureDefault([]).map(\.id), ["default"])
     }
+
+    func testCharacterPersistenceAndLegacyProfileCompatibility() throws {
+        let old = Data(#"{"id":"work","name":"Work","icon":"🧪","uuid":null,"tint":null}"#.utf8)
+        let legacy = try JSONDecoder().decode(Profile.self, from: old)
+        XCTAssertNil(legacy.avatar)
+        XCTAssertEqual(legacy.label, "🧪 Work")
+        var updated = legacy
+        updated.character = "bowser"
+        let decoded = try JSONDecoder().decode(Profile.self, from: JSONEncoder().encode(updated))
+        XCTAssertEqual(decoded.avatar, .bowser)
+        XCTAssertEqual(decoded.label, "Work")
+        XCTAssertEqual(decoded.uuid, legacy.uuid)
+        updated.character = "future-character"
+        XCTAssertNil(updated.avatar)
+        XCTAssertEqual(updated.label, "🧪 Work")
+    }
+
+    @MainActor func testEveryCharacterHasBundledTransparentArtwork() throws {
+        for character in ProfileCharacter.allCases {
+            let image = try XCTUnwrap(character.image, "Missing bundled portrait: \(character.rawValue)")
+            let data = try XCTUnwrap(image.tiffRepresentation)
+            let pixels = try XCTUnwrap(NSBitmapImageRep(data: data))
+            XCTAssertEqual(pixels.pixelsWide, Int(character.sprite.rect.width))
+            XCTAssertEqual(pixels.pixelsHigh, Int(character.sprite.rect.height))
+            XCTAssertTrue(pixels.hasAlpha)
+            XCTAssertNotNil(Profile.color(hex: character.tint))
+        }
+    }
+
+    @MainActor func testFriendlyBowserLowerLeftShadowIsTransparent() throws {
+        let image = try XCTUnwrap(ProfileCharacter.bowser.image)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation)))
+        // Source-sheet points in the residual shadow, whose alpha ranges
+        // from 205 to 224; the old alpha-only cutoff left these visible.
+        for (x, y) in [(450, 365), (458, 375), (466, 385)] {
+            XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: x - 409, y: y - 206)).alphaComponent, 0)
+        }
+        // Keep the navy outline, cheek, and slightly translucent eye whites.
+        for (x, y) in [(466, 375), (486, 365), (531, 293)] {
+            XCTAssertGreaterThan(try XCTUnwrap(bitmap.colorAt(x: x - 409, y: y - 206)).alphaComponent, 0.95)
+        }
+    }
 }
 
 final class ColorPickerHexTests: XCTestCase {

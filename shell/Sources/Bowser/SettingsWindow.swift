@@ -103,7 +103,9 @@ struct SettingsRootView: View {
                                 .padding(.bottom, 14)
                         }
                         SurfaceTreeView(surfaceId: section.id, node: section.tree)
-                            .id("\(section.id)-\(model.revision)")
+                            // Keep the profile draft while server validation or
+                            // another profile edit refreshes the section.
+                            .id(section.id == "profiles" ? section.id : "\(section.id)-\(model.revision)")
                     }
                     .padding(26)
                     .frame(maxWidth: 620, alignment: .leading)
