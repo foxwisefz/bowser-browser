@@ -1,6 +1,5 @@
 import AppKit
 import WebKit
-import CryptoKit
 
 /// Relays page messages (console.* taps and window.bowser.emit) to the brain.
 /// Separate object so the user content controller never retains EngineView.
@@ -58,6 +57,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     private(set) var webviewId: UInt64 = 0
     private(set) var faviconPath: String?
     private var faviconGeneration = UUID()
+    private var iconCandidates: [[String: Any]] = []
+    private var faviconICNSPath: String?
     /// Last sampled page tint. Cached because a tab can be mounted long
     /// after it loaded, and the chrome has to catch up on the spot.
     private(set) var themeColor: NSColor?
@@ -631,6 +632,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         faviconGeneration = UUID()
+        iconCandidates = []
+        faviconICNSPath = nil
         BrainBridge.shared.send([
             "op": "event", "event": "load_status", "webview": webviewId, "status": 0,
         ])
@@ -731,83 +734,48 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     // MARK: Favicon pipeline
 
-    // Content-addressed files keep SwiftUI's path-based image cache correct
-    // when two pages on the same host use different icons.
-    nonisolated static func faviconFilename(for data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() + ".img"
-    }
-
-    // NSImage cannot decode SVG. Sites often declare it first for browsers
-    // that support it, then supply PNG/ICO alternatives for native clients.
-    nonisolated static let faviconProbe = """
-    (function () {
-      var links = Array.from(document.querySelectorAll('link[rel~="icon"]'));
-      var raster = links.find(function (l) {
-        return /^image\\/(png|x-icon|vnd.microsoft.icon|jpeg|gif|webp)$/i.test(l.type)
-          || /\\.(png|ico|jpe?g|gif|webp)([?#]|$)/i.test(l.href);
-      });
-      var icon = raster || links[0];
-      return icon ? icon.href : (location.origin + "/favicon.ico");
-    })()
-    """
-
     // Use the page's network context first: a separate URLSession can fail
     // even when WebKit loads the icon. Decode SVG, ICO and raster candidates
     // with WebKit, trying the next on failure. No page content is changed.
     nonisolated static let pageFaviconProbe = WebsiteIcon.probe
 
-    private func captureFavicon() {
+    func captureFavicon() {
         guard let pageURL = webView.url, pageURL.host != nil else { return }
         let generation = faviconGeneration
         webView.callAsyncJavaScript(Self.pageFaviconProbe, arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
             guard let self, self.faviconGeneration == generation, self.webView.url == pageURL else { return }
-            if case .success(let value) = result, let base64 = value as? String,
-               let data = Data(base64Encoded: base64), NSImage(data: data) != nil {
-                self.prepareFavicon(data, generation: generation, pageURL: pageURL)
-            } else {
-                self.captureRasterFavicon()
+            if case .success(let value) = result, let candidates = value as? [[String: Any]], !candidates.isEmpty {
+                self.iconCandidates = candidates
+                self.resendIconCandidates()
             }
         }
     }
 
-    private func captureRasterFavicon() {
-        guard let pageURL = webView.url, pageURL.host != nil else { return }
-        let generation = faviconGeneration
-        webView.evaluateJavaScript(Self.faviconProbe) { [weak self] value, _ in
-            guard let self, self.faviconGeneration == generation,
-                  self.webView.url == pageURL,
-                  let urlString = value as? String, let url = URL(string: urlString)
-            else { return }
-            let id = self.webviewId
-            URLSession.shared.dataTask(with: url) { data, response, _ in
-                guard let data, data.count > 16,
-                      (response as? HTTPURLResponse)?.statusCode ?? 200 < 300
-                else { return }
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let view = EngineView.live[id],
-                              view.faviconGeneration == generation,
-                              view.webView.url == pageURL,
-                              NSImage(data: data) != nil
-                        else { return }
-                        view.prepareFavicon(data, generation: generation, pageURL: pageURL)
-                    }
-                }
-            }.resume()
-        }
+    func resendIconCandidates() {
+        guard let url = webView.url else { return }
+        guard !iconCandidates.isEmpty else { captureFavicon(); return }
+        BrainBridge.shared.send(["op": "event", "event": "icon_candidates", "webview": webviewId,
+            "generation": faviconGeneration.uuidString, "url": url.absoluteString, "profile": profileId,
+            "candidates": iconCandidates])
     }
 
-    private func prepareFavicon(_ data: Data, generation: UUID, pageURL: URL) {
-        let id = webviewId
-        WebsiteIcon.prepare(data) { path in
-            guard let path, let view = EngineView.live[id], view.faviconGeneration == generation,
-                  view.webView.url == pageURL else { return }
-            view.announceFavicon(path)
-            TabAppBundle.rememberIcon(path: path, url: pageURL, profile: view.profileId)
-            if let config = SiteAppConfiguration.current,
-               TabAppBundle.iconKey(url: config.url, profile: config.profile) == TabAppBundle.iconKey(url: pageURL, profile: view.profileId) {
-                NSApp.applicationIconImage = NSImage(contentsOfFile: path)
-            }
+    var appIconData: Data? {
+        faviconICNSPath.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+    }
+
+    func acceptIcon(_ message: [String: Any]) {
+        guard message["generation"] as? String == faviconGeneration.uuidString,
+              message["url"] as? String == webView.url?.absoluteString,
+              let path = message["path"] as? String, let icns = message["icns"] as? String else { return }
+        let cache = BowserPaths.home.appendingPathComponent("favicons/tiles-v2").standardizedFileURL.path + "/"
+        guard URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(cache),
+              URL(fileURLWithPath: icns).standardizedFileURL.path.hasPrefix(cache) else { return }
+        faviconICNSPath = icns
+        iconCandidates = [] // Rediscover on reconnect instead of retaining decoded image payloads.
+        announceFavicon(path)
+        if let config = SiteAppConfiguration.current, let url = webView.url,
+           TabAppBundle.iconKey(url: config.url, profile: config.profile) == TabAppBundle.iconKey(url: url, profile: profileId) {
+            NSApp.applicationIconImage = NSImage(contentsOfFile: path)
         }
     }
 

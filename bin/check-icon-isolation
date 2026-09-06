@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# A required install gate, not a test against the user's running browser.
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
+swift build --package-path "$REPO/shell" --product BowserIconWorker
+BOWSER_RUN_SITE_APP_INTEGRATION=1 swift test --package-path "$REPO/shell" --filter SiteAppTests.testSeparateApplicationIdentityAndReopen
+(cd "$REPO/beam" && mix test test/icon_jobs_test.exs)
+# The native renderer must not sneak back into the window-owning executable.
+SYMBOLS="$(mktemp)"
+trap 'rm -f "$SYMBOLS"' EXIT
+nm -j "$REPO/shell/.build/debug/Bowser" > "$SYMBOLS"
+if grep -q 'IconRendering' "$SYMBOLS"; then
+  echo 'IconRendering is linked into Bowser; refusing installation.' >&2
+  exit 1
+fi

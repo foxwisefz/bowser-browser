@@ -1,34 +1,9 @@
 import AppKit
 import XCTest
-import JavaScriptCore
 import WebKit
 @testable import Bowser
 
 final class FaviconTests: XCTestCase {
-    func testChangedIconUsesDifferentImageCacheEntry() {
-        let first = Data("first page icon".utf8)
-        let second = Data("second page icon".utf8)
-        XCTAssertNotEqual(EngineView.faviconFilename(for: first), EngineView.faviconFilename(for: second))
-        XCTAssertEqual(EngineView.faviconFilename(for: first), EngineView.faviconFilename(for: first))
-    }
-
-    func testPrefersPNGOverLeadingInlineSVG() {
-        let context = JSContext()!
-        context.evaluateScript("""
-        var location = {origin: "https://example.com"};
-        var links = [
-          {type: "image/svg+xml", href: "data:image/svg+xml,svg"},
-          {type: "image/png", href: "https://example.com/icon.png?vsn=1"}
-        ];
-        var document = {querySelectorAll: function () { return links; }};
-        """)
-        XCTAssertEqual(context.evaluateScript(EngineView.faviconProbe)?.toString(),
-                       "https://example.com/icon.png?vsn=1")
-        context.evaluateScript("links = [];")
-        XCTAssertEqual(context.evaluateScript(EngineView.faviconProbe)?.toString(),
-                       "https://example.com/favicon.ico")
-    }
-
     @MainActor
     func testInlineSVGProducesNativePNGDespiteBrokenRasterAlternative() async throws {
         let config = WKWebViewConfiguration()
@@ -47,7 +22,7 @@ final class FaviconTests: XCTestCase {
         await fulfillment(of: [loaded], timeout: 10)
         let value = try await webView.callAsyncJavaScript(
             EngineView.pageFaviconProbe, arguments: [:], in: nil, contentWorld: .defaultClient)
-        let base64 = try XCTUnwrap(value as? String)
+        let base64 = try XCTUnwrap((value as? [[String: Any]])?.first?["png"] as? String)
         let data = try XCTUnwrap(Data(base64Encoded: base64))
         XCTAssertEqual(Array(data.prefix(8)), [137, 80, 78, 71, 13, 10, 26, 10])
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
@@ -77,7 +52,7 @@ final class FaviconTests: XCTestCase {
         await fulfillment(of: [loaded], timeout: 10)
         let value = try await webView.callAsyncJavaScript(
             EngineView.pageFaviconProbe, arguments: [:], in: nil, contentWorld: .defaultClient)
-        let data = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(value as? String)))
+        let data = try XCTUnwrap(Data(base64Encoded: XCTUnwrap((value as? [[String: Any]])?.first?["png"] as? String)))
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
         let pixel = try XCTUnwrap(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
         XCTAssertGreaterThan(pixel.greenComponent, 0.9)
@@ -115,7 +90,7 @@ final class FaviconTests: XCTestCase {
         for withManifest in [false, true] {
             let result = try await webView.callAsyncJavaScript(setup + EngineView.pageFaviconProbe,
                 arguments: ["withManifest": withManifest], in: nil, contentWorld: .defaultClient)
-            let data = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(result as? String)))
+            let data = try XCTUnwrap(Data(base64Encoded: XCTUnwrap((result as? [[String: Any]])?.max(by: { ($0["width"] as? Int ?? 0) < ($1["width"] as? Int ?? 0) })?["png"] as? String)))
             let image = try XCTUnwrap(NSBitmapImageRep(data: data))
             XCTAssertEqual(image.pixelsWide, withManifest ? 512 : 256)
             let pixel = try XCTUnwrap(image.colorAt(x: 10, y: 10)?.usingColorSpace(.sRGB))

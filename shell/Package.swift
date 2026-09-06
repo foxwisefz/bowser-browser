@@ -7,13 +7,15 @@ let package = Package(
     name: "Bowser",
     platforms: [.macOS(.v15)],
     targets: [
+        .target(name: "IconRendering"),
+        .executableTarget(name: "BowserIconWorker", dependencies: ["IconRendering"]),
         .executableTarget(
             name: "Bowser",
             path: "Sources/Bowser"
         ),
         .testTarget(
             name: "BowserTests",
-            dependencies: ["Bowser"],
+            dependencies: ["Bowser", "IconRendering"],
             path: "Tests/BowserTests"
         ),
     ]

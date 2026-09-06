@@ -95,7 +95,7 @@ final class SiteAppTests: XCTestCase {
         let server = try SiteIconFixtureServer()
         defer { server.stop() }
         let bundle = try TabAppBundle.create(url: server.url, profile: "default",
-                                             icon: nil, directory: root, bowser: browser)
+                                             iconData: nil, directory: root, bowser: browser)
         print("Signed site app preparation: \((ProcessInfo.processInfo.systemUptime - preparationStart) * 1000)ms")
         let configuration = try XCTUnwrap(SiteAppConfiguration.parse(Bundle(url: bundle)!.infoDictionary!))
         let mainPIDs = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").map(\.processIdentifier))
@@ -118,6 +118,8 @@ final class SiteAppTests: XCTestCase {
         let controls = expectation(description: "app-specific controls")
         let mods = expectation(description: "app mod watcher applies private files")
         var inspectedCookies = false
+        var iconJobStarted = false
+        let workerRecovered = expectation(description: "Elixir recovers from icon worker SIGKILL")
         var channel: SiteAppConnection?
         var sentBootstrap = false
         let expectedSession = UUID().uuidString
@@ -128,6 +130,27 @@ final class SiteAppTests: XCTestCase {
             channel = connection
             XCTAssertNotNil(connection)
             connection?.onMessage = { message in
+                if message["event"] as? String == "icon_candidates", !iconJobStarted {
+                    iconJobStarted = true
+                    do {
+                        let input = root.appendingPathComponent("icon-request.json")
+                        let output = root.appendingPathComponent("icon-response.json")
+                        try JSONSerialization.data(withJSONObject: message).write(to: input)
+                        Task { @MainActor in
+                            let result = await Task.detached {
+                                SiteIconTestBrain.run(shell: shell, root: root, input: input, output: output)
+                            }.value
+                            guard let result, let reply = try? JSONSerialization.jsonObject(with: result) as? [String: Any] else {
+                                XCTFail("Isolated Elixir icon job failed; inspect fixture brain log")
+                                return
+                            }
+                            XCTAssertEqual(reply["attempts"] as? Int, 2, "The first worker must crash and the second must recover")
+                            XCTAssertFalse(running.isTerminated)
+                            connection?.send(reply)
+                            workerRecovered.fulfill()
+                        }
+                    } catch { XCTFail(error.localizedDescription) }
+                }
                 if message["op"] as? String == "hello" {
                     XCTAssertEqual((message["tabs"] as? [[String: Any]])?.count, 1)
                     Task { @MainActor in
@@ -149,7 +172,7 @@ final class SiteAppTests: XCTestCase {
                     connection?.send(["op": "site_app_info", "id": 733])
                 }
                 if message["op"] as? String == "site_app_info", message["id"] as? Int == 733 {
-                    guard let icon = message["favicon"] as? String, icon.contains("tiles-v1") else {
+                    guard let icon = message["favicon"] as? String, icon.contains("tiles-v2") else {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { connection?.send(["op": "site_app_info", "id": 733]) }
                         return
                     }
@@ -183,7 +206,7 @@ final class SiteAppTests: XCTestCase {
             connection?.startReading()
             connected.fulfill()
         }
-        await fulfillment(of: [connected, seeded, controls, mods], timeout: 10)
+        await fulfillment(of: [connected, seeded, controls, mods, workerRecovered], timeout: 25)
         // Keep the connection alive throughout the assertions and app quit.
         XCTAssertNotNil(channel)
         channel?.send(["op": "eval_js", "webview": 0, "id": 732,
@@ -246,4 +269,25 @@ private final class SiteIconFixtureServer: @unchecked Sendable {
         }
     }
     func stop() { shutdown(fd, SHUT_RDWR); close(fd) }
+}
+
+private enum SiteIconTestBrain {
+    nonisolated static func run(shell: URL, root: URL, input: URL, output: URL) -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["elixir", shell.deletingLastPathComponent().appendingPathComponent("beam/test/support/icon_smoke.exs").path,
+            input.path, output.path, root.appendingPathComponent("state").path,
+            shell.appendingPathComponent(".build/debug/BowserIconWorker").path]
+        let log = root.appendingPathComponent("icon-brain.log")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = try? FileHandle(forWritingTo: log)
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return try Data(contentsOf: output)
+        } catch { return nil }
+    }
 }

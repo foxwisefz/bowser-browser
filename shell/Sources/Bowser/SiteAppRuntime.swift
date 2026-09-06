@@ -205,7 +205,14 @@ final class SiteAppHub {
                 connection.onMessage = { [weak connection] message in
                     guard let connection else { return }
                     switch message["op"] as? String {
-                    case "hello": self.bootstrap(connection, configuration: config)
+                    case "hello":
+                        self.bootstrap(connection, configuration: config)
+                        connection.send(["op": "request_icons"])
+                    case "event" where message["event"] as? String == "icon_candidates":
+                        var forwarded = message
+                        forwarded["app"] = config.identifier
+                        forwarded["profile"] = config.profile
+                        BrainBridge.shared.send(forwarded)
                     case "event" where message["event"] as? String == "site_mod_request":
                         guard let request = message["request"] as? String else { return }
                         guard BrainBridge.shared.isConnected else {
@@ -292,6 +299,15 @@ final class SiteAppHub {
         } else {
             connection.send(["op": "site_mod_status", "text": message["text"] ?? ""])
         }
+    }
+
+    func requestIcons() {
+        for connection in connections.values { connection.send(["op": "request_icons"]) }
+    }
+
+    func routeIcon(_ message: [String: Any]) {
+        guard let key = configurations.first(where: { $0.value.identifier == message["app"] as? String })?.key else { return }
+        connections[key]?.send(message)
     }
 
     func broadcastContent(_ message: [String: Any]) {

@@ -28,13 +28,16 @@ VERSION="$(cd "$REPO" && (jj log -r @- --no-graph -T 'change_id.short()' 2>/dev/
 BUILD="$(date +%Y%m%d%H%M%S)"
 say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
 
+say "checking icon crash isolation before replacing the installed app"
+"$REPO/bin/check-icon-isolation"
+
 mkdir -p "$APP_DIR/bin" "$(dirname "$BUNDLE")"
 
 # ---------------------------------------------------------------- shell
 if [ "$BRAIN_ONLY" = 0 ]; then
   CONF=release; [ "$DEBUG" = 1 ] && CONF=debug
   say "shell: swift build -c $CONF"
-  (cd "$REPO/shell" && swift build -c "$CONF" 2>&1 | grep -E "error|warning: unre|Build complete" || true)
+  (cd "$REPO/shell" && swift build -c "$CONF")
   BIN="$REPO/shell/.build/$CONF/Bowser"
   [ -x "$BIN" ] || { echo "no binary at $BIN — build failed" >&2; exit 1; }
   # Never trust "Build complete": the artifact must be newer than the sources.
@@ -57,12 +60,17 @@ fi
 # ---------------------------------------------------------------- helpers
 say "bin: engine-wrapper, mcp bridge, bowser"
 cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$APP_DIR/bin/"
+WORKER="$REPO/shell/.build/${CONF:-debug}/BowserIconWorker"
+[ -x "$WORKER" ] || { echo "missing icon worker: $WORKER" >&2; exit 1; }
+cp -f "$WORKER" "$APP_DIR/bin/BowserIconWorker.new"
+codesign --force --sign - "$APP_DIR/bin/BowserIconWorker.new"
+mv -f "$APP_DIR/bin/BowserIconWorker.new" "$APP_DIR/bin/BowserIconWorker"
 chmod +x "$APP_DIR/bin/"*
 
 # ---------------------------------------------------------------- brain
 if [ "$SHELL_ONLY" = 0 ]; then
   say "brain: mix release (prod)"
-  (cd "$REPO/beam" && MIX_ENV=prod mix release bowser_brain --overwrite --quiet 2>&1 | grep -vE "^\s*$" | tail -3 || true)
+  (cd "$REPO/beam" && MIX_ENV=prod mix release bowser_brain --overwrite --quiet)
   REL="$REPO/beam/_build/prod/rel/bowser_brain"
   [ -x "$REL/bin/bowser_brain" ] || { echo "no release at $REL" >&2; exit 1; }
   rm -rf "$APP_DIR/brain.new"; cp -R "$REL" "$APP_DIR/brain.new"

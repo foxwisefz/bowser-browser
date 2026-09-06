@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import IconRendering
 @testable import Bowser
 
 final class TabAppDragTests: XCTestCase {
@@ -15,7 +16,7 @@ final class TabAppDragTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: source.path)
         let icon = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)!
         let start = ProcessInfo.processInfo.systemUptime
-        let bundle = try TabAppBundle.create(url: page, profile: "work", icon: icon, directory: root, bowser: browser, sign: false)
+        let bundle = try TabAppBundle.create(url: page, profile: "work", iconData: IconRenderer.icns(icon.tiffRepresentation!), directory: root, bowser: browser, sign: false)
         print("Tab app preparation: \((ProcessInfo.processInfo.systemUptime - start) * 1000)ms")
         XCTAssertEqual(bundle.pathExtension, "app")
         let app = try XCTUnwrap(Bundle(url: bundle))
@@ -27,7 +28,7 @@ final class TabAppDragTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: executable), try Data(contentsOf: source))
         XCTAssertEqual(SiteAppConfiguration.parse(app.infoDictionary ?? [:])?.url, page)
         XCTAssertNotNil(NSImage(contentsOf: bundle.appendingPathComponent("Contents/Resources/SiteIcon.icns")))
-        let again = try TabAppBundle.create(url: page, profile: "work", icon: nil, directory: root, bowser: browser, sign: false)
+        let again = try TabAppBundle.create(url: page, profile: "work", iconData: nil, directory: root, bowser: browser, sign: false)
         XCTAssertEqual(bundle, again)
         // An already-pinned v1 launcher is upgraded at exactly the same path.
         let plist = bundle.appendingPathComponent("Contents/Info.plist")
@@ -39,13 +40,13 @@ final class TabAppDragTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: executable), try Data(contentsOf: source))
         let updated = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as! [String: Any]
         XCTAssertEqual(updated["BowserAppVersion"] as? Int, 2)
-        let other = try TabAppBundle.create(url: page, profile: "personal", icon: nil, directory: root, bowser: browser, sign: false)
+        let other = try TabAppBundle.create(url: page, profile: "personal", iconData: nil, directory: root, bowser: browser, sign: false)
         XCTAssertNotEqual(bundle, other)
     }
 
     @MainActor
     func testRejectsNonWebLaunchTargets() {
-        XCTAssertThrowsError(try TabAppBundle.create(url: URL(string: "file:///tmp/test")!, profile: "default", icon: nil,
+        XCTAssertThrowsError(try TabAppBundle.create(url: URL(string: "file:///tmp/test")!, profile: "default", iconData: nil,
                                                     directory: FileManager.default.temporaryDirectory,
                                                     bowser: URL(fileURLWithPath: "/Applications/Bowser.app")))
     }

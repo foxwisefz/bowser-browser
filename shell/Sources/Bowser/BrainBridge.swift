@@ -267,6 +267,20 @@ final class BrainBridge {
                 }
             }
 
+        case "icon_ready":
+            if SiteAppConfiguration.current == nil, message["app"] is String {
+                SiteAppHub.shared.routeIcon(message)
+            } else {
+                EngineView.live[requested]?.acceptIcon(message)
+            }
+
+        case "request_icons":
+            for view in EngineView.live.values { view.resendIconCandidates() }
+            if SiteAppConfiguration.current == nil { SiteAppHub.shared.requestIcons() }
+
+        case "refresh_app_icons":
+            if SiteAppConfiguration.current == nil { TabAppBundle.upgradeSavedApps() }
+
         case "site_eval", "site_status":
             guard SiteAppConfiguration.current == nil else { return }
             SiteAppHub.shared.route(message)

@@ -5,7 +5,7 @@ import SwiftUI
 /// Persistent site apps reuse Bowser’s executable, with their own macOS identity.
 @MainActor
 enum TabAppBundle {
-    static func create(url: URL, profile: String, icon: NSImage?, directory: URL,
+    static func create(url: URL, profile: String, iconData: Data?, directory: URL,
                        bowser: URL, sign: Bool = true) throws -> URL {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               let host = url.host else { throw CocoaError(.fileWriteInvalidFileName) }
@@ -33,10 +33,10 @@ enum TabAppBundle {
             "BowserMainApp": bowser.path, "CFBundleIconFile": "SiteIcon.icns",
             "BowserSavedURL": url.absoluteString, "BowserProfile": profile,
         ]
-        if let icon {
+        if let iconData {
             let resources = contents.appendingPathComponent("Resources")
             try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
-            try iconData(icon).write(to: resources.appendingPathComponent("SiteIcon.icns"))
+            try iconData.write(to: resources.appendingPathComponent("SiteIcon.icns"))
         }
         let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try plist.write(to: contents.appendingPathComponent("Info.plist"))
@@ -80,10 +80,10 @@ enum TabAppBundle {
             info["BowserEngineBuild"] = build
             info["BowserMainApp"] = bowser.path
         }
-        if iconChanged, let cached, let image = NSImage(data: cached) {
+        if iconChanged, let cached {
             let resources = bundle.appendingPathComponent("Contents/Resources")
             try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
-            try iconData(image).write(to: resources.appendingPathComponent("SiteIcon.icns"), options: .atomic)
+            try cached.write(to: resources.appendingPathComponent("SiteIcon.icns"), options: .atomic)
             info["BowserIconHash"] = iconHash
         }
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plist, options: .atomic)
@@ -116,41 +116,9 @@ enum TabAppBundle {
     }
 
     private static func cachedIcon(url: URL, profile: String) -> Data? {
-        try? Data(contentsOf: BowserPaths.home.appendingPathComponent("app-icons-v1/" + iconKey(url: url, profile: profile) + ".png"))
+        try? Data(contentsOf: BowserPaths.home.appendingPathComponent("app-icons-v2/" + iconKey(url: url, profile: profile) + ".icns"))
     }
 
-    static func rememberIcon(path: String, url: URL, profile: String) {
-        let root = BowserPaths.home.appendingPathComponent("app-icons-v1")
-        let target = root.appendingPathComponent(iconKey(url: url, profile: profile) + ".png")
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)), (try? Data(contentsOf: target)) != data else { return }
-        do {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try data.write(to: target, options: .atomic)
-            if SiteAppConfiguration.current == nil { upgradeSavedApps() }
-        } catch { NSLog("Bowser: app icon cache failed: %@", error.localizedDescription) }
-    }
-
-    static func iconData(_ image: NSImage) throws -> Data {
-        func size(_ n: Int) -> Data {
-            var value = UInt32(n).bigEndian
-            return withUnsafeBytes(of: &value) { Data($0) }
-        }
-        var chunks = Data()
-        // PNG-backed ICNS representations: each size is drawn from the
-        // normalized original rather than from the old 128px app icon.
-        for (pixels, type) in [(16, "icp4"), (32, "icp5"), (64, "icp6"), (128, "ic07"), (256, "ic08"), (512, "ic09"), (1024, "ic10")] {
-            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
-                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-            NSGraphicsContext.current?.imageInterpolation = .high
-            image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
-            NSGraphicsContext.restoreGraphicsState()
-            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
-            chunks += Data(type.utf8) + size(png.count + 8) + png
-        }
-        return Data("icns".utf8) + size(chunks.count + 8) + chunks
-    }
 
 }
 
@@ -191,7 +159,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
             let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser Apps")
             let bowser = Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundleURL
                 : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser.app")
-            let bundle = try TabAppBundle.create(url: url, profile: tab.profileId, icon: icon,
+            let bundle = try TabAppBundle.create(url: url, profile: tab.profileId, iconData: tab.appIconData,
                                                  directory: directory, bowser: bowser)
             let item = NSDraggingItem(pasteboardWriter: bundle as NSURL)
             item.setDraggingFrame(bounds, contents: icon)

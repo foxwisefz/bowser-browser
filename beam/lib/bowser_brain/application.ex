@@ -19,6 +19,8 @@ defmodule BowserBrain.Application do
       # broadcast a hello.
       BowserBrain.Session,
       BowserBrain.UserContent,
+      {Task.Supervisor, name: BowserBrain.IconTasks},
+      BowserBrain.IconJobs,
       BowserBrain.Bridge,
       BowserBrain.AgentPort,
       BowserBrain.Surface,

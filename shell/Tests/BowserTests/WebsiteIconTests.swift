@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import IconRendering
 import XCTest
 @testable import Bowser
 
@@ -16,11 +17,11 @@ final class WebsiteIconTests: XCTestCase {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         // A wide mark to ensure normalization preserves its aspect ratio.
         context.fill(CGRect(x: 48, y: 88, width: 160, height: 80))
-        return try XCTUnwrap(WebsiteIcon.png(context.makeImage()!))
+        return try XCTUnwrap(IconRenderer.png(context.makeImage()!))
     }
 
     func testCircleBecomesPaddedTileWithSampledBackground() throws {
-        let normalized = try XCTUnwrap(WebsiteIcon.normalizedPNG(fixture(circle: true)))
+        let normalized = try XCTUnwrap(IconRenderer.normalizedPNG(fixture(circle: true)))
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: normalized))
         XCTAssertEqual(bitmap.pixelsWide, 1024)
         XCTAssertEqual(bitmap.colorAt(x: 0, y: 0)?.alphaComponent, 0)
@@ -30,11 +31,11 @@ final class WebsiteIconTests: XCTestCase {
         XCTAssertGreaterThan(bitmap.colorAt(x: 270, y: 512)!.usingColorSpace(.sRGB)!.redComponent, 0.95)
         // 500x250 mark, not a stretched square.
         XCTAssertLessThan(bitmap.colorAt(x: 512, y: 350)!.usingColorSpace(.sRGB)!.redComponent, 0.5)
-        XCTAssertEqual(WebsiteIcon.normalizedPNG(try fixture(circle: true)), normalized)
+        XCTAssertEqual(IconRenderer.normalizedPNG(try fixture(circle: true)), normalized)
     }
 
     func testSparseWhiteLogoGetsAContrastingTile() throws {
-        let data = try XCTUnwrap(WebsiteIcon.normalizedPNG(fixture(transparent: true)))
+        let data = try XCTUnwrap(IconRenderer.normalizedPNG(fixture(transparent: true)))
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
         let background = try XCTUnwrap(bitmap.colorAt(x: 512, y: 120)?.usingColorSpace(.sRGB))
         XCTAssertLessThan(background.redComponent, 0.3)
@@ -42,14 +43,14 @@ final class WebsiteIconTests: XCTestCase {
     }
 
     func testInvalidAndOversizedInputsAreRejected() {
-        XCTAssertNil(WebsiteIcon.normalizedPNG(Data("bad image".utf8)))
-        XCTAssertNil(WebsiteIcon.normalizedPNG(Data(repeating: 0, count: 4_000_001)))
+        XCTAssertNil(IconRenderer.normalizedPNG(Data("bad image".utf8)))
+        XCTAssertNil(IconRenderer.normalizedPNG(Data(repeating: 0, count: 4_000_001)))
     }
 
     @MainActor
     func testICNSContainsDockAndRetinaSizes() throws {
-        let image = try XCTUnwrap(NSImage(data: WebsiteIcon.normalizedPNG(fixture())!))
-        let icns = try TabAppBundle.iconData(image)
+        let image = try XCTUnwrap(NSImage(data: IconRenderer.normalizedPNG(fixture())!))
+        let icns = try XCTUnwrap(IconRenderer.icns(image.tiffRepresentation!))
         let source = try XCTUnwrap(CGImageSourceCreateWithData(icns as CFData, nil))
         let sizes = Set((0..<CGImageSourceGetCount(source)).compactMap { index -> Int? in
             let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
@@ -71,7 +72,7 @@ final class WebsiteIconTests: XCTestCase {
         let root = URL(fileURLWithPath: path)
         for (name, file) in [("twitter", "twitter-source.png"), ("discord", "discord-clean.ico")] {
             let data = try Data(contentsOf: root.appendingPathComponent(file))
-            let output = try XCTUnwrap(WebsiteIcon.normalizedPNG(data))
+            let output = try XCTUnwrap(IconRenderer.normalizedPNG(data))
             try output.write(to: root.appendingPathComponent(name + "-native.png"))
         }
     }

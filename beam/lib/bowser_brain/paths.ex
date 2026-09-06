@@ -46,6 +46,15 @@ defmodule BowserBrain.Paths do
       _ -> Path.join(root(), "shell/.build/debug/Bowser")
     end
   end
+
+  def icon_worker do
+    installed = Path.join(root(), "bin/BowserIconWorker")
+
+    if File.regular?(installed),
+      do: installed,
+      else: Path.join(root(), "shell/.build/debug/BowserIconWorker")
+  end
+
   def engine_wrapper, do: Path.join(root(), "bin/engine-wrapper")
   def brain_lib, do: Path.join(root(), "beam/lib/bowser_brain")
   def mcp_bridge, do: Path.join(root(), "bin/bowser-mcp-bridge")
