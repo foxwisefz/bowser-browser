@@ -60,19 +60,32 @@ enum TabAppBundle {
               let identifier = info["CFBundleIdentifier"] as? String,
               identifier.hasPrefix("com.gezim.bowser.site."), info["BowserSavedURL"] is String else { return }
         let build = try engineBuild(bowser)
-        guard info["BowserAppVersion"] as? Int != 2 || info["BowserEngineBuild"] as? String != build else { return }
+        let engineChanged = info["BowserAppVersion"] as? Int != 2 || info["BowserEngineBuild"] as? String != build
+        let savedURL = (info["BowserSavedURL"] as? String).flatMap(URL.init(string:))
+        let cached = savedURL.flatMap { cachedIcon(url: $0, profile: info["BowserProfile"] as? String ?? "default") }
+        let iconHash = cached.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        let iconChanged = iconHash != nil && info["BowserIconHash"] as? String != iconHash
+        guard engineChanged || iconChanged else { return }
         // Updating an executing Mach-O can kill its process. Leave running
         // apps alone; they will be upgraded after they have quit.
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: identifier).contains(where: { !$0.isTerminated }) else { return }
-        let target = bundle.appendingPathComponent("Contents/MacOS/launch")
-        let temp = target.appendingPathExtension("new")
-        try? FileManager.default.removeItem(at: temp)
-        try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: temp)
-        _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
-        info["BowserAppVersion"] = 2
-        info["CFBundleVersion"] = "2"
-        info["BowserEngineBuild"] = build
-        info["BowserMainApp"] = bowser.path
+        if engineChanged {
+            let target = bundle.appendingPathComponent("Contents/MacOS/launch")
+            let temp = target.appendingPathExtension("new")
+            try? FileManager.default.removeItem(at: temp)
+            try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: temp)
+            _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
+            info["BowserAppVersion"] = 2
+            info["CFBundleVersion"] = "2"
+            info["BowserEngineBuild"] = build
+            info["BowserMainApp"] = bowser.path
+        }
+        if iconChanged, let cached, let image = NSImage(data: cached) {
+            let resources = bundle.appendingPathComponent("Contents/Resources")
+            try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+            try iconData(image).write(to: resources.appendingPathComponent("SiteIcon.icns"), options: .atomic)
+            info["BowserIconHash"] = iconHash
+        }
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plist, options: .atomic)
         if sign { try signBundle(bundle) }
     }
@@ -97,25 +110,48 @@ enum TabAppBundle {
         guard process.terminationStatus == 0 else { throw CocoaError(.executableNotLoadable) }
     }
 
-    private static func iconData(_ image: NSImage) throws -> Data {
-        // ICNS supports PNG payloads. Generate directly rather than spawning
-        // iconutil or a compiler on the mouse event path.
-        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 128, pixelsHigh: 128,
-                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                      isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-        image.draw(in: NSRect(x: 0, y: 0, width: 128, height: 128))
-        NSGraphicsContext.restoreGraphicsState()
-        guard let png = bitmap.representation(using: .png, properties: [:]) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
+    nonisolated static func iconKey(url: URL, profile: String) -> String {
+        let origin = "\(url.scheme ?? "https")://\(url.host ?? "")" + (url.port.map { ":\($0)" } ?? "")
+        return SHA256.hash(data: Data((profile + "\n" + origin).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func cachedIcon(url: URL, profile: String) -> Data? {
+        try? Data(contentsOf: BowserPaths.home.appendingPathComponent("app-icons-v1/" + iconKey(url: url, profile: profile) + ".png"))
+    }
+
+    static func rememberIcon(path: String, url: URL, profile: String) {
+        let root = BowserPaths.home.appendingPathComponent("app-icons-v1")
+        let target = root.appendingPathComponent(iconKey(url: url, profile: profile) + ".png")
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)), (try? Data(contentsOf: target)) != data else { return }
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            if SiteAppConfiguration.current == nil { upgradeSavedApps() }
+        } catch { NSLog("Bowser: app icon cache failed: %@", error.localizedDescription) }
+    }
+
+    static func iconData(_ image: NSImage) throws -> Data {
         func size(_ n: Int) -> Data {
             var value = UInt32(n).bigEndian
             return withUnsafeBytes(of: &value) { Data($0) }
         }
-        return Data("icns".utf8) + size(png.count + 16) + Data("ic07".utf8) + size(png.count + 8) + png
+        var chunks = Data()
+        // PNG-backed ICNS representations: each size is drawn from the
+        // normalized original rather than from the old 128px app icon.
+        for (pixels, type) in [(16, "icp4"), (32, "icp5"), (64, "icp6"), (128, "ic07"), (256, "ic08"), (512, "ic09"), (1024, "ic10")] {
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            NSGraphicsContext.current?.imageInterpolation = .high
+            image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+            NSGraphicsContext.restoreGraphicsState()
+            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+            chunks += Data(type.utf8) + size(png.count + 8) + png
+        }
+        return Data("icns".utf8) + size(chunks.count + 8) + chunks
     }
+
 }
 
 struct TabAppDragTarget: NSViewRepresentable {

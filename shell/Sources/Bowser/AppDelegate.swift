@@ -3,6 +3,7 @@ import WebKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var siteTerminationObserver: NSObjectProtocol?
     private var didFinishLaunching = false
     private var pendingExternalURLs: [URL] = []
 
@@ -28,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if SiteAppConfiguration.current == nil {
             SiteAppHub.shared.start()
             TabAppBundle.upgradeSavedApps()
+            siteTerminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+            ) { notification in
+                guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      app.bundleIdentifier?.hasPrefix("com.gezim.bowser.site.") == true else { return }
+                MainActor.assumeIsolated { TabAppBundle.upgradeSavedApps() }
+            }
         }
         NSApp.activate()
 

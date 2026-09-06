@@ -989,22 +989,22 @@ struct MagnifyStripView: View {
 
     @ViewBuilder
     private func icon(for item: [String: Any]) -> some View {
-        // tint: the tab's profile color as a ring — which "you" a tab is.
+        // Keep profile identity as a small dot without outlining the artwork.
         let ring = Profile.color(hex: item["tint"] as? String)
         Group {
             if let path = item["path"] as? String, let image = ImageCache.load(path) {
                 Image(nsImage: image).resizable().interpolation(.high)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .scaledToFit()
             } else {
                 Image(systemName: item["symbol"] as? String ?? "globe")
                     .resizable().scaledToFit()
                     .foregroundStyle(.secondary)
             }
         }
-        .overlay {
+        .overlay(alignment: .topTrailing) {
             if let ring {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color(nsColor: ring), lineWidth: 1.5)
+                Circle().fill(Color(nsColor: ring)).frame(width: 4, height: 4)
+                    .padding(2)
             }
         }
     }

@@ -754,25 +754,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     // Use the page's network context first: a separate URLSession can fail
     // even when WebKit loads the icon. Decode SVG, ICO and raster candidates
     // with WebKit, trying the next on failure. No page content is changed.
-    nonisolated static let pageFaviconProbe = """
-    var links = Array.from(document.querySelectorAll('link[rel~="icon"]'));
-    for (var link of links) {
-      try {
-        var image = new Image();
-        await new Promise(function (resolve, reject) {
-          var timer = setTimeout(function () { reject(new Error("icon timeout")); }, 2000);
-          image.onload = function () { clearTimeout(timer); resolve(); };
-          image.onerror = function () { clearTimeout(timer); reject(new Error("invalid icon")); };
-          image.src = link.href;
-        });
-        var canvas = document.createElement('canvas');
-        canvas.width = 64; canvas.height = 64;
-        canvas.getContext('2d').drawImage(image, 0, 0, 64, 64);
-        return canvas.toDataURL('image/png').split(',')[1];
-      } catch (_) {}
-    }
-    return null;
-    """
+    nonisolated static let pageFaviconProbe = WebsiteIcon.probe
 
     private func captureFavicon() {
         guard let pageURL = webView.url, pageURL.host != nil else { return }
@@ -781,13 +763,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
             guard let self, self.faviconGeneration == generation, self.webView.url == pageURL else { return }
             if case .success(let value) = result, let base64 = value as? String,
                let data = Data(base64Encoded: base64), NSImage(data: data) != nil {
-                let directory = BowserPaths.home.appendingPathComponent("favicons")
-                let file = directory.appendingPathComponent(Self.faviconFilename(for: data))
-                do {
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    try data.write(to: file, options: .atomic)
-                    self.announceFavicon(file.path)
-                } catch { self.captureRasterFavicon() }
+                self.prepareFavicon(data, generation: generation, pageURL: pageURL)
             } else {
                 self.captureRasterFavicon()
             }
@@ -803,16 +779,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
                   let urlString = value as? String, let url = URL(string: urlString)
             else { return }
             let id = self.webviewId
-            let directory = BowserPaths.home.appendingPathComponent("favicons")
             URLSession.shared.dataTask(with: url) { data, response, _ in
                 guard let data, data.count > 16,
                       (response as? HTTPURLResponse)?.statusCode ?? 200 < 300
                 else { return }
-                let file = directory.appendingPathComponent(Self.faviconFilename(for: data))
-                do {
-                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                    try data.write(to: file, options: .atomic)
-                } catch { return }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let view = EngineView.live[id],
@@ -820,10 +790,27 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
                               view.webView.url == pageURL,
                               NSImage(data: data) != nil
                         else { return }
-                        view.announceFavicon(file.path)
+                        view.prepareFavicon(data, generation: generation, pageURL: pageURL)
                     }
                 }
             }.resume()
+        }
+    }
+
+    private func prepareFavicon(_ data: Data, generation: UUID, pageURL: URL) {
+        let id = webviewId
+        WebsiteIcon.queue.addOperation {
+            guard let path = WebsiteIcon.cachedPath(for: data) else { return }
+            DispatchQueue.main.async {
+                guard let view = EngineView.live[id], view.faviconGeneration == generation,
+                      view.webView.url == pageURL else { return }
+                view.announceFavicon(path)
+                TabAppBundle.rememberIcon(path: path, url: pageURL, profile: view.profileId)
+                if let config = SiteAppConfiguration.current,
+                   TabAppBundle.iconKey(url: config.url, profile: config.profile) == TabAppBundle.iconKey(url: pageURL, profile: view.profileId) {
+                    NSApp.applicationIconImage = NSImage(contentsOfFile: path)
+                }
+            }
         }
     }
 
