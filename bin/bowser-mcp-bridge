@@ -11,7 +11,7 @@ import os
 import socket
 import sys
 
-SOCK = os.path.expanduser("~/.bowser/agent.sock")
+SOCK = os.path.join(os.path.expanduser(os.environ.get("BOWSER_HOME", "~/.bowser")), "agent.sock")
 
 TOOLS = [
     {
@@ -103,6 +103,8 @@ TOOLS = [
 
 
 def call_brain(tool, args):
+    if os.environ.get("BOWSER_SITE_APP_ID"):
+        args = {**args, "site_app": os.environ["BOWSER_SITE_APP_ID"]}
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(30)

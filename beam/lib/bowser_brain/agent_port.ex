@@ -132,6 +132,10 @@ defmodule BowserBrain.AgentPort do
   end
 
   @doc "Tool dispatch. Public for tests; every arm returns a JSON-able map."
+  def dispatch(%{"tool" => tool, "args" => %{"site_app" => id} = args}) do
+    BowserBrain.AppMods.dispatch(tool, args, id)
+  end
+
   def dispatch(%{"tool" => "list_tabs"}) do
     session = :sys.get_state(BowserBrain.Session)
     tabs = session.tabs |> Enum.sort() |> Enum.map(fn {wv, url} -> %{webview: wv, url: url} end)
@@ -250,8 +254,11 @@ defmodule BowserBrain.AgentPort do
 
   defp notify_store_changed(mod, key) do
     case Registry.lookup(BowserBrain.ModRegistry, Module.concat([mod])) do
-      [{pid, _}] -> send(pid, {:browser_event, %{"event" => "store_changed", "mod" => mod, "key" => key}})
-      _ -> :ok
+      [{pid, _}] ->
+        send(pid, {:browser_event, %{"event" => "store_changed", "mod" => mod, "key" => key}})
+
+      _ ->
+        :ok
     end
   end
 

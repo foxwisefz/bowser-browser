@@ -31,7 +31,15 @@ defmodule BowserBrain.ModSmith do
     # sessions: numbered refinement history, newest first, persisted to disk —
     # the claude CLI keeps its transcripts on disk, so --resume stays valid
     # across brain AND engine restarts (bowser-browser-lv4).
-    {:ok, %{active: 0, urls: %{}, busy: nil, sessions: load_sessions(), last_status: "Ready.", progress: []}}
+    {:ok,
+     %{
+       active: 0,
+       urls: %{},
+       busy: nil,
+       sessions: load_sessions(),
+       last_status: "Ready.",
+       progress: []
+     }}
   end
 
   @impl true
@@ -44,29 +52,47 @@ defmodule BowserBrain.ModSmith do
     {:noreply, state}
   end
 
+  def handle_info(
+        {:browser_event, %{"event" => "site_mod_request", "request" => request, "app" => app}},
+        state
+      ) do
+    cond do
+      not BowserBrain.AppMods.valid_id?(app["id"]) ->
+        {:noreply, state}
+
+      state.busy != nil ->
+        BowserBrain.Bridge.cast_msg(%{
+          op: "site_status",
+          app: app["id"],
+          text: "Busy with another request. Try again shortly."
+        })
+
+        {:noreply, state}
+
+      String.trim(request) == "" ->
+        {:noreply, state}
+
+      true ->
+        {:noreply, start_request(String.trim(request), state, app: app)}
+    end
+  end
+
   def handle_info({:browser_event, %{"event" => "tab_activated", "webview" => wv}}, state) do
     {:noreply, %{state | active: wv}}
   end
 
-  def handle_info({:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}}, state) do
+  def handle_info(
+        {:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}},
+        state
+      ) do
     {:noreply, %{state | urls: Map.put(state.urls, wv, url)}}
-  end
-
-  @doc "Prefill the panel to modify one existing file — the ✎ in the Mods window."
-  def modify(path), do: GenServer.cast(__MODULE__, {:modify, path})
-
-  @impl true
-  def handle_cast({:modify, path}, state) do
-    state = Map.put(state, :target, %{kind: :modify, path: path})
-    ensure_visible()
-    render(state)
-    {:noreply, state}
   end
 
   # -- the panel is interactive (bowser-browser-y7g follow-up): type a request,
   # click a session to refine it, ✕ to go back to a fresh request.
   def handle_info(
-        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "request", "value" => text}},
+        {:browser_event,
+         %{"event" => "surface", "surface" => "modsmith", "id" => "request", "value" => text}},
         state
       ) do
     text = text |> to_string() |> String.trim()
@@ -92,7 +118,8 @@ defmodule BowserBrain.ModSmith do
   end
 
   def handle_info(
-        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "pick", "value" => n}},
+        {:browser_event,
+         %{"event" => "surface", "surface" => "modsmith", "id" => "pick", "value" => n}},
         state
       ) do
     n = to_int(n)
@@ -102,13 +129,19 @@ defmodule BowserBrain.ModSmith do
     {:noreply, state}
   end
 
-  def handle_info({:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "new"}}, state) do
+  def handle_info(
+        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "new"}},
+        state
+      ) do
     state = Map.put(state, :target, nil)
     render(state)
     {:noreply, state}
   end
 
-  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do+" <> rest}}, state) do
+  def handle_info(
+        {:browser_event, %{"event" => "omnibar_command", "text" => "do+" <> rest}},
+        state
+      ) do
     {target, request} = parse_followup(rest)
 
     cond do
@@ -141,7 +174,10 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "do " <> request}}, state) do
+  def handle_info(
+        {:browser_event, %{"event" => "omnibar_command", "text" => "do " <> request}},
+        state
+      ) do
     request = String.trim(request)
 
     cond do
@@ -163,6 +199,7 @@ defmodule BowserBrain.ModSmith do
     progress = Enum.take([line | Map.get(state, :progress, [])], 8)
     BowserBrain.ModLog.log("modsmith", line)
     state = Map.put(state, :progress, progress)
+    notify_app(state, line)
     render(state, "Working on: #{busy}")
     {:noreply, state}
   end
@@ -186,6 +223,7 @@ defmodule BowserBrain.ModSmith do
               summary: summary,
               host: host,
               at: System.system_time(:millisecond),
+              app: Map.get(state, :app_target),
               refined: resumed
             })
           else
@@ -194,6 +232,7 @@ defmodule BowserBrain.ModSmith do
 
         persist_sessions(sessions)
         state = %{state | busy: nil, sessions: sessions, last_status: "Done: #{summary}"}
+        notify_app(state, state.last_status)
         render(state)
         {:noreply, state}
 
@@ -202,6 +241,7 @@ defmodule BowserBrain.ModSmith do
         # failure — a handoff the owner can hand to the resident agent.
         Logger.info("modsmith: handoff — #{summary}")
         state = %{state | busy: nil, last_status: "↗ #{String.slice(summary, 0, 160)}"}
+        notify_app(state, state.last_status)
         render(state)
         {:noreply, state}
 
@@ -218,6 +258,7 @@ defmodule BowserBrain.ModSmith do
               summary: "⏱ #{String.slice(reason, 0, 56)}",
               host: host,
               at: System.system_time(:millisecond),
+              app: Map.get(state, :app_target),
               refined: resumed
             })
           else
@@ -225,7 +266,15 @@ defmodule BowserBrain.ModSmith do
           end
 
         if session, do: persist_sessions(sessions)
-        state = %{state | busy: nil, sessions: sessions, last_status: "Failed: #{String.slice(reason, 0, 120)}"}
+
+        state = %{
+          state
+          | busy: nil,
+            sessions: sessions,
+            last_status: "Failed: #{String.slice(reason, 0, 120)}"
+        }
+
+        notify_app(state, state.last_status)
         render(state)
         {:noreply, state}
     end
@@ -233,12 +282,35 @@ defmodule BowserBrain.ModSmith do
 
   def handle_info(_other, state), do: {:noreply, state}
 
+  @doc "Prefill the panel to modify one existing file — the ✎ in the Mods window."
+  def modify(path), do: GenServer.cast(__MODULE__, {:modify, path})
+
+  @impl true
+  def handle_cast({:modify, path}, state) do
+    state = Map.put(state, :target, %{kind: :modify, path: path})
+    ensure_visible()
+    render(state)
+    {:noreply, state}
+  end
+
   # ---------------------------------------------------------------------
 
   defp start_request(request, state, opts) do
     resume = Keyword.get(opts, :resume)
+
+    app =
+      Keyword.get(opts, :app) ||
+        (resume &&
+           Enum.find_value(state.sessions, fn s -> if s.id == resume, do: Map.get(s, :app) end))
+
+    state = Map.put(state, :app_target, app)
     Logger.info("modsmith: request received#{if resume, do: " (follow-up)"}: #{request}")
-    url = state.urls[state.active] || state.urls |> Map.values() |> List.first() || ""
+
+    url =
+      if app,
+        do: app["url"],
+        else: state.urls[state.active] || state.urls |> Map.values() |> List.first() || ""
+
     host = URI.parse(url).host || "unknown"
 
     prompt =
@@ -258,19 +330,46 @@ defmodule BowserBrain.ModSmith do
           request,
           url,
           host,
-          page_digest(state.active),
-          SiteMods.payloads_for(host),
-          BowserBrain.ModCatalog.summary()
+          page_digest(state.active, app),
+          if(app, do: BowserBrain.AppMods.payloads(app["id"]), else: SiteMods.payloads_for(host)),
+          if(app,
+            do: "Only payload files for this saved app are available.",
+            else: BowserBrain.ModCatalog.summary()
+          )
         )
       end
 
+    prompt =
+      if app,
+        do:
+          prompt <>
+            "\nSAVED APP SCOPE: #{app["id"]}. Use tier payload only, CSS/JS files under sites/#{host}/. The toolbox and final installer redirect these to this app only. Do not create BEAM modules or global browser changes. Webview 0 is this app.\n",
+        else: prompt
+
+    notify_app(state, "Working on: #{request}")
     render(%{state | busy: request}, "Working on: #{request}")
     parent = self()
 
     Task.start(fn ->
       on_progress = fn line -> send(parent, {:smith_progress, line}) end
-      {session, result} = run_claude(prompt, resume, on_progress)
-      send(parent, {:smith_done, request, session, resume, host, result && install(result, host)})
+
+      {session, result} =
+        try do
+          {session, result} = run_claude(prompt, resume, on_progress, app)
+
+          installed =
+            if app,
+              do: BowserBrain.AppMods.install_result(result, app),
+              else: install(result, host)
+
+          {session, installed}
+        rescue
+          error -> {resume, {:error, Exception.message(error)}}
+        catch
+          :exit, reason -> {resume, {:error, inspect(reason)}}
+        end
+
+      send(parent, {:smith_done, request, session, resume, host, result})
     end)
 
     %{state | busy: request}
@@ -312,6 +411,12 @@ defmodule BowserBrain.ModSmith do
 
   # A panel toggled off in the View menu swallows shows; un-suppress it so
   # a ✎ click from the Mods window actually brings ModSmith up.
+  defp notify_app(state, text) do
+    if app = Map.get(state, :app_target) do
+      BowserBrain.Bridge.cast_msg(%{op: "site_status", app: app["id"], text: text})
+    end
+  end
+
   defp ensure_visible do
     case Enum.find(Surface.list(), &(&1.id == "modsmith")) do
       %{closed: true} -> Surface.toggle(:modsmith)
@@ -369,6 +474,7 @@ defmodule BowserBrain.ModSmith do
           request: Map.get(s, "request", "?"),
           summary: Map.get(s, "summary", "?"),
           host: Map.get(s, "host", "?"),
+          app: Map.get(s, "app"),
           at: Map.get(s, "at", 0)
         }
       end
@@ -379,7 +485,7 @@ defmodule BowserBrain.ModSmith do
 
   defp persist_sessions(sessions), do: File.write(sessions_path(), JSON.encode!(sessions))
 
-  defp page_digest(webview) do
+  defp page_digest(webview, app) do
     probe = """
     JSON.stringify({
       host: location.hostname, path: location.pathname, title: document.title,
@@ -396,7 +502,9 @@ defmodule BowserBrain.ModSmith do
     # timeout exits the caller — this is how requests were silently lost).
     result =
       try do
-        Page.eval(probe, webview: webview)
+        if app,
+          do: BowserBrain.Bridge.eval_site_js(app["id"], probe),
+          else: Page.eval(probe, webview: webview)
       catch
         :exit, _ -> {:error, :timeout}
       end
@@ -566,12 +674,15 @@ defmodule BowserBrain.ModSmith do
     """
   end
 
-  defp run_claude(prompt, resume, on_progress) do
+  @finish_ms 240_000
+  defp run_claude(prompt, resume, on_progress, app) do
     settings = BowserBrain.Settings.all()
 
     case {System.find_executable("claude"), auth_route(settings)} do
       {nil, _route} ->
-        {nil, {:error, "claude CLI not found on PATH — install it, then sign in or set up a router in :settings"}}
+        {nil,
+         {:error,
+          "claude CLI not found on PATH — install it, then sign in or set up a router in :settings"}}
 
       {_claude, {:missing, key}} ->
         {nil,
@@ -587,7 +698,7 @@ defmodule BowserBrain.ModSmith do
         # arriving as one blob after ten minutes (bowser-browser-y7g).
         args =
           ["-p", prompt, "--output-format", "stream-json", "--verbose"] ++
-            mcp_args() ++
+            mcp_args(app) ++
             model_args() ++
             if(resume, do: ["--resume", resume], else: [])
 
@@ -609,7 +720,10 @@ defmodule BowserBrain.ModSmith do
           {:done, code, events, raw, _session} ->
             {_session, text} = stream_result(events)
             detail = text || Enum.join(raw, " ")
-            {nil, {:error, "claude exited #{code}: #{String.slice(detail, 0, 300)} | #{auth_hint(route)}"}}
+
+            {nil,
+             {:error,
+              "claude exited #{code}: #{String.slice(detail, 0, 300)} | #{auth_hint(route)}"}}
 
           # Out of time with a known session: the work is in the CLI's
           # transcript — resume it and ask for the envelope NOW instead of
@@ -618,8 +732,16 @@ defmodule BowserBrain.ModSmith do
             on_progress.("⏱ time budget hit — asking for the envelope now")
 
             finish_args =
-              ["-p", finish_prompt(), "--output-format", "stream-json", "--verbose", "--resume", session] ++
-                mcp_args() ++ model_args()
+              [
+                "-p",
+                finish_prompt(),
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--resume",
+                session
+              ] ++
+                mcp_args(app) ++ model_args()
 
             case run_port(claude, finish_args, env, @finish_ms, on_progress) do
               {:done, 0, events, _raw, _} ->
@@ -628,11 +750,15 @@ defmodule BowserBrain.ModSmith do
                     {new_session || session, {:output, text}}
 
                   _ ->
-                    {session, {:error, "timed out after #{div(timeout, 1000)}s; finish reply empty — session saved, :do+ to continue"}}
+                    {session,
+                     {:error,
+                      "timed out after #{div(timeout, 1000)}s; finish reply empty — session saved, :do+ to continue"}}
                 end
 
               _ ->
-                {session, {:error, "timed out after #{div(timeout, 1000)}s — session saved, :do+ to continue"}}
+                {session,
+                 {:error,
+                  "timed out after #{div(timeout, 1000)}s — session saved, :do+ to continue"}}
             end
 
           {:timeout, _none} ->
@@ -641,7 +767,6 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  @finish_ms 240_000
   @heartbeat_ms 30_000
 
   @doc "What a run that ran out of time is asked on resume. Public for tests."
@@ -669,7 +794,14 @@ defmodule BowserBrain.ModSmith do
       ])
 
     now = System.monotonic_time(:millisecond)
-    stream_loop(port, now + timeout, on_progress, %{events: [], raw: [], partial: "", session: nil, started: now})
+
+    stream_loop(port, now + timeout, on_progress, %{
+      events: [],
+      raw: [],
+      partial: "",
+      session: nil,
+      started: now
+    })
   end
 
   @doc false
@@ -696,7 +828,9 @@ defmodule BowserBrain.ModSmith do
                 %{acc | events: [event | acc.events], session: session_of(event) || acc.session}
 
               _ ->
-                if String.trim(line) == "", do: acc, else: %{acc | raw: Enum.take([line | acc.raw], 40)}
+                if String.trim(line) == "",
+                  do: acc,
+                  else: %{acc | raw: Enum.take([line | acc.raw], 40)}
             end
 
           stream_loop(port, deadline, on_progress, acc)
@@ -748,8 +882,11 @@ defmodule BowserBrain.ModSmith do
         detail =
           Enum.find_value(["path", "selector", "name", "js"], "", fn key ->
             case input[key] do
-              v when is_binary(v) and v != "" -> v |> String.replace(~r/\s+/, " ") |> String.slice(0, 70)
-              _ -> nil
+              v when is_binary(v) and v != "" ->
+                v |> String.replace(~r/\s+/, " ") |> String.slice(0, 70)
+
+              _ ->
+                nil
             end
           end)
 
@@ -775,8 +912,14 @@ defmodule BowserBrain.ModSmith do
         text =
           events
           |> Enum.filter(&(&1["type"] == "assistant"))
-          |> Enum.flat_map(fn %{"message" => %{"content" => c}} when is_list(c) -> c; _ -> [] end)
-          |> Enum.flat_map(fn %{"type" => "text", "text" => t} -> [t]; _ -> [] end)
+          |> Enum.flat_map(fn
+            %{"message" => %{"content" => c}} when is_list(c) -> c
+            _ -> []
+          end)
+          |> Enum.flat_map(fn
+            %{"type" => "text", "text" => t} -> [t]
+            _ -> []
+          end)
           |> Enum.join("\n")
 
         {nil, if(text == "", do: nil, else: text)}
@@ -890,17 +1033,26 @@ defmodule BowserBrain.ModSmith do
   @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
-  defp mcp_args do
-    config = Path.join(BowserBrain.Paths.home(), "agent-mcp.json")
+  defp mcp_args(app) do
+    name = if app, do: "agent-mcp-#{app["id"]}.json", else: "agent-mcp.json"
+    config = Path.join(BowserBrain.Paths.home(), name)
+
+    env =
+      if app,
+        do: %{"BOWSER_SITE_APP_ID" => app["id"], "BOWSER_HOME" => BowserBrain.Paths.home()},
+        else: %{}
 
     File.write!(
       config,
       JSON.encode!(%{
-        mcpServers: %{bowser: %{command: "python3", args: [BowserBrain.Paths.mcp_bridge()]}}
+        mcpServers: %{
+          bowser: %{command: "python3", args: [BowserBrain.Paths.mcp_bridge()], env: env}
+        }
       })
     )
 
-    ["--mcp-config", config, "--allowedTools", @mcp_tools]
+    ["--mcp-config", config, "--allowedTools", @mcp_tools] ++
+      if(app, do: ["--tools", "", "--strict-mcp-config", "--disable-slash-commands"], else: [])
   end
 
   # Routers serve their own model ids; the CLI's default may not exist there.
@@ -933,7 +1085,7 @@ defmodule BowserBrain.ModSmith do
 
           true ->
             case validate(files) do
-              :ok -> {:ok, summary == "" && "done" || summary, Enum.map(files, &write_file/1)}
+              :ok -> {:ok, (summary == "" && "done") || summary, Enum.map(files, &write_file/1)}
               {:error, reason} -> {:error, reason}
             end
         end
@@ -977,9 +1129,13 @@ defmodule BowserBrain.ModSmith do
 
         String.ends_with?(path, ".ex") ->
           case Code.string_to_quoted(content) do
-            {:ok, _} -> {:cont, :ok}
+            {:ok, _} ->
+              {:cont, :ok}
+
             {:error, {meta, message, token}} ->
-              {:halt, {:error, "mod syntax error #{inspect(meta)}: #{inspect(message)} #{inspect(token)}"}}
+              {:halt,
+               {:error,
+                "mod syntax error #{inspect(meta)}: #{inspect(message)} #{inspect(token)}"}}
           end
 
         true ->
@@ -1005,13 +1161,26 @@ defmodule BowserBrain.ModSmith do
 
     {glyph, label, detail} =
       cond do
-        String.starts_with?(line, "Working on: ") -> {"●", "Working", String.replace_prefix(line, "Working on: ", "")}
-        String.starts_with?(line, "Busy with: ") -> {"●", "Busy", String.replace_prefix(line, "Busy with: ", "")}
-        String.starts_with?(line, "Done: ") -> {"✓", "Done", String.replace_prefix(line, "Done: ", "")}
-        String.starts_with?(line, "Failed: ") -> {"✗", "Failed", String.replace_prefix(line, "Failed: ", "")}
-        String.starts_with?(line, "↗ ") -> {"↗", "Handed off", String.replace_prefix(line, "↗ ", "")}
-        line == "Ready." -> {"○", "Ready", nil}
-        true -> {"·", line, nil}
+        String.starts_with?(line, "Working on: ") ->
+          {"●", "Working", String.replace_prefix(line, "Working on: ", "")}
+
+        String.starts_with?(line, "Busy with: ") ->
+          {"●", "Busy", String.replace_prefix(line, "Busy with: ", "")}
+
+        String.starts_with?(line, "Done: ") ->
+          {"✓", "Done", String.replace_prefix(line, "Done: ", "")}
+
+        String.starts_with?(line, "Failed: ") ->
+          {"✗", "Failed", String.replace_prefix(line, "Failed: ", "")}
+
+        String.starts_with?(line, "↗ ") ->
+          {"↗", "Handed off", String.replace_prefix(line, "↗ ", "")}
+
+        line == "Ready." ->
+          {"○", "Ready", nil}
+
+        true ->
+          {"·", line, nil}
       end
 
     {glyph, label, detail && String.slice(detail, 0, 110)}
@@ -1034,10 +1203,23 @@ defmodule BowserBrain.ModSmith do
         %{kind: :refine, n: n} ->
           s = fetch_session(state.sessions, n)
           summary = String.slice((s && s.summary) || "", 0, 34)
-          [hstack([text("Refining ##{n} · #{summary}", style: :caption), spacer(), button("✕", event: "new", compact: true)])]
+
+          [
+            hstack([
+              text("Refining ##{n} · #{summary}", style: :caption),
+              spacer(),
+              button("✕", event: "new", compact: true)
+            ])
+          ]
 
         %{kind: :modify, path: path} ->
-          [hstack([text("Modifying #{Path.basename(path)}", style: :caption), spacer(), button("✕", event: "new", compact: true)])]
+          [
+            hstack([
+              text("Modifying #{Path.basename(path)}", style: :caption),
+              spacer(),
+              button("✕", event: "new", compact: true)
+            ])
+          ]
       end
 
     log =
@@ -1079,6 +1261,10 @@ defmodule BowserBrain.ModSmith do
   end
 
   defp render(state, headline \\ nil) do
-    Surface.show(:modsmith, tree(state, headline), title: "ModSmith", anchor: :right_of_main, width: 320)
+    Surface.show(:modsmith, tree(state, headline),
+      title: "ModSmith",
+      anchor: :right_of_main,
+      width: 320
+    )
   end
 end

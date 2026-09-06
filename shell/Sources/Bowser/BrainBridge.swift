@@ -40,6 +40,12 @@ final class BrainBridge {
 
     // MARK: - Outbound
 
+    var isConnected: Bool {
+        connLock.lock()
+        defer { connLock.unlock() }
+        return connFD >= 0
+    }
+
     func send(_ message: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(message),
               let payload = try? JSONSerialization.data(withJSONObject: message)
@@ -261,18 +267,30 @@ final class BrainBridge {
                 }
             }
 
+        case "site_eval", "site_status":
+            guard SiteAppConfiguration.current == nil else { return }
+            SiteAppHub.shared.route(message)
+
+        case "site_mod_status":
+            SiteAppCommands.shared.updateStatus(message["text"] as? String ?? "")
+
         case "site_app_info":
             guard let config = SiteAppConfiguration.current else { return }
             let titles = NSApp.mainMenu?.items.flatMap { $0.submenu?.items.map(\.title) ?? [] } ?? []
             send(["op": "site_app_info", "id": message["id"] ?? 0,
                   "app": config.identifier, "profile": config.profile,
                   "windows": BrowserWindowController.all.count, "menu_titles": titles,
+                  "app_mod_count": SiteAppRuntime.shared.modCount,
                   "actions": SiteAppCommands.Action.allCases.map(\.rawValue)])
 
         case "site_bootstrap":
             SiteAppRuntime.shared.bootstrap(message)
 
         case "set_user_content":
+            if SiteAppConfiguration.current != nil {
+                SiteAppRuntime.shared.updateContent(message, reload: message["reload"] as? Bool ?? true)
+                return
+            }
             if SiteAppConfiguration.current == nil, requested == 0 { SiteAppHub.shared.broadcastContent(message) }
             let scripts = message["scripts"] as? [String]
             let styles = message["styles"] as? [String]

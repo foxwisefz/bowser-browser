@@ -24,6 +24,10 @@ defmodule BowserBrain.Bridge do
     GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
   end
 
+  def eval_site_js(app, code, timeout \\ 5_000) do
+    GenServer.call(__MODULE__, {:eval_site_js, app, code}, timeout)
+  end
+
   @doc "Engine-level cookie read for a URL (includes HttpOnly)."
   def get_cookies(url, timeout \\ 5_000) do
     GenServer.call(__MODULE__, {:get_cookies, url}, timeout)
@@ -82,7 +86,10 @@ defmodule BowserBrain.Bridge do
           %{state | pending: pending}
 
         {:ok, %{"op" => "hello", "v" => v} = hello} ->
-          Logger.info("bridge: engine hello, protocol v#{v}, webviews #{inspect(hello["webviews"])}")
+          Logger.info(
+            "bridge: engine hello, protocol v#{v}, webviews #{inspect(hello["webviews"])}"
+          )
+
           broadcast(Map.put(hello, "event", "hello"))
           state
 
@@ -127,6 +134,15 @@ defmodule BowserBrain.Bridge do
 
       :error ->
         {:reply, {:error, :not_connected}, state}
+    end
+  end
+
+  def handle_call({:eval_site_js, app, code}, from, state) do
+    id = state.next_id
+
+    case send_frame(state.sock, %{op: "site_eval", app: app, id: id, code: code}) do
+      :ok -> {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
+      :error -> {:reply, {:error, :not_connected}, state}
     end
   end
 

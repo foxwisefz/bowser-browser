@@ -35,6 +35,29 @@ final class SiteAppTests: XCTestCase {
         XCTAssertEqual(context.evaluateScript("values.key")?.toString(), "value")
     }
 
+    func testAppModFilesAreAppAndOriginScoped() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = SiteAppConfiguration(url: URL(string: "https://example.com")!, profile: "default",
+            identifier: "com.gezim.bowser.site.0123456789abcdef", mainApp: URL(fileURLWithPath: "/Applications/Bowser.app"))
+        let directory = root.appendingPathComponent(config.identifier)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try "globalThis.fixture='only this app';".write(to: directory.appendingPathComponent("test.js"), atomically: true, encoding: .utf8)
+        try "globalThis.bad=true;".write(to: directory.appendingPathComponent("ignored.tmp"), atomically: true, encoding: .utf8)
+        let scripts = SiteAppRuntime.modScripts(configuration: config, root: root)
+        XCTAssertEqual(scripts.count, 1)
+        let context = JSContext()!
+        context.evaluateScript("var location={origin:'https://accounts.example.com'};")
+        context.evaluateScript(scripts[0])
+        XCTAssertTrue(context.evaluateScript("typeof fixture==='undefined'")!.toBool())
+        context.evaluateScript("location.origin='https://example.com'")
+        context.evaluateScript(scripts[0])
+        XCTAssertEqual(context.evaluateScript("fixture")?.toString(), "only this app")
+        let other = SiteAppConfiguration(url: config.url, profile: "work",
+            identifier: "com.gezim.bowser.site.fedcba9876543210", mainApp: config.mainApp)
+        XCTAssertTrue(SiteAppRuntime.modScripts(configuration: other, root: root).isEmpty)
+    }
+
     @MainActor
     func testStorageExportWorksWhenPageDeletesItsAccessor() async throws {
         let config = WKWebViewConfiguration()
@@ -91,6 +114,8 @@ final class SiteAppTests: XCTestCase {
         let connected = expectation(description: "site socket connected")
         let seeded = expectation(description: "profile cookie seeded before navigation")
         let controls = expectation(description: "app-specific controls")
+        let mods = expectation(description: "app mod watcher applies private files")
+        var inspectedCookies = false
         var channel: SiteAppConnection?
         var sentBootstrap = false
         let expectedSession = UUID().uuidString
@@ -114,7 +139,8 @@ final class SiteAppTests: XCTestCase {
                 if sentBootstrap, message["event"] as? String == "load_status", message["status"] as? Int == 0 {
                     connection?.send(["op": "get_cookies", "url": "http://127.0.0.1:9/", "id": 731])
                 }
-                if message["op"] as? String == "cookies_result", message["id"] as? Int == 731 {
+                if message["op"] as? String == "cookies_result", message["id"] as? Int == 731, !inspectedCookies {
+                    inspectedCookies = true
                     let cookies = message["cookies"] as? [[String: Any]] ?? []
                     XCTAssertTrue(cookies.contains { $0["name"] as? String == "site-test-session" && $0["value"] as? String == expectedSession && $0["http_only"] as? Bool == true })
                     seeded.fulfill()
@@ -129,13 +155,28 @@ final class SiteAppTests: XCTestCase {
                     XCTAssertTrue(titles.contains("App Actions"))
                     XCTAssertEqual(message["profile"] as? String, "default")
                     XCTAssertEqual(message["windows"] as? Int, 1)
+                    XCTAssertTrue((message["actions"] as? [String] ?? []).contains("Create Mod…"))
                     controls.fulfill()
+                    Task { @MainActor in
+                        let directory = root.appendingPathComponent("state/app-mods").appendingPathComponent(configuration.identifier)
+                        do {
+                            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                            try "globalThis.appFixture=true;".write(to: directory.appendingPathComponent("fixture.js"), atomically: true, encoding: .utf8)
+                            try await Task.sleep(for: .milliseconds(1500))
+                            connection?.send(["op": "set_user_content", "scripts": ["globalThis.inheritedFixture=true;"], "styles": [], "reload": false])
+                            connection?.send(["op": "site_app_info", "id": 735])
+                        } catch { XCTFail(error.localizedDescription) }
+                    }
+                }
+                if message["op"] as? String == "site_app_info", message["id"] as? Int == 735 {
+                    XCTAssertEqual(message["app_mod_count"] as? Int, 1)
+                    mods.fulfill()
                 }
             }
             connection?.startReading()
             connected.fulfill()
         }
-        await fulfillment(of: [connected, seeded, controls], timeout: 10)
+        await fulfillment(of: [connected, seeded, controls, mods], timeout: 10)
         // Keep the connection alive throughout the assertions and app quit.
         XCTAssertNotNil(channel)
         channel?.send(["op": "eval_js", "webview": 0, "id": 732,

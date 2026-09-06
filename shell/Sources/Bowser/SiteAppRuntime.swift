@@ -28,6 +28,11 @@ struct SiteAppConfiguration: Codable, Equatable {
 @MainActor
 final class SiteAppRuntime {
     static let shared = SiteAppRuntime()
+    private var contentTimer: Timer?
+    private var inheritedScripts: [String] = []
+    private var inheritedStyles: [String] = []
+    private var appScripts: [String] = []
+    var modCount: Int { appScripts.count }
     private var loaded = false
     private var receivedBootstrap = false
     private var seededStorage = false
@@ -35,6 +40,10 @@ final class SiteAppRuntime {
 
     func start(_ configuration: SiteAppConfiguration, controller: BrowserWindowController) {
         self.controller = controller
+        refreshMods(reload: false)
+        contentTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            MainActor.assumeIsolated { SiteAppRuntime.shared.refreshMods(reload: true) }
+        }
         do {
             try FileManager.default.createDirectory(at: configuration.home, withIntermediateDirectories: true,
                                                      attributes: [.posixPermissions: 0o700])
@@ -55,10 +64,7 @@ final class SiteAppRuntime {
 
     func bootstrap(_ message: [String: Any]) {
         guard let controller else { return }
-        let scripts = message["scripts"] as? [String] ?? []
-        let styles = message["styles"] as? [String] ?? []
-        EngineView.rememberUserContent(scripts: scripts, styles: styles)
-        controller.activeTab.applyUserContent(scripts: scripts, styles: styles, reload: false)
+        updateContent(message, reload: false)
         guard !receivedBootstrap else { return }
         receivedBootstrap = true
         loaded = true // reconnect must never navigate the app; a late FIRST bootstrap must apply
@@ -78,6 +84,49 @@ final class SiteAppRuntime {
         group.notify(queue: .main) { [weak self] in
             guard let self, let configuration = SiteAppConfiguration.current else { return }
             self.controller?.loadURL(configuration.url.absoluteString)
+        }
+    }
+
+    func updateContent(_ message: [String: Any], reload: Bool) {
+        if let scripts = message["scripts"] as? [String] { inheritedScripts = scripts }
+        if let styles = message["styles"] as? [String] { inheritedStyles = styles }
+        applyContent(reload: reload)
+    }
+
+    private func applyContent(reload: Bool) {
+        let scripts = inheritedScripts + appScripts
+        EngineView.rememberUserContent(scripts: scripts, styles: inheritedStyles)
+        for view in EngineView.live.values {
+            view.applyUserContent(scripts: scripts, styles: inheritedStyles, reload: reload)
+        }
+    }
+
+    private func refreshMods(reload: Bool) {
+        guard let config = SiteAppConfiguration.current else { return }
+        let scripts = Self.modScripts(configuration: config, root: BowserPaths.home.appendingPathComponent("app-mods"))
+        guard scripts != appScripts else { return }
+        appScripts = scripts
+        applyContent(reload: reload)
+    }
+
+    /// App files are never placed in the browser's global sites directory.
+    /// Guard the saved origin as well, so OAuth and external pages stay clean.
+    nonisolated static func modScripts(configuration: SiteAppConfiguration, root: URL) -> [String] {
+        let directory = root.appendingPathComponent(configuration.identifier)
+        let files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+            .filter { ["css", "js"].contains($0.pathExtension) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let url = configuration.url
+        let origin = "\(url.scheme ?? "https")://\(url.host ?? "")" + (url.port.map { ":\($0)" } ?? "")
+        func literal(_ value: String) -> String {
+            String(data: try! JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), encoding: .utf8)!
+        }
+        return files.compactMap { file in
+            guard let data = try? Data(contentsOf: file), data.count <= 200_000,
+                  let content = String(data: data, encoding: .utf8) else { return nil }
+            let body = file.pathExtension == "css"
+                ? "const add=()=>{const s=document.createElement('style');s.textContent=\(literal(content));(document.head||document.documentElement).appendChild(s);};if(document.documentElement)add();else document.addEventListener('DOMContentLoaded',add,{once:true});"
+                : content
+            return "(function(){if(location.origin!==\(literal(origin)))return;\n\(body)\n})();"
         }
     }
 
@@ -127,6 +176,8 @@ final class SiteAppHub {
     static let shared = SiteAppHub()
     private var connections: [String: SiteAppConnection] = [:]
     private var connecting = Set<String>()
+    private var configurations: [String: SiteAppConfiguration] = [:]
+    private var pending: [Int: String] = [:]
     private var timer: Timer?
 
     func start() {
@@ -149,10 +200,33 @@ final class SiteAppHub {
                 self.connecting.remove(key)
                 guard let connection else { return }
                 self.connections[key] = connection
+                self.configurations[key] = config
                 connection.onMessage = { [weak connection] message in
-                    if message["op"] as? String == "hello", let connection { self.bootstrap(connection, configuration: config) }
+                    guard let connection else { return }
+                    switch message["op"] as? String {
+                    case "hello": self.bootstrap(connection, configuration: config)
+                    case "event" where message["event"] as? String == "site_mod_request":
+                        guard let request = message["request"] as? String else { return }
+                        guard BrainBridge.shared.isConnected else {
+                            connection.send(["op": "site_mod_status", "text": "Bowser is reconnecting. Try again shortly."])
+                            return
+                        }
+                        BrainBridge.shared.send(["op": "event", "event": "site_mod_request", "request": request,
+                            "app": ["id": config.identifier, "url": config.url.absoluteString, "profile": config.profile]])
+                    case "js_result":
+                        guard let id = message["id"] as? Int, self.pending[id] == key else { return }
+                        self.pending.removeValue(forKey: id)
+                        BrainBridge.shared.send(message)
+                    default: break
+                    }
                 }
-                connection.onClose = { self.connections.removeValue(forKey: key) }
+                connection.onClose = {
+                    self.connections.removeValue(forKey: key)
+                    self.configurations.removeValue(forKey: key)
+                    for id in self.pending.filter({ $0.value == key }).map(\.key) {
+                        self.finishEval(id, error: "Saved app disconnected")
+                    }
+                }
                 connection.startReading()
             }
         }
@@ -194,6 +268,28 @@ final class SiteAppHub {
                     }
                 } else { send(nil) }
             }
+        }
+    }
+
+    private func finishEval(_ id: Int, error: String) {
+        guard pending.removeValue(forKey: id) != nil else { return }
+        BrainBridge.shared.send(["op": "js_result", "id": id, "ok": false, "value": error])
+    }
+
+    func route(_ message: [String: Any]) {
+        let key = configurations.first { $0.value.identifier == message["app"] as? String }?.key
+        guard let key, let connection = connections[key] else {
+            if message["op"] as? String == "site_eval", let id = message["id"] as? Int {
+                BrainBridge.shared.send(["op": "js_result", "id": id, "ok": false, "value": "Saved app is not running"])
+            }
+            return
+        }
+        if message["op"] as? String == "site_eval", let id = message["id"] as? Int {
+            pending[id] = key
+            connection.send(["op": "eval_js", "webview": 0, "id": id, "code": message["code"] ?? ""])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { self.finishEval(id, error: "Saved app evaluation timed out") }
+        } else {
+            connection.send(["op": "site_mod_status", "text": message["text"] ?? ""])
         }
     }
 
