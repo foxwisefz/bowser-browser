@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import CryptoKit
 
 /// Relays page messages (console.* taps and window.bowser.emit) to the brain.
 /// Separate object so the user content controller never retains EngineView.
@@ -56,6 +57,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     private(set) var webviewId: UInt64 = 0
     private(set) var faviconPath: String?
+    private var faviconGeneration = UUID()
     /// Last sampled page tint. Cached because a tab can be mounted long
     /// after it loaded, and the chrome has to catch up on the spot.
     private(set) var themeColor: NSColor?
@@ -628,9 +630,16 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        faviconGeneration = UUID()
         BrainBridge.shared.send([
             "op": "event", "event": "load_status", "webview": webviewId, "status": 0,
         ])
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // An empty path renders the dock's globe, including in existing mods
+        // that ignore nil attributes. Never retain the previous page's icon.
+        announceFavicon("")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -719,50 +728,98 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    // MARK: Favicon pipeline — probe, cache to ~/.bowser/favicons/<host>,
-    // emit favicon_changed. Any tab UI (dock strips, tab trees) reads the
-    // cached file path from events or hello.
+    // MARK: Favicon pipeline
 
-    private static var fetchedHosts: Set<String> = []
-
-    private static func faviconFile(for host: String) -> URL {
-        let dir = BowserPaths.home
-            .appendingPathComponent("favicons")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let safe = host.replacingOccurrences(of: "/", with: "_")
-        return dir.appendingPathComponent("\(safe).img")
+    // Content-addressed files keep SwiftUI's path-based image cache correct
+    // when two pages on the same host use different icons.
+    nonisolated static func faviconFilename(for data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() + ".img"
     }
 
+    // NSImage cannot decode SVG. Sites often declare it first for browsers
+    // that support it, then supply PNG/ICO alternatives for native clients.
+    nonisolated static let faviconProbe = """
+    (function () {
+      var links = Array.from(document.querySelectorAll('link[rel~="icon"]'));
+      var raster = links.find(function (l) {
+        return /^image\\/(png|x-icon|vnd.microsoft.icon|jpeg|gif|webp)$/i.test(l.type)
+          || /\\.(png|ico|jpe?g|gif|webp)([?#]|$)/i.test(l.href);
+      });
+      var icon = raster || links[0];
+      return icon ? icon.href : (location.origin + "/favicon.ico");
+    })()
+    """
+
+    // Use the page's network context first: a separate URLSession can fail
+    // even when WebKit loads the icon. Decode SVG, ICO and raster candidates
+    // with WebKit, trying the next on failure. No page content is changed.
+    nonisolated static let pageFaviconProbe = """
+    var links = Array.from(document.querySelectorAll('link[rel~="icon"]'));
+    for (var link of links) {
+      try {
+        var image = new Image();
+        await new Promise(function (resolve, reject) {
+          var timer = setTimeout(function () { reject(new Error("icon timeout")); }, 2000);
+          image.onload = function () { clearTimeout(timer); resolve(); };
+          image.onerror = function () { clearTimeout(timer); reject(new Error("invalid icon")); };
+          image.src = link.href;
+        });
+        var canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        canvas.getContext('2d').drawImage(image, 0, 0, 64, 64);
+        return canvas.toDataURL('image/png').split(',')[1];
+      } catch (_) {}
+    }
+    return null;
+    """
+
     private func captureFavicon() {
-        guard let host = webView.url?.host else { return }
-        let file = Self.faviconFile(for: host)
-
-        if FileManager.default.fileExists(atPath: file.path) {
-            announceFavicon(file.path)
-            if Self.fetchedHosts.contains(host) { return }
+        guard let pageURL = webView.url, pageURL.host != nil else { return }
+        let generation = faviconGeneration
+        webView.callAsyncJavaScript(Self.pageFaviconProbe, arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
+            guard let self, self.faviconGeneration == generation, self.webView.url == pageURL else { return }
+            if case .success(let value) = result, let base64 = value as? String,
+               let data = Data(base64Encoded: base64), NSImage(data: data) != nil {
+                let directory = BowserPaths.home.appendingPathComponent("favicons")
+                let file = directory.appendingPathComponent(Self.faviconFilename(for: data))
+                do {
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    try data.write(to: file, options: .atomic)
+                    self.announceFavicon(file.path)
+                } catch { self.captureRasterFavicon() }
+            } else {
+                self.captureRasterFavicon()
+            }
         }
-        guard !Self.fetchedHosts.contains(host) else { return }
-        Self.fetchedHosts.insert(host)
+    }
 
-        let probe = """
-        (function () {
-          var l = document.querySelector('link[rel~="icon"]');
-          return l ? l.href : (location.origin + "/favicon.ico");
-        })()
-        """
-        let id = webviewId
-        webView.evaluateJavaScript(probe) { value, _ in
-            guard let urlString = value as? String, let url = URL(string: urlString) else { return }
-            // Capture only Sendables (id, file); the view is looked up by id
-            // back on the main actor.
+    private func captureRasterFavicon() {
+        guard let pageURL = webView.url, pageURL.host != nil else { return }
+        let generation = faviconGeneration
+        webView.evaluateJavaScript(Self.faviconProbe) { [weak self] value, _ in
+            guard let self, self.faviconGeneration == generation,
+                  self.webView.url == pageURL,
+                  let urlString = value as? String, let url = URL(string: urlString)
+            else { return }
+            let id = self.webviewId
+            let directory = BowserPaths.home.appendingPathComponent("favicons")
             URLSession.shared.dataTask(with: url) { data, response, _ in
                 guard let data, data.count > 16,
                       (response as? HTTPURLResponse)?.statusCode ?? 200 < 300
                 else { return }
-                try? data.write(to: file)
+                let file = directory.appendingPathComponent(Self.faviconFilename(for: data))
+                do {
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    try data.write(to: file, options: .atomic)
+                } catch { return }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        EngineView.live[id]?.announceFavicon(file.path)
+                        guard let view = EngineView.live[id],
+                              view.faviconGeneration == generation,
+                              view.webView.url == pageURL,
+                              NSImage(data: data) != nil
+                        else { return }
+                        view.announceFavicon(file.path)
                     }
                 }
             }.resume()

@@ -205,9 +205,12 @@ final class SurfaceManager {
             backing: .buffered,
             defer: false
         )
-        panel.backgroundColor = .clear
+        // A fully transparent window lets WindowServer route clicks through
+        // transparent favicon pixels before AppKit can hit-test them.
+        panel.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.01)
         panel.isOpaque = false
         panel.hasShadow = false
+        panel.ignoresMouseEvents = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
 
@@ -591,6 +594,14 @@ final class EdgeTrackingView: NSView {
         ))
     }
 
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // Blank space between dock controls belongs to the dock as well.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+
     override func mouseEntered(with event: NSEvent) {
         SurfaceManager.shared.setEdgeRevealed(surfaceId, true)
     }
@@ -946,6 +957,7 @@ struct MagnifyStripView: View {
                             }
                         }
                         .frame(height: baseSize * s)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help(item["title"] as? String ?? "")
