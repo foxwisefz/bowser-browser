@@ -1,6 +1,6 @@
 defmodule BowserBrain.AppModsTest do
   use ExUnit.Case, async: false
-  alias BowserBrain.{AppMods, AgentPort, ModSmith}
+  alias BowserBrain.{AppMods, AgentPort}
   @id "com.gezim.bowser.site.0123456789abcdef"
   @other "com.gezim.bowser.site.fedcba9876543210"
 
@@ -105,20 +105,6 @@ defmodule BowserBrain.AppModsTest do
 
     assert {:error, _} = AppMods.install_result({:output, output}, app)
     assert [] = AppMods.payloads(@id)
-  end
-
-  test "app sessions retain their scope in refinement history", %{app: app} do
-    sessions =
-      ModSmith.remember_session([], %{
-        id: "fixture",
-        app: app,
-        request: "theme",
-        summary: "theme",
-        host: "example.com",
-        at: 1
-      })
-
-    assert hd(sessions).app == app
   end
 
   test "site evaluation keeps its app id and correlates its reply" do

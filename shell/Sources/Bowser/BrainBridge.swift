@@ -285,6 +285,13 @@ final class BrainBridge {
             guard SiteAppConfiguration.current == nil else { return }
             SiteAppHub.shared.route(message)
 
+        case "modsmith_state":
+            if SiteAppConfiguration.current == nil, message["app"] is String {
+                SiteAppHub.shared.route(message)
+            } else {
+                ModSmithWindow.shared.receive(message)
+            }
+
         case "site_mod_status":
             SiteAppCommands.shared.updateStatus(message["text"] as? String ?? "")
 

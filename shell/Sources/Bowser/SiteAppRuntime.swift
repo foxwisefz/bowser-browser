@@ -213,6 +213,14 @@ final class SiteAppHub {
                         forwarded["app"] = config.identifier
                         forwarded["profile"] = config.profile
                         BrainBridge.shared.send(forwarded)
+                    case "event" where message["event"] as? String == "modsmith":
+                        guard BrainBridge.shared.isConnected else {
+                            connection.send(["op": "site_mod_status", "text": "Bowser is reconnecting. Your draft is kept; try again shortly."])
+                            return
+                        }
+                        var forwarded = message
+                        forwarded["app"] = ["id": config.identifier, "url": config.url.absoluteString, "profile": config.profile]
+                        BrainBridge.shared.send(forwarded)
                     case "event" where message["event"] as? String == "site_mod_request":
                         guard let request = message["request"] as? String else { return }
                         guard BrainBridge.shared.isConnected else {
@@ -292,7 +300,9 @@ final class SiteAppHub {
             }
             return
         }
-        if message["op"] as? String == "site_eval", let id = message["id"] as? Int {
+        if message["op"] as? String == "modsmith_state" {
+            connection.send(message)
+        } else if message["op"] as? String == "site_eval", let id = message["id"] as? Int {
             pending[id] = key
             connection.send(["op": "eval_js", "webview": 0, "id": id, "code": message["code"] ?? ""])
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) { self.finishEval(id, error: "Saved app evaluation timed out") }

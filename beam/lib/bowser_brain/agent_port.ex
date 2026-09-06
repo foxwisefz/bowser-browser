@@ -132,6 +132,10 @@ defmodule BowserBrain.AgentPort do
   end
 
   @doc "Tool dispatch. Public for tests; every arm returns a JSON-able map."
+  def dispatch(%{"run" => run} = request) when is_binary(run) and run != "" do
+    BowserBrain.ModWorkshop.tool(run, request["tool"], request["args"] || %{})
+  end
+
   def dispatch(%{"tool" => tool, "args" => %{"site_app" => id} = args}) do
     BowserBrain.AppMods.dispatch(tool, args, id)
   end

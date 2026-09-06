@@ -54,7 +54,7 @@ defmodule BowserBrain.SiteMods do
 
     mtimes =
       for path <- files, into: %{} do
-        {path, File.stat!(path, time: :posix).mtime}
+        {path, :crypto.hash(:sha256, File.read!(path))}
       end
 
     if mtimes != state.mtimes do
@@ -64,7 +64,7 @@ defmodule BowserBrain.SiteMods do
 
       UserContent.put_scripts(:site_mods, build_scripts(files),
         # First load registers before pages load; edits need a reload.
-        reload: reload_on_change and map_size(state.mtimes) > 0
+        reload: reload_on_change
       )
     end
 

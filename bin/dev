@@ -4,7 +4,9 @@
 # under $BOWSER_HOME (default ~/.bowser-dev) — its own sockets, session,
 # mods, data. swift build rolls THIS browser; the installed one is untouched.
 #
-#   bin/dev start | stop | status | log | seed
+#   bin/dev start [--temp] | stop | status | log | seed
+# --temp starts with an empty temporary state dir (no seeded mods/sites).
+# The directory is retained for inspection; stop before removing it.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 DEV_HOME="${BOWSER_HOME:-$HOME/.bowser-dev}"
@@ -18,21 +20,45 @@ dev_pids() {  # BEAMs whose cwd is this checkout's beam/
 }
 seed() {  # first run: start from the owner's mods/sites/profiles/settings, not from nothing
   mkdir -p "$DEV_HOME"
-  for d in mods sites; do [ -e "$DEV_HOME/$d" ] || { cp -R "$HOME/.bowser/$d" "$DEV_HOME/$d" 2>/dev/null || mkdir -p "$DEV_HOME/$d"; echo "seeded $d"; }; done
-  for f in profiles.json settings.json; do [ -e "$DEV_HOME/$f" ] || { cp "$HOME/.bowser/$f" "$DEV_HOME/$f" 2>/dev/null && echo "seeded $f" || true; }; done
+  for d in mods sites; do [ -e "$DEV_HOME/$d" ] || { cp -Rf "$HOME/.bowser/$d" "$DEV_HOME/$d" 2>/dev/null || mkdir -p "$DEV_HOME/$d"; echo "seeded $d"; }; done
+  for f in profiles.json settings.json; do [ -e "$DEV_HOME/$f" ] || { cp -f "$HOME/.bowser/$f" "$DEV_HOME/$f" 2>/dev/null && echo "seeded $f" || true; }; done
 }
 case "${1:-status}" in
   start)
-    [ -n "$(dev_pids)" ] && { echo "dev brain already running ($(dev_pids))"; exit 0; }
+    case "${2:-}" in
+      ""|--temp) ;;
+      *) echo "usage: dev start [--temp]" >&2; exit 2;;
+    esac
+    [ "$#" -le 2 ] || { echo "usage: dev start [--temp]" >&2; exit 2; }
+    if [ -n "$(dev_pids)" ]; then
+      echo "dev brain already running ($(dev_pids))"
+      if [ "${2:-}" = --temp ]; then
+        echo "run bin/dev stop before starting a temporary profile" >&2
+        exit 1
+      fi
+      exit 0
+    fi
     [ -x "$REPO/shell/.build/debug/Bowser" ] || { echo "no debug build — cd shell && swift build" >&2; exit 1; }
-    seed
+    if [ "${2:-}" = --temp ]; then
+      # Keep socket paths short even when macOS TMPDIR is deeply nested.
+      DEV_HOME="$(mktemp -d /tmp/bowser-dev.XXXXXXXX)"
+      LOG="$DEV_HOME/brain.log"
+      mkdir -p "$DEV_HOME/mods" "$DEV_HOME/sites"
+      echo "temporary profile: $DEV_HOME (retained after stop)"
+      printf 'logs: BOWSER_HOME=%q bin/dev log\n' "$DEV_HOME"
+    else
+      seed
+    fi
     echo "$(date '+%H:%M:%S') --- dev brain start (BOWSER_HOME=$DEV_HOME) ---" >> "$LOG"
     ( cd "$REPO/beam" && "$REPO/bin/detach" "$LOG" BOWSER_HOME="$DEV_HOME" -- elixir --erl "-noinput" --no-halt -S mix >/dev/null )
     for i in $(seq 1 20); do sleep 0.5; [ -n "$(dev_pids)" ] && break; done
-    echo "dev brain: $(dev_pids) — state in $DEV_HOME, log $LOG";;
+    p="$(dev_pids)"
+    [ -n "$p" ] || { echo "dev brain did not start — see $LOG" >&2; exit 1; }
+    echo "dev brain: $p — state in $DEV_HOME, log $LOG";;
   stop)  for p in $(dev_pids); do kill -TERM "$p" && echo "stopped dev brain $p"; done; sleep 1.5; pkill -f "$REPO/shell/.build/debug/Bowser" 2>/dev/null || true;;
-  status) p="$(dev_pids)"; [ -n "$p" ] && echo "dev brain: running ($p) under $DEV_HOME" || echo "dev brain: not running"; e="$(pgrep -f "$REPO/shell/.build/debug/Bowser" | head -1 || true)"; [ -n "$e" ] && echo "dev browser: running ($e)" || echo "dev browser: not running"; [ -n "$p" ];;
+  status) p="$(dev_pids)"; [ -n "$p" ] && echo "dev brain: running ($p)" || echo "dev brain: not running"; e="$(pgrep -f "$REPO/shell/.build/debug/Bowser" | head -1 || true)"; [ -n "$e" ] && echo "dev browser: running ($e)" || echo "dev browser: not running"; [ -n "$p" ];;
   log) tail -n "${2:-40}" -f "$LOG";;
   seed) seed;;
-  *) echo "usage: dev start|stop|status|log [n]|seed" >&2; exit 2;;
+  -h|--help) echo "usage: dev start [--temp]|stop|status|log [n]|seed";;
+  *) echo "usage: dev start [--temp]|stop|status|log [n]|seed" >&2; exit 2;;
 esac

@@ -109,7 +109,7 @@ def call_brain(tool, args):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(30)
             s.connect(SOCK)
-            s.sendall((json.dumps({"tool": tool, "args": args}) + "\n").encode())
+            s.sendall((json.dumps({"tool": tool, "args": args, "run": os.environ.get("BOWSER_MODSMITH_RUN", "")}) + "\n").encode())
             buf = b""
             while not buf.endswith(b"\n"):
                 chunk = s.recv(65536)

@@ -32,7 +32,7 @@ defmodule BowserBrain.Application do
       BowserBrain.LibReloader,
       BowserBrain.Settings,
       BowserBrain.SiteMods,
-      BowserBrain.ModSmith,
+      BowserBrain.ModWorkshop,
       BowserBrain.Engine
     ]
 
