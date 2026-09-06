@@ -651,6 +651,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         BrowserWindowController.host(of: webviewId)?.engineDidPaint(self)
         sampleThemeColor()
         captureFavicon()
+        SiteAppRuntime.shared.pageFinished(self)
     }
 
     // A load that dies before commit used to vanish: the KVO url had already

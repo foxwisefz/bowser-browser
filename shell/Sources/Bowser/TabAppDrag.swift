@@ -2,12 +2,11 @@ import AppKit
 import CryptoKit
 import SwiftUI
 
-/// First-stage site app: a persistent Dock target that opens its saved URL
-/// in Bowser. A separate app process/window is deliberately a later step.
+/// Persistent site apps reuse Bowser’s executable, with their own macOS identity.
 @MainActor
 enum TabAppBundle {
     static func create(url: URL, profile: String, icon: NSImage?, directory: URL,
-                       bowser: URL) throws -> URL {
+                       bowser: URL, sign: Bool = true) throws -> URL {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               let host = url.host else { throw CocoaError(.fileWriteInvalidFileName) }
         let identity = Data((profile + "\n" + url.absoluteString).utf8)
@@ -16,6 +15,7 @@ enum TabAppBundle {
         let bundle = directory.appendingPathComponent("\(name)-\(key).app", isDirectory: true)
         // Stable paths are essential: the Dock keeps a reference to this file.
         if FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Contents/Info.plist").path) {
+            try upgrade(bundle: bundle, bowser: bowser, sign: sign)
             return bundle
         }
         let staging = directory.appendingPathComponent(".\(UUID().uuidString).app")
@@ -23,14 +23,14 @@ enum TabAppBundle {
         let executable = contents.appendingPathComponent("MacOS/launch")
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
-        let script = "#!/bin/sh\nexec /usr/bin/open -a \(shellQuote(bowser.path)) -- \(shellQuote(url.absoluteString))\n"
-        try Data(script.utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: executable)
         let info: [String: Any] = [
             "CFBundleName": name, "CFBundleDisplayName": name,
             "CFBundleIdentifier": "com.gezim.bowser.site.\(key)",
             "CFBundleExecutable": "launch", "CFBundlePackageType": "APPL",
-            "CFBundleVersion": "1", "CFBundleIconFile": "SiteIcon.icns",
+            "CFBundleVersion": "2", "BowserAppVersion": 2,
+            "BowserEngineBuild": try engineBuild(bowser),
+            "BowserMainApp": bowser.path, "CFBundleIconFile": "SiteIcon.icns",
             "BowserSavedURL": url.absoluteString, "BowserProfile": profile,
         ]
         if let icon {
@@ -40,12 +40,61 @@ enum TabAppBundle {
         }
         let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try plist.write(to: contents.appendingPathComponent("Info.plist"))
+        if sign { try signBundle(staging) }
         try FileManager.default.moveItem(at: staging, to: bundle)
         return bundle
     }
 
-    static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    static var directory: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser Apps")
+    }
+
+    static func engineBuild(_ bowser: URL) throws -> String {
+        let attrs = try FileManager.default.attributesOfItem(atPath: bowser.appendingPathComponent("Contents/MacOS/Bowser").path)
+        return "\(attrs[.size] ?? 0)-\(attrs[.modificationDate] ?? "")"
+    }
+
+    static func upgrade(bundle: URL, bowser: URL, sign: Bool = true) throws {
+        let plist = bundle.appendingPathComponent("Contents/Info.plist")
+        guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as? [String: Any],
+              let identifier = info["CFBundleIdentifier"] as? String,
+              identifier.hasPrefix("com.gezim.bowser.site."), info["BowserSavedURL"] is String else { return }
+        let build = try engineBuild(bowser)
+        guard info["BowserAppVersion"] as? Int != 2 || info["BowserEngineBuild"] as? String != build else { return }
+        // Updating an executing Mach-O can kill its process. Leave running
+        // apps alone; they will be upgraded after they have quit.
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: identifier).contains(where: { !$0.isTerminated }) else { return }
+        let target = bundle.appendingPathComponent("Contents/MacOS/launch")
+        let temp = target.appendingPathExtension("new")
+        try? FileManager.default.removeItem(at: temp)
+        try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: temp)
+        _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
+        info["BowserAppVersion"] = 2
+        info["CFBundleVersion"] = "2"
+        info["BowserEngineBuild"] = build
+        info["BowserMainApp"] = bowser.path
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plist, options: .atomic)
+        if sign { try signBundle(bundle) }
+    }
+
+    static func upgradeSavedApps() {
+        guard SiteAppConfiguration.current == nil else { return }
+        let bundles = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for bundle in bundles where bundle.pathExtension == "app" {
+            do { try upgrade(bundle: bundle, bowser: Bundle.main.bundleURL) }
+            catch { NSLog("Bowser: site app upgrade failed: %@", error.localizedDescription) }
+        }
+    }
+
+    private static func signBundle(_ bundle: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--force", "--sign", "-", bundle.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw CocoaError(.executableNotLoadable) }
     }
 
     private static func iconData(_ image: NSImage) throws -> Data {

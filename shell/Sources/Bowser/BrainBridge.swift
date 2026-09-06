@@ -17,8 +17,11 @@ final class BrainBridge {
     nonisolated(unsafe) private var connFD: Int32 = -1
 
     func start() {
-        let dir = BowserPaths.home
+        let dir = SiteAppConfiguration.current?.home ?? BowserPaths.home
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if SiteAppConfiguration.current != nil {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        }
         let path = dir.appendingPathComponent("brain.sock").path
 
         Self.spawnListener(self, path: path)
@@ -62,7 +65,7 @@ final class BrainBridge {
             return true
         }
         if !ok {
-            close(connFD)
+            shutdown(connFD, SHUT_RDWR) // readLoop owns the close
             connFD = -1
         }
     }
@@ -112,6 +115,10 @@ final class BrainBridge {
                 NSLog("Bowser: brain accept failed")
                 break
             }
+            // The main browser can quit while a site is emitting events.
+            // A disconnected peer must not terminate that app with SIGPIPE.
+            var noSigPipe: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             NSLog("Bowser: brain connected")
             connLock.lock()
             connFD = fd
@@ -254,7 +261,11 @@ final class BrainBridge {
                 }
             }
 
+        case "site_bootstrap":
+            SiteAppRuntime.shared.bootstrap(message)
+
         case "set_user_content":
+            if SiteAppConfiguration.current == nil, requested == 0 { SiteAppHub.shared.broadcastContent(message) }
             let scripts = message["scripts"] as? [String]
             let styles = message["styles"] as? [String]
             let reload = message["reload"] as? Bool ?? true

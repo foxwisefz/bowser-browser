@@ -8,10 +8,14 @@ final class TabAppDragTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let page = URL(string: "https://example.com/dashboard?q=hello&value=$(touch%20bad)")!
-        let browser = URL(fileURLWithPath: "/Applications/Bowser's App.app")
+        let browser = root.appendingPathComponent("Bowser's App.app")
+        let source = browser.appendingPathComponent("Contents/MacOS/Bowser")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("test executable".utf8).write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: source.path)
         let icon = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)!
         let start = ProcessInfo.processInfo.systemUptime
-        let bundle = try TabAppBundle.create(url: page, profile: "work", icon: icon, directory: root, bowser: browser)
+        let bundle = try TabAppBundle.create(url: page, profile: "work", icon: icon, directory: root, bowser: browser, sign: false)
         print("Tab app preparation: \((ProcessInfo.processInfo.systemUptime - start) * 1000)ms")
         XCTAssertEqual(bundle.pathExtension, "app")
         let app = try XCTUnwrap(Bundle(url: bundle))
@@ -20,13 +24,22 @@ final class TabAppDragTests: XCTestCase {
         XCTAssertEqual(app.infoDictionary?["BowserProfile"] as? String, "work")
         let executable = try XCTUnwrap(app.executableURL)
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: executable.path))
-        let script = try String(contentsOf: executable, encoding: .utf8)
-        XCTAssertTrue(script.contains("'/Applications/Bowser'\"'\"'s App.app'"))
-        XCTAssertTrue(script.contains("-- '\(page.absoluteString)'"))
+        XCTAssertEqual(try Data(contentsOf: executable), try Data(contentsOf: source))
+        XCTAssertEqual(SiteAppConfiguration.parse(app.infoDictionary ?? [:])?.url, page)
         XCTAssertNotNil(NSImage(contentsOf: bundle.appendingPathComponent("Contents/Resources/SiteIcon.icns")))
-        let again = try TabAppBundle.create(url: page, profile: "work", icon: nil, directory: root, bowser: browser)
+        let again = try TabAppBundle.create(url: page, profile: "work", icon: nil, directory: root, bowser: browser, sign: false)
         XCTAssertEqual(bundle, again)
-        let other = try TabAppBundle.create(url: page, profile: "personal", icon: nil, directory: root, bowser: browser)
+        // An already-pinned v1 launcher is upgraded at exactly the same path.
+        let plist = bundle.appendingPathComponent("Contents/Info.plist")
+        var oldInfo = app.infoDictionary!
+        oldInfo.removeValue(forKey: "BowserAppVersion")
+        try PropertyListSerialization.data(fromPropertyList: oldInfo, format: .xml, options: 0).write(to: plist)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try TabAppBundle.upgrade(bundle: bundle, bowser: browser, sign: false)
+        XCTAssertEqual(try Data(contentsOf: executable), try Data(contentsOf: source))
+        let updated = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as! [String: Any]
+        XCTAssertEqual(updated["BowserAppVersion"] as? Int, 2)
+        let other = try TabAppBundle.create(url: page, profile: "personal", icon: nil, directory: root, bowser: browser, sign: false)
         XCTAssertNotEqual(bundle, other)
     }
 

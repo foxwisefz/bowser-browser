@@ -18,7 +18,7 @@ enum ResurrectFrame {
     static let freshnessSeconds: TimeInterval = 120
 
     static var fileURL: URL {
-        BowserPaths.home
+        (SiteAppConfiguration.current?.home ?? BowserPaths.home)
             .appendingPathComponent("resurrect.jpg")
     }
 

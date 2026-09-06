@@ -13,12 +13,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cookies (bowser-browser-yll).
         EngineView.disableTrackingPrevention()
         BrainBridge.shared.start()
-        if pendingExternalURLs.isEmpty {
+        if let configuration = SiteAppConfiguration.current {
+            let controller = BrowserWindowController(profile: Profile.find(configuration.profile))
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+            SiteAppRuntime.shared.start(configuration, controller: controller)
+        } else if pendingExternalURLs.isEmpty {
             openWindow()
         } else {
             let urls = pendingExternalURLs
             pendingExternalURLs.removeAll()
             openExternalURLs(urls)
+        }
+        if SiteAppConfiguration.current == nil {
+            SiteAppHub.shared.start()
+            TabAppBundle.upgradeSavedApps()
         }
         NSApp.activate()
 
@@ -100,6 +109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         application.activate()
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard SiteAppConfiguration.current != nil else { return true }
+        currentController?.window?.deminiaturize(nil)
+        currentController?.window?.makeKeyAndOrderFront(nil)
+        return false
+    }
+
     nonisolated static func webURLs(from urls: [URL]) -> [URL] {
         urls.filter { url in
             guard let scheme = url.scheme?.lowercased() else { return false }
@@ -159,6 +175,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         opener explicitOpener: UInt64? = nil,
         profile requestedProfile: String? = nil
     ) -> EngineView {
+        if let site = SiteAppConfiguration.current {
+            // App popups get visible windows, never hidden tabs with no strip.
+            let controller = openWindow(profile: Profile.find(site.profile))
+            if let url { controller.loadURL(url) }
+            return controller.activeTab
+        }
         // A profile was named (the brain's open_tab / a restore): the tab goes
         // to that profile's window, creating one — its first tab takes the
         // URL, so exactly one tab_opened is emitted — if there is none.
@@ -192,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⌘T: a new webview, switched to at once, omnibar up. No tab group is
     /// created and no tab bar appears — there is no native tabbing left.
     @objc func newTab(_ sender: Any?) {
+        if SiteAppConfiguration.current != nil { newWindow(sender); return }
         guard let controller = currentController else {
             openWindow()
             return
@@ -337,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Bowser", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit " + (SiteAppConfiguration.current?.url.host ?? "Bowser"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
