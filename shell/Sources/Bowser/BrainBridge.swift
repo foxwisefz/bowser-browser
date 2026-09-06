@@ -363,8 +363,12 @@ final class BrainBridge {
         case "profiles":
             // The brain changed the profile list: refresh ours and the menu.
             Profile.apply(message["profiles"] as? [[String: Any]] ?? [])
+            ProfileSettingsModel.shared.replaceProfiles(Profile.all)
             (NSApp.delegate as? AppDelegate)?.rebuildProfileMenu()
             for controller in BrowserWindowController.all { controller.profileDidChange() }
+
+        case "profile_settings_result":
+            ProfileSettingsModel.shared.receive(message)
 
         case "chrome":
             ChromeSurface.handle(message)

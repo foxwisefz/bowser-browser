@@ -1,13 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// The conventional Settings window (⌘,): a sidebar of sections, each one a
-/// brain-rendered view tree shown with kind :settings — General (declared
-/// settings), Profiles, Mods, and whatever a mod adds. Same tree renderer
-/// and event routing as floating panels, so the brain-side handlers do not
-/// change; only where the UI lives does.
+/// Native macOS preferences toolbar. Built-in panes own their UI; mods
+/// can still register additional settings sections through the surface API.
 @MainActor
-final class SettingsWindow: NSObject, NSWindowDelegate {
+final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     static let shared = SettingsWindow()
 
     struct Section: Identifiable, Equatable {
@@ -31,6 +28,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     let model = Model()
     private var window: NSWindow?
+    private var preferencesToolbar: NSToolbar?
 
     /// Sidebar order: by `order`, then title — pure, tested.
     nonisolated static func ordered(_ sections: [Section]) -> [Section] {
@@ -38,6 +36,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     func set(id: String, title: String, order: Int, tree: [String: Any]) {
+        if id == "profiles" { ProfileSettingsModel.shared.notice = tree["status"] as? String }
         var sections = model.sections.filter { $0.id != id }
         sections.append(Section(id: id, title: title, order: order, tree: tree))
         model.sections = Self.ordered(sections)
@@ -45,12 +44,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             model.selected = model.sections.first?.id
         }
         model.revision += 1
+        refreshToolbar()
     }
 
     func remove(id: String) {
         model.sections.removeAll { $0.id == id }
         if model.selected == id { model.selected = model.sections.first?.id }
         model.revision += 1
+        refreshToolbar()
     }
 
     /// Open (or front) the window; `select` picks a section. Tells the brain
@@ -59,63 +60,113 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         DefaultBrowserSettingsModel.shared.refresh()
         if window == nil {
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
+                contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
                 styleMask: [.titled, .closable, .resizable, .miniaturizable],
                 backing: .buffered,
                 defer: false
             )
             w.title = "Settings"
+            w.toolbarStyle = .preference
+            let toolbar = NSToolbar(identifier: "BowserPreferences")
+            toolbar.delegate = self
+            toolbar.displayMode = .iconAndLabel
+            toolbar.allowsUserCustomization = false
+            w.toolbar = toolbar
+            preferencesToolbar = toolbar
             w.isReleasedWhenClosed = false
             w.tabbingMode = .disallowed
-            w.minSize = NSSize(width: 620, height: 400)
+            w.minSize = NSSize(width: 760, height: 600)
             w.center()
             w.setFrameAutosaveName("BowserSettingsWindow")
-            w.contentView = NSHostingView(rootView: SettingsRootView(model: model))
+            let content = NSHostingView(rootView: SettingsRootView(model: model))
+            content.sizingOptions = []
+            w.contentView = content
             w.delegate = self
             window = w
         }
-        if let id { model.selected = id }
+        if let id, id != model.selected, ProfileSettingsModel.shared.confirmDiscardChanges() { model.selected = id }
+        refreshToolbar()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
         BrainBridge.shared.send(["op": "event", "event": "settings_opened"])
     }
+
+    private var toolbarIdentifiers: [NSToolbarItem.Identifier] {
+        model.sections.map { NSToolbarItem.Identifier($0.id) }
+    }
+
+    private func refreshToolbar() {
+        guard let toolbar = preferencesToolbar else { return }
+        let identifiers = toolbarIdentifiers
+        if toolbar.items.map(\.itemIdentifier) != identifiers {
+            while !toolbar.items.isEmpty { toolbar.removeItem(at: 0) }
+            for (index, id) in identifiers.enumerated() { toolbar.insertItem(withItemIdentifier: id, at: index) }
+        }
+        toolbar.selectedItemIdentifier = model.selected.map { NSToolbarItem.Identifier($0) }
+        window?.title = model.sections.first { $0.id == model.selected }?.title ?? "Settings"
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarIdentifiers }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarIdentifiers }
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarIdentifiers }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard let section = model.sections.first(where: { $0.id == id.rawValue }) else { return nil }
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.label = section.title
+        item.paletteLabel = section.title
+        let symbol: String
+        switch section.id {
+        case "settings": symbol = "gearshape"
+        case "profiles": symbol = "person.crop.rectangle"
+        case "mods": symbol = "puzzlepiece.extension"
+        default: symbol = "slider.horizontal.3"
+        }
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: section.title)
+        item.target = self
+        item.action = #selector(selectToolbarSection(_:))
+        return item
+    }
+
+    @objc private func selectToolbarSection(_ sender: NSToolbarItem) {
+        if sender.itemIdentifier.rawValue != model.selected, ProfileSettingsModel.shared.confirmDiscardChanges() {
+            model.selected = sender.itemIdentifier.rawValue
+        }
+        refreshToolbar()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        ProfileSettingsModel.shared.confirmDiscardChanges()
+    }
+
 }
 
 struct SettingsRootView: View {
     @ObservedObject var model: SettingsWindow.Model
 
     var body: some View {
-        NavigationSplitView {
-            List(model.sections, selection: $model.selected) { section in
-                Text(section.title).tag(section.id)
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-        } detail: {
-            if let section = model.sections.first(where: { $0.id == model.selected }) {
+        Group {
+            if model.selected == "profiles" {
+                ProfilesSettingsView(model: .shared)
+            } else if let section = model.sections.first(where: { $0.id == model.selected }) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(section.title)
-                            .font(.system(size: 22, weight: .bold))
-                            .padding(.bottom, 8)
+                    VStack(alignment: .leading, spacing: 18) {
                         if section.id == "settings" {
                             DefaultBrowserSettingsView(model: .shared)
-                                .padding(.bottom, 14)
                         }
                         SurfaceTreeView(surfaceId: section.id, node: section.tree)
-                            // Keep the profile draft while server validation or
-                            // another profile edit refreshes the section.
-                            .id(section.id == "profiles" ? section.id : "\(section.id)-\(model.revision)")
+                            .id("\(section.id)-\(model.revision)")
                     }
-                    .padding(26)
-                    .frame(maxWidth: 620, alignment: .leading)
+                    .padding(32)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                Text("No settings sections yet — the brain is still connecting.")
-                    .foregroundStyle(.secondary)
+                ProgressView("Loading settings…")
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

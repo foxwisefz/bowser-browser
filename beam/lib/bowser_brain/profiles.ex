@@ -13,7 +13,6 @@ defmodule BowserBrain.Profiles do
   """
   use GenServer
   require Logger
-  import BowserBrain.View
   alias BowserBrain.{Bridge, Chrome, Surface}
 
   @default %{"id" => "default", "name" => "Personal", "tint" => nil, "icon" => nil, "uuid" => nil}
@@ -192,6 +191,21 @@ defmodule BowserBrain.Profiles do
 
   def handle_info({:browser_event, %{"event" => "settings_opened"}}, state), do: {:noreply, render(state)}
 
+  # Built-in preferences use a dedicated request/response protocol. No
+  # mod widgets or field-at-a-time mutations are involved in this editor.
+  def handle_info({:browser_event, %{"event" => "profile_settings", "action" => action,
+      "request_id" => request_id, "values" => values}}, state) do
+    result = settings_action(action, values)
+    response =
+      case result do
+        {:ok, profile_id} -> %{ok: true, profile_id: profile_id}
+        {:error, why} -> %{ok: false, error: why}
+      end
+
+    Bridge.cast_msg(Map.merge(response, %{op: "profile_settings_result", request_id: request_id}))
+    {:noreply, state}
+  end
+
   def handle_info({:browser_event, %{"event" => "omnibar_command", "text" => "profile new " <> rest}}, state) do
     {:noreply, create_and_open(rest, state)}
   end
@@ -304,6 +318,47 @@ defmodule BowserBrain.Profiles do
 
   def create_from_form(_), do: {:error, "enter a name and choose a character"}
 
+  @doc "Validate every field before persisting an edit; failed saves change nothing."
+  def save_from_form(id, %{"name" => name, "character" => character, "tint" => tint})
+      when is_binary(id) and is_binary(name) do
+    name = String.trim(name)
+    existing = by_name(name)
+
+    cond do
+      get(id) == nil -> {:error, "This profile no longer exists."}
+      name == "" -> {:error, "Enter a profile name."}
+      existing != nil and existing["id"] != id -> {:error, "A profile named “#{name}” already exists."}
+      character != nil and character not in @characters -> {:error, "Choose a character from the roster."}
+      tint != nil and (not is_binary(tint) or normalize_tint(tint) == nil) -> {:error, "Choose a valid window color."}
+      true -> update(id, %{"name" => name, "character" => character, "tint" => tint})
+    end
+  end
+
+  def save_from_form(_, _), do: {:error, "Enter a profile name and choose its appearance."}
+
+  defp settings_action("create", values) do
+    case create_from_form(values) do
+      {:ok, profile} -> Chrome.open_window(profile["id"]); {:ok, profile["id"]}
+      error -> error
+    end
+  end
+
+  defp settings_action("update", %{"id" => id} = values) do
+    case save_from_form(id, values) do
+      {:ok, profile} -> {:ok, profile["id"]}
+      error -> error
+    end
+  end
+
+  defp settings_action("delete", %{"id" => id}) when is_binary(id) do
+    case delete(id) do
+      :ok -> {:ok, "default"}
+      error -> error
+    end
+  end
+
+  defp settings_action(_, _), do: {:error, "This profile action is not available."}
+
   defp create_and_open(rest, state) do
     {name, tint, icon} = parse_new(rest)
 
@@ -318,36 +373,9 @@ defmodule BowserBrain.Profiles do
   end
 
   defp render(state, activate \\ false) do
-    response = Map.get(state, :form_response, %{id: 0, created: false, error: nil})
-    rows =
-      Enum.flat_map(list(), fn p ->
-        id = p["id"]
-
-        [
-          row(label(p),
-            subtitle: Enum.join(Enum.reject([id, p["tint"], if(id == "default", do: "default profile")], &is_nil/1), " · "),
-            swatch: p["tint"] || "#8b8d98",
-            trailing:
-              [button("Open window", event: "open", payload: id, compact: true)] ++
-                if(id == "default", do: [], else: [button("Delete", event: "delete", payload: id, compact: true)])
-          ),
-          textfield("name|" <> id, value: p["name"], placeholder: "name ⏎"),
-          %{t: "profile_character_picker", event: "character|" <> id, value: p["character"]},
-          hstack([
-            colorpicker("pick|" <> id, value: p["tint"], label: "Tint"),
-            textfield("tint|" <> id, value: p["tint"] || "", placeholder: "or type: blue / #3e63dd / empty clears ⏎")
-          ]),
-          divider()
-        ]
-      end)
-
     Surface.show(
       :profiles,
-      vstack(
-        [%{t: "profile_creator", response_id: response.id, created: response.created, error: response.error}] ++
-          if(state.status, do: [text(state.status, style: :caption)], else: []) ++
-          [section("Profiles")] ++ rows
-      ),
+      %{t: "profile_settings", status: state.status},
       title: "Profiles",
       kind: :settings,
       section: "Profiles",

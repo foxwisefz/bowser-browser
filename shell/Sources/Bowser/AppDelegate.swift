@@ -300,7 +300,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         profileMenu.addItem(NSMenuItem(title: "New Profile…", action: #selector(showProfiles), keyEquivalent: ""))
     }
 
-    @objc func showProfiles() { SettingsWindow.shared.show(select: "profiles") }
+    @objc func showProfiles() {
+        let model = ProfileSettingsModel.shared
+        guard model.confirmDiscardChanges() else { return }
+        SettingsWindow.shared.show(select: "profiles")
+        model.clearError()
+        model.isPresentingCreate = true
+    }
 
     /// ⌘W closes the TAB now; the window goes with the last one. When the
     /// key window is not a browser window (Settings, a panel), ⌘W closes

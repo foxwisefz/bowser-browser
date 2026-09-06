@@ -101,6 +101,22 @@ defmodule BowserBrain.ProfilesTest do
     assert Profiles.edit_event("bogus|x") == nil
   end
 
+  test "settings saves are atomic and keep the same website store" do
+    {:ok, original} = Profiles.create("Work", tint: "blue", icon: "🧪")
+    {:ok, _} = Profiles.create("Play")
+    attrs = %{"name" => "Renamed", "character" => "bowser", "tint" => "invalid"}
+    assert {:error, _} = Profiles.save_from_form("work", attrs)
+    assert Profiles.get("work") == original
+    assert {:error, _} = Profiles.save_from_form("work", %{attrs | "name" => "Play", "tint" => "red"})
+    assert Profiles.get("work") == original
+    assert {:ok, updated} = Profiles.save_from_form("work", %{attrs | "tint" => "red"})
+    assert updated["name"] == "Renamed"
+    assert updated["character"] == "bowser"
+    assert updated["icon"] == nil
+    assert updated["uuid"] == original["uuid"]
+    assert updated["id"] == original["id"]
+  end
+
   test "edit validates: unknown color refused, duplicate/empty name refused, empty clears" do
     {:ok, _} = Profiles.create("Work", tint: "blue", icon: "🧪")
     {:ok, _} = Profiles.create("Play")
