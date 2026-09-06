@@ -799,17 +799,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     private func prepareFavicon(_ data: Data, generation: UUID, pageURL: URL) {
         let id = webviewId
-        WebsiteIcon.queue.addOperation {
-            guard let path = WebsiteIcon.cachedPath(for: data) else { return }
-            DispatchQueue.main.async {
-                guard let view = EngineView.live[id], view.faviconGeneration == generation,
-                      view.webView.url == pageURL else { return }
-                view.announceFavicon(path)
-                TabAppBundle.rememberIcon(path: path, url: pageURL, profile: view.profileId)
-                if let config = SiteAppConfiguration.current,
-                   TabAppBundle.iconKey(url: config.url, profile: config.profile) == TabAppBundle.iconKey(url: pageURL, profile: view.profileId) {
-                    NSApp.applicationIconImage = NSImage(contentsOfFile: path)
-                }
+        WebsiteIcon.prepare(data) { path in
+            guard let path, let view = EngineView.live[id], view.faviconGeneration == generation,
+                  view.webView.url == pageURL else { return }
+            view.announceFavicon(path)
+            TabAppBundle.rememberIcon(path: path, url: pageURL, profile: view.profileId)
+            if let config = SiteAppConfiguration.current,
+               TabAppBundle.iconKey(url: config.url, profile: config.profile) == TabAppBundle.iconKey(url: pageURL, profile: view.profileId) {
+                NSApp.applicationIconImage = NSImage(contentsOfFile: path)
             }
         }
     }

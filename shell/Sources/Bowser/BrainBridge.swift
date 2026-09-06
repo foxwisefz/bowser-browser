@@ -281,6 +281,7 @@ final class BrainBridge {
                   "app": config.identifier, "profile": config.profile,
                   "windows": BrowserWindowController.all.count, "menu_titles": titles,
                   "app_mod_count": SiteAppRuntime.shared.modCount,
+                  "favicon": EngineView.live.values.first?.faviconPath ?? "",
                   "actions": SiteAppCommands.Action.allCases.map(\.rawValue)])
 
         case "site_bootstrap":

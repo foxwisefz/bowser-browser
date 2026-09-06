@@ -92,7 +92,9 @@ final class SiteAppTests: XCTestCase {
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: shell.appendingPathComponent(".build/debug/Bowser"), to: executable)
         let preparationStart = ProcessInfo.processInfo.systemUptime
-        let bundle = try TabAppBundle.create(url: URL(string: "http://127.0.0.1:9/")!, profile: "default",
+        let server = try SiteIconFixtureServer()
+        defer { server.stop() }
+        let bundle = try TabAppBundle.create(url: server.url, profile: "default",
                                              icon: nil, directory: root, bowser: browser)
         print("Signed site app preparation: \((ProcessInfo.processInfo.systemUptime - preparationStart) * 1000)ms")
         let configuration = try XCTUnwrap(SiteAppConfiguration.parse(Bundle(url: bundle)!.infoDictionary!))
@@ -147,6 +149,11 @@ final class SiteAppTests: XCTestCase {
                     connection?.send(["op": "site_app_info", "id": 733])
                 }
                 if message["op"] as? String == "site_app_info", message["id"] as? Int == 733 {
+                    guard let icon = message["favicon"] as? String, icon.contains("tiles-v1") else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { connection?.send(["op": "site_app_info", "id": 733]) }
+                        return
+                    }
+                    XCTAssertEqual((try? Data(contentsOf: URL(fileURLWithPath: icon))).flatMap(NSBitmapImageRep.init(data:))?.pixelsWide, 1024)
                     let titles = message["menu_titles"] as? [String] ?? []
                     XCTAssertFalse(titles.contains("New Tab"))
                     XCTAssertFalse(titles.contains("New Window In"))
@@ -201,4 +208,42 @@ private final class SiteTestNavigationDelegate: NSObject, WKNavigationDelegate {
     let loaded: XCTestExpectation
     init(_ loaded: XCTestExpectation) { self.loaded = loaded }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
+}
+
+/// Local HTTP fixture exercises the ACTUAL navigation -> favicon -> worker
+/// path in a signed app, where Swift enforces executor checks more strictly.
+private final class SiteIconFixtureServer: @unchecked Sendable {
+    let fd: Int32
+    let url: URL
+    init() throws {
+        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        fd = listener
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let result = withUnsafePointer(to: &address) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        guard result == 0, listen(fd, 8) == 0 else { close(fd); throw CocoaError(.fileReadUnknown) }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        withUnsafeMutablePointer(to: &address) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { _ = getsockname(listener, $0, &length) }
+        }
+        url = URL(string: "http://127.0.0.1:\(UInt16(bigEndian: address.sin_port))/")!
+        DispatchQueue.global().async {
+            let body = "<html><head><link rel='icon' type='image/svg+xml' href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Crect width='128' height='128' fill='purple'/%3E%3Crect x='40' y='40' width='48' height='48' fill='white'/%3E%3C/svg%3E\"></head><body>Icon fixture</body></html>"
+            let response = Array("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)".utf8)
+            while true {
+                let client = accept(listener, nil, nil)
+                if client < 0 { break }
+                var noSignal: Int32 = 1
+                setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+                var input = [UInt8](repeating: 0, count: 8192)
+                _ = read(client, &input, input.count)
+                _ = response.withUnsafeBytes { write(client, $0.baseAddress!, $0.count) }
+                close(client)
+            }
+        }
+    }
+    func stop() { shutdown(fd, SHUT_RDWR); close(fd) }
 }

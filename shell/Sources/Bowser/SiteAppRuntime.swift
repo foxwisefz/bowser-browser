@@ -54,8 +54,9 @@ final class SiteAppRuntime {
         if NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").isEmpty {
             let options = NSWorkspace.OpenConfiguration()
             options.activates = false
-            NSWorkspace.shared.openApplication(at: configuration.mainApp, configuration: options) { _, error in
-                if let error { NSLog("Bowser: main browser startup failed: %@", error.localizedDescription) }
+            Task { @MainActor in
+                do { _ = try await NSWorkspace.shared.openApplication(at: configuration.mainApp, configuration: options) }
+                catch { NSLog("Bowser: main browser startup failed: %@", error.localizedDescription) }
             }
         }
         // The app's own persistent session remains usable if Bowser is down.

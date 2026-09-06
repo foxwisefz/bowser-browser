@@ -14,6 +14,15 @@ enum WebsiteIcon {
         return queue
     }()
 
+    nonisolated static func prepare(_ data: Data, completion: @escaping @MainActor @Sendable (String?) -> Void) {
+        // Form the operation outside MainActor: Swift otherwise inserts a
+        // runtime executor assertion even for an @Sendable block operation.
+        queue.addOperation {
+            let path = cachedPath(for: data)
+            DispatchQueue.main.async { completion(path) }
+        }
+    }
+
     nonisolated static let probe = #"""
     const links = d => Array.from(d.querySelectorAll('link[rel]')).filter(l => /(^|\s)(icon|shortcut|apple-touch-icon|manifest)(\s|$)/i.test(l.rel));
     const candidates = [];
