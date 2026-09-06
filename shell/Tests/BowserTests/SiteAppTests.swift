@@ -1,5 +1,6 @@
 import AppKit
 import JavaScriptCore
+import WebKit
 import XCTest
 @testable import Bowser
 
@@ -32,6 +33,25 @@ final class SiteAppTests: XCTestCase {
         context.evaluateScript(script)
         XCTAssertEqual(context.evaluateScript("values.token")?.toString(), "existing app session")
         XCTAssertEqual(context.evaluateScript("values.key")?.toString(), "value")
+    }
+
+    @MainActor
+    func testStorageExportWorksWhenPageDeletesItsAccessor() async throws {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: .zero, configuration: config)
+        let loaded = expectation(description: "fixture loaded")
+        let delegate = SiteTestNavigationDelegate(loaded)
+        view.navigationDelegate = delegate
+        view.loadHTMLString("<script>localStorage.setItem('session-fixture','present'); delete window.localStorage;</script>",
+                            baseURL: URL(string: "https://login-fixture.invalid"))
+        await fulfillment(of: [loaded], timeout: 10)
+        let pageResult = try await view.evaluateJavaScript("typeof localStorage")
+        XCTAssertEqual(pageResult as? String, "undefined")
+        let storage = try await view.callAsyncJavaScript(SiteAppHub.storageExportScript, arguments: [:], in: nil, contentWorld: .defaultClient)
+        let data = try XCTUnwrap((storage as? String)?.data(using: .utf8))
+        let values = try JSONDecoder().decode([String: String].self, from: data)
+        XCTAssertEqual(values["session-fixture"], "present")
     }
 
     /// Explicit integration gate: launches only a temporary fixture app with
@@ -71,6 +91,9 @@ final class SiteAppTests: XCTestCase {
         let connected = expectation(description: "site socket connected")
         let seeded = expectation(description: "profile cookie seeded before navigation")
         var channel: SiteAppConnection?
+        var sentBootstrap = false
+        let expectedSession = UUID().uuidString
+        let delayedBootstrap = ProcessInfo.processInfo.environment["BOWSER_TEST_LATE_BOOTSTRAP"] == "1"
         let stateHome = root.appendingPathComponent("state/site-apps")
             .appendingPathComponent(configuration.identifier.replacingOccurrences(of: "com.gezim.bowser.site.", with: ""))
         SiteAppConnection.connect(path: stateHome.appendingPathComponent("brain.sock").path) { connection in
@@ -79,16 +102,20 @@ final class SiteAppTests: XCTestCase {
             connection?.onMessage = { message in
                 if message["op"] as? String == "hello" {
                     XCTAssertEqual((message["tabs"] as? [[String: Any]])?.count, 1)
-                    connection?.send(["op": "site_bootstrap", "scripts": [], "styles": [], "cookies": [
-                        ["Name": "site-test-session", "Value": "fixture-only", "Domain": "127.0.0.1", "Path": "/", "HttpOnly": "TRUE"]
-                    ]])
+                    Task { @MainActor in
+                        if delayedBootstrap { try? await Task.sleep(for: .seconds(6)) }
+                        sentBootstrap = true
+                        connection?.send(["op": "site_bootstrap", "scripts": [], "styles": [], "cookies": [
+                            ["Name": "site-test-session", "Value": expectedSession, "Domain": "127.0.0.1", "Path": "/", "HttpOnly": "TRUE"]
+                        ]])
+                    }
                 }
-                if message["event"] as? String == "load_status", message["status"] as? Int == 0 {
+                if sentBootstrap, message["event"] as? String == "load_status", message["status"] as? Int == 0 {
                     connection?.send(["op": "get_cookies", "url": "http://127.0.0.1:9/", "id": 731])
                 }
                 if message["op"] as? String == "cookies_result", message["id"] as? Int == 731 {
                     let cookies = message["cookies"] as? [[String: Any]] ?? []
-                    XCTAssertTrue(cookies.contains { $0["name"] as? String == "site-test-session" && $0["value"] as? String == "fixture-only" && $0["http_only"] as? Bool == true })
+                    XCTAssertTrue(cookies.contains { $0["name"] as? String == "site-test-session" && $0["value"] as? String == expectedSession && $0["http_only"] as? Bool == true })
                     seeded.fulfill()
                 }
             }
@@ -113,4 +140,11 @@ final class SiteAppTests: XCTestCase {
         XCTAssertTrue(running.isTerminated)
         XCTAssertEqual(mainPIDs, Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").map(\.processIdentifier)))
     }
+}
+
+@MainActor
+private final class SiteTestNavigationDelegate: NSObject, WKNavigationDelegate {
+    let loaded: XCTestExpectation
+    init(_ loaded: XCTestExpectation) { self.loaded = loaded }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
 }

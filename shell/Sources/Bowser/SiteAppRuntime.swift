@@ -29,6 +29,7 @@ struct SiteAppConfiguration: Codable, Equatable {
 final class SiteAppRuntime {
     static let shared = SiteAppRuntime()
     private var loaded = false
+    private var receivedBootstrap = false
     private var seededStorage = false
     private weak var controller: BrowserWindowController?
 
@@ -58,8 +59,9 @@ final class SiteAppRuntime {
         let styles = message["styles"] as? [String] ?? []
         EngineView.rememberUserContent(scripts: scripts, styles: styles)
         controller.activeTab.applyUserContent(scripts: scripts, styles: styles, reload: false)
-        guard !loaded else { return }
-        loaded = true // only seed once; reconnect must never navigate the app
+        guard !receivedBootstrap else { return }
+        receivedBootstrap = true
+        loaded = true // reconnect must never navigate the app; a late FIRST bootstrap must apply
         if let storage = message["local_storage"] as? String,
            let script = Self.storageSeedScript(storage, url: SiteAppConfiguration.current?.url) {
             controller.activeTab.webView.configuration.userContentController.addUserScript(
@@ -156,6 +158,8 @@ final class SiteAppHub {
         }
     }
 
+    nonisolated static let storageExportScript = "return JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k,localStorage.getItem(k)])))"
+
     private func bootstrap(_ connection: SiteAppConnection, configuration: SiteAppConfiguration) {
         let profile = Profile.find(configuration.profile)
         profile.dataStore.httpCookieStore.getAllCookies { cookies in
@@ -178,8 +182,15 @@ final class SiteAppHub {
                     $0.profileId == profile.id && $0.webView.url?.host == configuration.url.host
                         && $0.webView.url?.scheme == configuration.url.scheme && $0.webView.url?.port == configuration.url.port
                 }) {
-                    source.webView.evaluateJavaScript("JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k,localStorage.getItem(k)])))") { value, _ in
-                        send(value as? String)
+                    // Sites such as Discord delete the page world's storage
+                    // accessor. The isolated world still has the native one.
+                    source.webView.callAsyncJavaScript(Self.storageExportScript, arguments: [:], in: nil, in: .defaultClient) { result in
+                        switch result {
+                        case .success(let value): send(value as? String)
+                        case .failure(let error):
+                            NSLog("Bowser: site login storage export failed: %@", error.localizedDescription)
+                            send(nil)
+                        }
                     }
                 } else { send(nil) }
             }
