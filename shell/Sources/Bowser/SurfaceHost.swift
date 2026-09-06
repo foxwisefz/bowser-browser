@@ -243,11 +243,13 @@ final class SurfaceManager {
             ZStack(alignment: edge == "right" ? .leading : .trailing) {
                 SurfaceTreeView(surfaceId: surfaceId, node: tree)
                     .environmentObject(cursor)
-                Capsule()
-                    .fill(Color.secondary.opacity(0.6))
-                    .frame(width: 3.5, height: 46)
-                    .padding(edge == "right" ? .leading : .trailing, 1.5)
-                    .shadow(color: .black.opacity(0.3), radius: 2)
+                if surfaceId != "edge_dock" {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.6))
+                        .frame(width: 3.5, height: 46)
+                        .padding(edge == "right" ? .leading : .trailing, 1.5)
+                        .shadow(color: .black.opacity(0.3), radius: 2)
+                }
             }
             .frame(maxHeight: .infinity)
         )
@@ -884,6 +886,36 @@ enum ImageCache {
     }
 }
 
+/// Left-edge notch: concave shoulders flow out of the screen edge into
+/// rounded outer corners. The straight left side stays flush with the screen.
+struct DockNotchShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let shoulder = min(18.0, rect.height / 4, rect.width / 3)
+        let corner = min(22.0, rect.height / 4, rect.width / 2)
+        let x = rect.minX, y = rect.minY, right = rect.maxX, bottom = rect.maxY
+        let k = 0.5522847498
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: y))
+        path.addCurve(to: CGPoint(x: x + shoulder, y: y + shoulder),
+                      control1: CGPoint(x: x, y: y + shoulder * k),
+                      control2: CGPoint(x: x + shoulder * (1 - k), y: y + shoulder))
+        path.addLine(to: CGPoint(x: right - corner, y: y + shoulder))
+        path.addCurve(to: CGPoint(x: right, y: y + shoulder + corner),
+                      control1: CGPoint(x: right - corner * (1 - k), y: y + shoulder),
+                      control2: CGPoint(x: right, y: y + shoulder + corner * (1 - k)))
+        path.addLine(to: CGPoint(x: right, y: bottom - shoulder - corner))
+        path.addCurve(to: CGPoint(x: right - corner, y: bottom - shoulder),
+                      control1: CGPoint(x: right, y: bottom - shoulder - corner * (1 - k)),
+                      control2: CGPoint(x: right - corner * (1 - k), y: bottom - shoulder))
+        path.addLine(to: CGPoint(x: x + shoulder, y: bottom - shoulder))
+        path.addCurve(to: CGPoint(x: x, y: bottom),
+                      control1: CGPoint(x: x + shoulder * (1 - k), y: bottom - shoulder),
+                      control2: CGPoint(x: x, y: bottom - shoulder * k))
+        path.closeSubpath()
+        return path
+    }
+}
+
 /// Proximity-magnification icon strip — the physics half of dock-like UIs.
 /// Mods supply items (icons + ids); this widget owns cursor tracking and
 /// distance-falloff scaling natively, emitting only discrete select events.
@@ -894,6 +926,7 @@ struct MagnifyStripView: View {
     let emit: (String, Any?) -> Void
 
     @EnvironmentObject var cursor: CursorModel
+    @Environment(\.colorScheme) private var colorScheme
 
     // Dock bounce (bowser-browser-r0g): when the active item changes, the
     // newly active icon hops outward once. The stamp is the animation
@@ -941,49 +974,62 @@ struct MagnifyStripView: View {
                 viewHeight: geo.size.height, count: items.count,
                 size: baseSize, spacing: spacing, minPad: topPad
             )
-            VStack(spacing: spacing) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    let s = scale(forRow: index, top: top)
-                    let active = item["active"] as? Bool ?? false
-                    Button(action: { emit(eventId, item["id"]) }) {
-                        ZStack(alignment: .bottom) {
-                            icon(for: item)
-                                .frame(width: baseSize * s, height: baseSize * s)
-                                .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                            if active {
-                                Circle()
-                                    .fill(Color.accentColor)
-                                    .frame(width: 4, height: 4)
-                                    .offset(y: 5)
+            let contentHeight = items.indices.reduce(CGFloat.zero) {
+                $0 + baseSize * scale(forRow: $1, top: top)
+            } + CGFloat(max(0, items.count - 1)) * spacing
+            ZStack(alignment: .topLeading) {
+                if surfaceId == "edge_dock", !items.isEmpty {
+                    DockNotchShape()
+                        .fill(.black)
+                        .frame(width: geo.size.width, height: contentHeight + 64)
+                        .offset(y: top - 32)
+                        .allowsHitTesting(false)
+                }
+                VStack(spacing: spacing) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        let s = scale(forRow: index, top: top)
+                        let active = item["active"] as? Bool ?? false
+                        Button(action: { emit(eventId, item["id"]) }) {
+                            ZStack(alignment: .bottom) {
+                                icon(for: item)
+                                    .frame(width: baseSize * s, height: baseSize * s)
+                                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                                if active {
+                                    Circle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 4, height: 4)
+                                        .offset(y: 5)
+                                }
+                            }
+                            .frame(height: baseSize * s)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .overlay {
+                            if surfaceId == "edge_dock", let id = item["id"] as? String,
+                               let webviewID = UInt64(id) {
+                                TabAppDragTarget(webviewID: webviewID) { emit(eventId, item["id"]) }
                             }
                         }
-                        .frame(height: baseSize * s)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .overlay {
-                        if surfaceId == "edge_dock", let id = item["id"] as? String,
-                           let webviewID = UInt64(id) {
-                            TabAppDragTarget(webviewID: webviewID) { emit(eventId, item["id"]) }
+                        .help(item["title"] as? String ?? "")
+                        .animation(.easeOut(duration: 0.09), value: cursor.point)
+                        // The hop: out fast, settle back springy. The left-edge
+                        // dock bounces rightward, into the page.
+                        .phaseAnimator([false, true], trigger: active ? bounceStamp : -1) { content, out in
+                            content.offset(x: out && active ? (surfaceId == "edge_dock" ? 4 : 10) : 0)
+                        } animation: { out in
+                            out ? .spring(duration: 0.15, bounce: 0.4)
+                                : .spring(duration: 0.45, bounce: 0.65)
                         }
                     }
-                    .help(item["title"] as? String ?? "")
-                    .animation(.easeOut(duration: 0.09), value: cursor.point)
-                    // The hop: out fast, settle back springy. The left-edge
-                    // dock bounces rightward, into the page.
-                    .phaseAnimator([false, true], trigger: active ? bounceStamp : -1) { content, out in
-                        content.offset(x: out && active ? 10 : 0)
-                    } animation: { out in
-                        out ? .spring(duration: 0.15, bounce: 0.4)
-                            : .spring(duration: 0.45, bounce: 0.65)
-                    }
+                }
+                .padding(.top, top)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .onChange(of: activeId) { _, newValue in
+                    if newValue != nil { bounceStamp += 1 }
                 }
             }
-            .padding(.top, top)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .onChange(of: activeId) { _, newValue in
-                if newValue != nil { bounceStamp += 1 }
-            }
+            .environment(\.colorScheme, surfaceId == "edge_dock" ? .dark : colorScheme)
         }
     }
 
