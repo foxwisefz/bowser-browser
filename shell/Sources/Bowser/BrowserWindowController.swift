@@ -35,8 +35,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var profile: Profile = .defaultProfile
     private let profileBadge = NSTextField(labelWithString: "")
     private let profilePortrait = NSImageView()
-    /// Minimal chrome: the traffic lights stay hidden until the cursor is
-    /// near ⌘K; then they fade in and the keycap slides right to make room.
+    /// Hover reveals secondary toolbar actions; native window buttons stay put.
     private let reveal = ChromeReveal()
     private var revealHide: DispatchWorkItem?
 
@@ -67,11 +66,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.titleVisibility = .hidden
-        // Owner's call: no traffic lights — ⌘+K takes the corner. Close via
-        // Cmd+W/Cmd+Q as usual.
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
         self.init(window: window)
         self.profile = profile
 
@@ -112,9 +106,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
             titlebar.addSubview(titleLabel)
             NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor, constant: 15),
+                hosting.leadingAnchor.constraint(equalTo: window.standardWindowButton(.zoomButton)!.trailingAnchor, constant: 14),
                 // titlebar view is 28pt but the band is 34 — +3 centers in the band
-                hosting.centerYAnchor.constraint(equalTo: titlebar.centerYAnchor, constant: 3),
+                hosting.centerYAnchor.constraint(equalTo: window.standardWindowButton(.zoomButton)!.centerYAnchor),
                 hosting.heightAnchor.constraint(equalToConstant: 24),
                 // Fixed width: a content-sized hosting view GROWS under the
                 // cursor on hover, flipping hover off/on in a jank loop and
@@ -127,22 +121,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             ])
         }
         clusterHosting = hosting
-
-        // Hover zone over the title bar's leading edge (geometric tracking,
-        // so it fires even under the cluster view): reveals the window
-        // buttons. Native buttons — real close/minimize/zoom behavior.
-        if let titlebar = window.standardWindowButton(.closeButton)?.superview {
-            let zone = RevealZone(onEnter: { [weak self] in self?.setWindowButtons(shown: true) },
-                                  onExit: { [weak self] in self?.setWindowButtons(shown: false) })
-            zone.translatesAutoresizingMaskIntoConstraints = false
-            titlebar.addSubview(zone, positioned: .below, relativeTo: nil)
-            NSLayoutConstraint.activate([
-                zone.leadingAnchor.constraint(equalTo: titlebar.leadingAnchor),
-                zone.topAnchor.constraint(equalTo: titlebar.topAnchor),
-                zone.bottomAnchor.constraint(equalTo: titlebar.bottomAnchor),
-                zone.widthAnchor.constraint(equalToConstant: 150),
-            ])
-        }
 
         // Profile identity in the title bar: "🧪 Work" in the profile's tint,
         // trailing edge. Hidden for an unstyled default profile — today's look.
@@ -417,14 +395,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         applyThemeColor(activeTab?.themeColor)
     }
 
-    private lazy var controlsPop: WindowControlsPop? = window.map { w in
-        let pop = WindowControlsPop(owner: w)
-        pop.onVisibility = { [weak self] shown in self?.reveal.lights = shown }
-        return pop
-    }
-
-    private func setWindowButtons(shown: Bool) {
-        controlsPop?.set(shown: shown)
+    /// Hover changes only local toolbar appearance, never window ordering.
+    func setToolbarHovered(_ shown: Bool) {
+        revealHide?.cancel()
+        guard window?.isKeyWindow == true else { reveal.lights = false; return }
+        if shown { reveal.lights = true }
+        else {
+            let work = DispatchWorkItem { [weak self] in self?.reveal.lights = false }
+            revealHide = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        }
     }
 
     private func adoptChrome(from view: EngineView) {
@@ -469,7 +449,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             modClick: { id in
                 ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
             },
-            onHoverChanged: { [weak self] inside in self?.controlsPop?.set(cluster: inside) }
+            onHoverChanged: { [weak self] inside in self?.setToolbarHovered(inside) }
         )
     }
 
@@ -545,26 +525,6 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 /// Shared hover state between the AppKit reveal zone and the SwiftUI cluster.
 final class ChromeReveal: ObservableObject {
     @Published var lights = false
-}
-
-/// Transparent, geometric hover zone (tracking areas fire by location, not
-/// hit-testing, so it works beneath the cluster view).
-private final class RevealZone: NSView {
-    let onEnter: () -> Void
-    let onExit: () -> Void
-    init(onEnter: @escaping () -> Void, onExit: @escaping () -> Void) {
-        self.onEnter = onEnter; self.onExit = onExit
-        super.init(frame: .zero)
-    }
-    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect], owner: self))
-    }
-    override func mouseEntered(with event: NSEvent) { onEnter() }
-    override func mouseExited(with event: NSEvent) { onExit() }
 }
 
 private struct CmdCluster: View {

@@ -126,7 +126,15 @@ final class SiteAppTests: XCTestCase {
         let delayedBootstrap = ProcessInfo.processInfo.environment["BOWSER_TEST_LATE_BOOTSTRAP"] == "1"
         let stateHome = root.appendingPathComponent("state/site-apps")
             .appendingPathComponent(configuration.identifier.replacingOccurrences(of: "com.gezim.bowser.site.", with: ""))
-        SiteAppConnection.connect(path: stateHome.appendingPathComponent("brain.sock").path) { connection in
+        let socketPath = stateHome.appendingPathComponent("brain.sock").path
+        // LaunchServices can report finished before the listener's background
+        // queue has bound its socket. Wait for readiness, not a fixed delay.
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath: socketPath) { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socketPath), "Site app listener did not start: \(socketPath)")
+        SiteAppConnection.connect(path: socketPath) { connection in
             channel = connection
             XCTAssertNotNil(connection)
             connection?.onMessage = { message in

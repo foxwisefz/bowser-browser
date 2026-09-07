@@ -3,6 +3,26 @@ import XCTest
 
 final class WindowControlActionTests: XCTestCase {
     @MainActor
+    func testNativeButtonsStayVisibleAndBackgroundHoverCreatesNoPanel() throws {
+        let controller = BrowserWindowController(profile: .defaultProfile)
+        let window = try XCTUnwrap(controller.window)
+        defer { window.close() }
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            let button = try XCTUnwrap(window.standardWindowButton(kind))
+            XCTAssertFalse(button.isHidden)
+            XCTAssertTrue(button.isEnabled)
+        }
+        let front = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        front.makeKeyAndOrderFront(nil)
+        defer { front.close() }
+        let keyBefore = NSApp.keyWindow
+        controller.setToolbarHovered(true)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertTrue(window.childWindows?.isEmpty ?? true)
+        XCTAssertTrue(NSApp.keyWindow === keyBefore)
+    }
+
+    @MainActor
     func testCustomLightsUseTheStandardWindowResponderActions() {
         XCTAssertEqual(WindowControlAction.close.selectorName, "performClose:")
         XCTAssertEqual(WindowControlAction.minimize.selectorName, "performMiniaturize:")
