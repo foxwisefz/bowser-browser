@@ -51,9 +51,16 @@ final class WebsiteIconTests: XCTestCase {
         let after = try XCTUnwrap(NSBitmapImageRep(data: badged))
         XCTAssertEqual(before.colorAt(x: 512, y: 512), after.colorAt(x: 512, y: 512))
         XCTAssertEqual(before.colorAt(x: 832, y: 832), after.colorAt(x: 832, y: 832))
-        // Bitmap coordinates are top-down: the circle extends beyond the tile.
-        XCTAssertEqual(before.colorAt(x: 940, y: 192)?.alphaComponent, 0)
-        XCTAssertGreaterThan(try XCTUnwrap(after.colorAt(x: 940, y: 192)).alphaComponent, 0.95)
+        // Bitmap coordinates are top-down. The badge stays inside the tile
+        // so macOS does not shrink it into another padded background.
+        XCTAssertEqual(after.colorAt(x: 940, y: 192)?.alphaComponent, 0)
+        XCTAssertNotEqual(before.colorAt(x: 752, y: 272), after.colorAt(x: 752, y: 272))
+        for y in stride(from: 0, to: 1024, by: 8) {
+            for x in stride(from: 0, to: 1024, by: 8) {
+                XCTAssertEqual(before.colorAt(x: x, y: y)?.alphaComponent,
+                               after.colorAt(x: x, y: y)?.alphaComponent)
+            }
+        }
         let other = try XCTUnwrap(IconRenderer.badgedPNG(tile, badge: XCTUnwrap(ProfileCharacter.shyGuy.image?.tiffRepresentation)))
         XCTAssertNotEqual(badged, other)
         try badged.write(to: URL(fileURLWithPath: "/private/tmp/bowser-profile-badge-preview.png"))

@@ -207,7 +207,7 @@ defmodule BowserBrain.IconJobs do
   end
 
   defp render(data, badge, opts) do
-    key = :crypto.hash(:sha256, ["profile-badge-v1", data, badge]) |> Base.encode16(case: :lower)
+    key = :crypto.hash(:sha256, ["profile-badge-v2", data, badge]) |> Base.encode16(case: :lower)
     directory = Path.join(opts.root, "favicons/tiles-v2")
     path = Path.join(directory, key <> ".png")
     icns = Path.join(directory, key <> ".icns")

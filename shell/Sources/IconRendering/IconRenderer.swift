@@ -97,15 +97,18 @@ public enum IconRenderer {
                 bytesPerRow: 4096, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.draw(base, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
-        // Quartz has its origin at the lower left. Leave enough edge padding
-        // for the badge to survive Dock scaling without clipping its outline.
-        let circle = CGRect(x: 688, y: 688, width: 288, height: 288)
+        // Preserve the rounded outer silhouette: Tahoe shrinks irregular
+        // silhouettes into an extra grey tile. Keep the badge inside it.
+        ctx.addPath(CGPath(roundedRect: CGRect(x: 100, y: 100, width: 824, height: 824),
+                           cornerWidth: 184, cornerHeight: 184, transform: nil))
+        ctx.clip()
+        let circle = CGRect(x: 596, y: 596, width: 312, height: 312)
         ctx.setShadow(offset: CGSize(width: 0, height: -4), blur: 12,
                       color: CGColor(gray: 0, alpha: 0.35))
         ctx.setFillColor(CGColor(gray: 1, alpha: 1))
         ctx.fillEllipse(in: circle)
         ctx.setShadow(offset: .zero, blur: 0, color: nil)
-        let scale = 248 / CGFloat(max(portrait.width, portrait.height))
+        let scale = 292 / CGFloat(max(portrait.width, portrait.height))
         let size = CGSize(width: CGFloat(portrait.width) * scale, height: CGFloat(portrait.height) * scale)
         ctx.interpolationQuality = .high
         ctx.draw(portrait, in: CGRect(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2,
