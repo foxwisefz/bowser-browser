@@ -15,9 +15,14 @@ defmodule BowserBrain.ProfilesTest do
   end
 
   test "the default profile always exists and comes first" do
-    assert [%{"id" => "default", "name" => "Personal"}] = Profiles.list()
+    assert [%{"id" => "default", "name" => "Default", "character" => "bowser"}] = Profiles.list()
     {:ok, _} = Profiles.create("Work", tint: "blue", icon: "🧪")
     assert ["default", "work"] = Enum.map(Profiles.list(), & &1["id"])
+  end
+
+  test "legacy Personal defaults migrate without changing website identity" do
+    File.write!(Profiles.path(), JSON.encode!([%{"id" => "default", "name" => "Personal", "uuid" => nil, "tint" => "#ab0500"}]))
+    assert %{"id" => "default", "name" => "Default", "character" => "bowser", "uuid" => nil, "tint" => "#ab0500"} = Profiles.get("default")
   end
 
   test "create slugs the id, normalizes the tint, mints a uuid; duplicates refused" do

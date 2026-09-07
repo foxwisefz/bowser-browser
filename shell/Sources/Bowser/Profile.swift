@@ -9,13 +9,13 @@ import WebKit
 /// at launch so a cold start knows its profiles before the brain connects.
 struct Profile: Codable, Equatable {
     let id: String
-    let name: String
+    var name: String
     var tint: String?
     var icon: String?
     var uuid: String?
     var character: String? = nil
 
-    static let defaultProfile = Profile(id: "default", name: "Personal", tint: nil, icon: nil, uuid: nil)
+    static let defaultProfile = Profile(id: "default", name: "Default", tint: nil, icon: nil, uuid: nil, character: "bowser")
 
     @MainActor static var all: [Profile] = load()
 
@@ -51,7 +51,9 @@ struct Profile: Codable, Equatable {
 
     nonisolated static func ensureDefault(_ list: [Profile]) -> [Profile] {
         let others = list.filter { $0.id != "default" }
-        let def = list.first { $0.id == "default" } ?? defaultProfile
+        var def = list.first { $0.id == "default" } ?? defaultProfile
+        if def.name == "Personal" { def.name = "Default" }
+        if def.character == nil && def.icon == nil { def.character = "bowser" }
         return [def] + others
     }
 

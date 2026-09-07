@@ -15,7 +15,7 @@ defmodule BowserBrain.Profiles do
   require Logger
   alias BowserBrain.{Bridge, Chrome, Surface}
 
-  @default %{"id" => "default", "name" => "Personal", "tint" => nil, "icon" => nil, "uuid" => nil}
+  @default %{"id" => "default", "name" => "Default", "tint" => nil, "icon" => nil, "uuid" => nil, "character" => "bowser"}
   @characters ~w(mario luigi peach yoshi toad bowser wario waluigi daisy donkey-kong diddy-kong rosalina captain-toad toadette birdo bowser-jr kamek shy-guy)
   @named %{
     "red" => "#e5484d", "orange" => "#f76b15", "yellow" => "#f5d90a", "green" => "#30a46c",
@@ -397,6 +397,8 @@ defmodule BowserBrain.Profiles do
       |> Enum.map(&Map.merge(%{"tint" => nil, "icon" => nil, "uuid" => nil}, &1))
 
     default = Enum.find(profiles, @default, &(&1["id"] == "default"))
+    default = if default["name"] == "Personal", do: Map.put(default, "name", "Default"), else: default
+    default = if is_nil(default["character"]) and is_nil(default["icon"]), do: Map.put(default, "character", "bowser"), else: default
     [default | Enum.reject(profiles, &(&1["id"] == "default"))]
   end
 

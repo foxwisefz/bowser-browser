@@ -27,6 +27,17 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(Profile.ensureDefault([]).map(\.id), ["default"])
     }
 
+    func testLegacyDefaultMigratesNameAndPortraitWithoutChangingStoreIdentity() {
+        let legacy = Profile(id: "default", name: "Personal", tint: "#ab0500", icon: nil, uuid: nil)
+        let migrated = Profile.ensureDefault([legacy])[0]
+        XCTAssertEqual(migrated.name, "Default")
+        XCTAssertEqual(migrated.avatar, .bowser)
+        XCTAssertEqual(migrated.id, legacy.id)
+        XCTAssertEqual(migrated.uuid, legacy.uuid)
+        XCTAssertEqual(migrated.tint, legacy.tint)
+        XCTAssertEqual(Profile.defaultProfile.avatar, .bowser)
+    }
+
     func testCharacterPersistenceAndLegacyProfileCompatibility() throws {
         let old = Data(#"{"id":"work","name":"Work","icon":"🧪","uuid":null,"tint":null}"#.utf8)
         let legacy = try JSONDecoder().decode(Profile.self, from: old)
