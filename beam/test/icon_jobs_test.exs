@@ -121,6 +121,20 @@ defmodule BowserBrain.IconJobsTest do
              IconJobs.icon_key("https://example.com", "personal")
   end
 
+  test "profile portrait participates in rendering and cache identity", %{root: root, tasks: tasks} do
+    executable = worker(root, "printf '\\211PNG\\r\\n\\032\\nfixture' > \"$2\"\nprintf 'icns' > \"$3\"\ncat \"$4\" >> \"$3\"\n")
+    jobs = start_jobs(root, tasks, executable)
+    first = Map.put(event("bowser", [candidate("site")]), "profile_badge", Base.encode64("bowser"))
+    send(jobs, {:browser_event, first})
+    assert_receive %{op: "icon_ready", icns: a}, 3000
+    assert File.read!(a) == "icnsbowser"
+    second = Map.put(event("shy-guy", [candidate("site")]), "profile_badge", Base.encode64("shy-guy"))
+    send(jobs, {:browser_event, second})
+    assert_receive %{op: "icon_ready", icns: b, attempts: 1}, 3000
+    assert File.read!(b) == "icnsshy-guy"
+    refute a == b
+  end
+
   defp wait_idle(jobs, tries \\ 100)
   defp wait_idle(_, 0), do: flunk("icon jobs failed to drain")
 

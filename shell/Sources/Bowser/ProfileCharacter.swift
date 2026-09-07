@@ -68,7 +68,9 @@ enum ProfileCharacter: String, CaseIterable, Identifiable {
 
     @MainActor private static func loadSheet(_ sheet: String) -> CGImage? {
         // Installed app resources first; SwiftPM's bundle for dev and tests.
-        let installed = Bundle.main.resourceURL?
+        let resourceURL = SiteAppConfiguration.current?.mainApp.appendingPathComponent("Contents/Resources")
+            ?? Bundle.main.resourceURL
+        let installed = resourceURL?
             .appendingPathComponent("ProfileCharacters/\(sheet).png")
         let url: URL?
         if Bundle.main.bundleURL.pathExtension == "app" {

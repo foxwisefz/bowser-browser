@@ -42,6 +42,24 @@ final class WebsiteIconTests: XCTestCase {
         XCTAssertGreaterThan(bitmap.colorAt(x: 512, y: 512)!.usingColorSpace(.sRGB)!.redComponent, 0.95)
     }
 
+    @MainActor
+    func testProfileBadgeIsAtUpperRightAndLeavesSiteMarkIntact() throws {
+        let tile = try XCTUnwrap(IconRenderer.normalizedPNG(fixture()))
+        let portrait = try XCTUnwrap(ProfileCharacter.bowser.image?.tiffRepresentation)
+        let badged = try XCTUnwrap(IconRenderer.badgedPNG(tile, badge: portrait))
+        let before = try XCTUnwrap(NSBitmapImageRep(data: tile))
+        let after = try XCTUnwrap(NSBitmapImageRep(data: badged))
+        XCTAssertEqual(before.colorAt(x: 512, y: 512), after.colorAt(x: 512, y: 512))
+        XCTAssertEqual(before.colorAt(x: 832, y: 832), after.colorAt(x: 832, y: 832))
+        // Bitmap coordinates are top-down: the circle extends beyond the tile.
+        XCTAssertEqual(before.colorAt(x: 940, y: 192)?.alphaComponent, 0)
+        XCTAssertGreaterThan(try XCTUnwrap(after.colorAt(x: 940, y: 192)).alphaComponent, 0.95)
+        let other = try XCTUnwrap(IconRenderer.badgedPNG(tile, badge: XCTUnwrap(ProfileCharacter.shyGuy.image?.tiffRepresentation)))
+        XCTAssertNotEqual(badged, other)
+        try badged.write(to: URL(fileURLWithPath: "/private/tmp/bowser-profile-badge-preview.png"))
+        XCTAssertNotNil(IconRenderer.icns(badged))
+    }
+
     func testInvalidAndOversizedInputsAreRejected() {
         XCTAssertNil(IconRenderer.normalizedPNG(Data("bad image".utf8)))
         XCTAssertNil(IconRenderer.normalizedPNG(Data(repeating: 0, count: 4_000_001)))

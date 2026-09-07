@@ -371,6 +371,7 @@ final class BrainBridge {
             ProfileSettingsModel.shared.replaceProfiles(Profile.all)
             (NSApp.delegate as? AppDelegate)?.rebuildProfileMenu()
             for controller in BrowserWindowController.all { controller.profileDidChange() }
+            for tab in EngineView.live.values { tab.resendIconCandidates() }
 
         case "profile_settings_result":
             ProfileSettingsModel.shared.receive(message)

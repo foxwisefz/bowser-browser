@@ -82,6 +82,37 @@ public enum IconRenderer {
     }
 
 
+    /// Keep the website tile intact and overlay the profile at its upper right.
+    /// Only the saved app ICNS uses this; tab favicons remain unbadged.
+    public static func badgedPNG(_ tile: Data, badge: Data) -> Data? {
+        guard tile.count <= 4_000_000, badge.count <= 1_500_000,
+              let source = CGImageSourceCreateWithData(tile as CFData, nil),
+              let base = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let badgeSource = CGImageSourceCreateWithData(badge as CFData, nil),
+              let portrait = CGImageSourceCreateThumbnailAtIndex(badgeSource, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 256
+              ] as CFDictionary),
+              let ctx = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8,
+                bytesPerRow: 4096, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(base, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
+        // Quartz has its origin at the lower left. Leave enough edge padding
+        // for the badge to survive Dock scaling without clipping its outline.
+        let circle = CGRect(x: 688, y: 688, width: 288, height: 288)
+        ctx.setShadow(offset: CGSize(width: 0, height: -4), blur: 12,
+                      color: CGColor(gray: 0, alpha: 0.35))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fillEllipse(in: circle)
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        let scale = 248 / CGFloat(max(portrait.width, portrait.height))
+        let size = CGSize(width: CGFloat(portrait.width) * scale, height: CGFloat(portrait.height) * scale)
+        ctx.interpolationQuality = .high
+        ctx.draw(portrait, in: CGRect(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2,
+                                      width: size.width, height: size.height))
+        return ctx.makeImage().flatMap(png)
+    }
+
     public static func icns(_ data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }

@@ -135,7 +135,7 @@ defmodule BowserBrain.IconJobs do
     Enum.reduce_while(rank(event["candidates"]), {:error, :no_icon}, fn candidate, _ ->
       case candidate_data(candidate, opts) do
         {:ok, data} when byte_size(data) <= 4_000_000 ->
-          case render(data, opts) do
+          case render(data, badge_data(event), opts) do
             {:ok, _} = result -> {:halt, result}
             error -> {:cont, error}
           end
@@ -195,8 +195,19 @@ defmodule BowserBrain.IconJobs do
     end
   end
 
-  defp render(data, opts) do
-    key = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+  defp badge_data(event) do
+    case event["profile_badge"] do
+      encoded when is_binary(encoded) and byte_size(encoded) <= 1_500_000 ->
+        case Base.decode64(encoded) do
+          {:ok, data} -> data
+          _ -> ""
+        end
+      _ -> ""
+    end
+  end
+
+  defp render(data, badge, opts) do
+    key = :crypto.hash(:sha256, ["profile-badge-v1", data, badge]) |> Base.encode16(case: :lower)
     directory = Path.join(opts.root, "favicons/tiles-v2")
     path = Path.join(directory, key <> ".png")
     icns = Path.join(directory, key <> ".icns")
@@ -213,11 +224,14 @@ defmodule BowserBrain.IconJobs do
         output = Path.join(temp, "icon.png")
         bundle_icon = Path.join(temp, "icon.icns")
         File.write!(input, data)
+        badge_path = Path.join(temp, "badge")
+        if badge != "", do: File.write!(badge_path, badge)
+        args = [input, output, bundle_icon] ++ if(badge == "", do: [], else: [badge_path])
         # One retry for transient worker failures. A bad candidate then yields
         # to the next candidate; nothing gets linked to the browser or Bridge.
         result =
           Enum.reduce_while(1..2, {:error, :worker}, fn attempt, _ ->
-            case run_worker(opts.worker, [input, output, bundle_icon], opts.timeout) do
+            case run_worker(opts.worker, args, opts.timeout) do
               :ok -> {:halt, {:ok, attempt}}
               error -> {:cont, error}
             end
