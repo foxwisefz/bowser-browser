@@ -70,6 +70,12 @@ Prefer to run the browser without the brain? `shell/.build/debug/Bowser`
 runs standalone (start order doesn't matter — they find each other).
 `BOWSER_NO_SPAWN=1` stops the brain from spawning its own browser.
 
+For the installed app, run `bin/install`, then open `~/Applications/Bowser.app`
+normally. The app starts its backend automatically. Closing a window leaves
+Bowser running; opening it from the Dock creates a window again. **Quit Bowser**
+(or ⌘Q) saves the session before closing windows and stops the backend and its
+mod processes. Backend startup failures show a retry dialog with the log path.
+
 ### Your first mod
 
 ```sh

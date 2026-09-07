@@ -33,6 +33,26 @@ defmodule BowserBrain.SessionTest do
     state
   end
 
+  test "quit freezes the full session before window teardown", %{path: path} do
+    state = base_state(%{tabs: %{1 => "https://a.example/", 2 => "https://b.example/"}, active: 2,
+                         profiles: %{1 => "default", 2 => "work"}})
+    {:reply, :ok, quitting} = Session.handle_call(:prepare_quit, self(), state)
+    before = File.read!(path)
+    quitting = event(quitting, %{"event" => "webview_closed", "webview" => 1})
+    quitting = event(quitting, %{"event" => "webview_closed", "webview" => 2})
+    event(quitting, %{"event" => "tab_activated", "webview" => 1})
+    assert File.read!(path) == before
+    assert %{"active" => 1, "tabs" => [_, %{"profile" => "work"}]} = JSON.decode!(before)
+    refute File.exists?(path <> ".tmp")
+  end
+
+  test "quitting before restore preserves the saved session", %{path: path} do
+    File.write!(path, JSON.encode!(%{urls: ["https://saved.example/"], active: 0}))
+    before = File.read!(path)
+    {:reply, :ok, _} = Session.handle_call(:prepare_quit, self(), base_state())
+    assert File.read!(path) == before
+  end
+
   test "tab_activated tracks the active webview" do
     state =
       base_state()

@@ -71,6 +71,20 @@ defmodule BowserBrain.Bridge do
   def handle_info({:tcp, _sock, data}, state) do
     state =
       case JSON.decode(data) do
+        {:ok, %{"op" => "app_quit"}} ->
+          # A worker avoids deadlocking Engine's liveness call back into Bridge.
+          # First flush Session here: all earlier broadcasts came from this process.
+          :ok = GenServer.call(BowserBrain.Session, :prepare_quit)
+          unless Map.get(state, :quitting, false) do
+            Task.start(fn ->
+              :ok = GenServer.call(BowserBrain.Engine, :prepare_quit)
+              cast_msg(%{op: "quit_ready"})
+              Process.sleep(100)
+              System.stop(0)
+            end)
+          end
+          Map.put(state, :quitting, true)
+
         {:ok, %{"op" => "event"} = event} ->
           broadcast(event)
           state

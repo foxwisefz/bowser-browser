@@ -9,7 +9,7 @@
 set -euo pipefail
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 PIDFILE="$APP_DIR/brain.pid"
-LOG="$HOME/.bowser/brain.log"
+LOG="${BOWSER_HOME:-$HOME/.bowser}/brain.log"
 BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
 
 # The release launcher forks the VM as a child, so a recorded launcher pid
@@ -24,26 +24,29 @@ dev_brains() {
 }
 
 case "${1:-status}" in
-  start)
+  start|start-brain)
     if [ -n "$(brain_pid)" ]; then
-      # Brain up but the browser was quit (Cmd-Q): the brain stays and
-      # simply reconnects to a relaunched app, like a Dock click would.
+      # Reuse an existing backend, including one started by an older app.
+      # App bootstrap must never launch a second browser.
+      [ "$1" = "start-brain" ] && exit 0
       if ! pgrep -f "$BUNDLE/Contents/MacOS/Bowser" >/dev/null; then open "$BUNDLE"; echo "browser relaunched (brain pid $(brain_pid))"; else echo "already running (pid $(brain_pid))"; fi
       exit 0
     fi
     [ -x "$APP_DIR/brain/bin/bowser_brain" ] || { echo "nothing installed at $APP_DIR — run bin/install" >&2; exit 1; }
     [ -x "$BUNDLE/Contents/MacOS/Bowser" ] || { echo "no $BUNDLE — run bin/install" >&2; exit 1; }
+    [ "$1" = "start-brain" ] && export BOWSER_NO_SPAWN=1
     echo "$(date '+%H:%M:%S') --- installed brain start ($(cat "$APP_DIR/VERSION" 2>/dev/null)) ---" >> "$LOG"
-    ( cd "$APP_DIR" && "$APP_DIR/bin/detach" "$LOG" BOWSER_ROOT="$APP_DIR" BOWSER_ENGINE="$BUNDLE/Contents/MacOS/Bowser" RELEASE_TMP="$APP_DIR/tmp" \
+    ( cd "$APP_DIR" && "$APP_DIR/bin/detach" "$LOG" BOWSER_ROOT="$APP_DIR" BOWSER_ENGINE="$BUNDLE/Contents/MacOS/Bowser" RELEASE_TMP="$APP_DIR/tmp" RELEASE_DISTRIBUTION=none \
         -- "$APP_DIR/brain/bin/bowser_brain" start >/dev/null )
     for i in 1 2 3 4 5 6 7 8 9 10; do sleep 0.5; [ -n "$(brain_pid)" ] && break; done
     p="$(brain_pid)"; [ -n "$p" ] && echo "$p" > "$PIDFILE"
     [ -n "$p" ] && echo "started (pid $p) — log: $LOG" || { echo "brain did not start — see $LOG" >&2; exit 1; };;
-  stop)
+  stop|stop-brain)
     p="$(brain_pid)"
     if [ -n "$p" ]; then kill -TERM "$p" 2>/dev/null || true; for i in 1 2 3 4 5 6; do sleep 0.5; kill -0 "$p" 2>/dev/null || break; done; kill -KILL "$p" 2>/dev/null || true; echo "stopped installed brain ($p)"; fi
     rm -f "$PIDFILE"
     if [ "${2:-}" = "--all" ]; then for p in $(dev_brains); do kill -TERM "$p" 2>/dev/null && echo "stopped dev brain $p"; done; fi
+    [ "$1" = "stop-brain" ] && exit 0
     # The engine dies with its brain (the wrapper ties them); be sure.
     sleep 1.5; pkill -f "$BUNDLE/Contents/MacOS/Bowser" 2>/dev/null || true;;
   restart) "$0" stop; sleep 1; "$0" start;;

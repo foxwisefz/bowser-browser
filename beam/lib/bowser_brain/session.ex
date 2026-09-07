@@ -54,6 +54,15 @@ defmodule BowserBrain.Session do
     {:reply, state.tabs[webview], state}
   end
 
+  # Flush before AppKit tears down any windows, then ignore teardown events.
+  def handle_call(:prepare_quit, _from, state) do
+    state = persist(state)
+    {:reply, :ok, Map.put(state, :quitting, true)}
+  end
+
+  def handle_info({:browser_event, _event}, %{quitting: true} = state),
+    do: {:noreply, state}
+
   @impl true
   def handle_info({:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}}, state) do
     {:noreply, persist(%{state | tabs: Map.put(state.tabs, wv, url)})}
@@ -300,10 +309,10 @@ defmodule BowserBrain.Session do
     urls = ordered_urls(state.tabs)
 
     if urls != [] do
-      File.write(
-        disk_path(),
-        JSON.encode!(%{tabs: entries(state), urls: urls, active: active_index(state.tabs, state.active)})
-      )
+      path = disk_path()
+      temporary = path <> ".tmp"
+      File.write!(temporary, JSON.encode!(%{tabs: entries(state), urls: urls, active: active_index(state.tabs, state.active)}))
+      File.rename!(temporary, path)
     end
 
     state

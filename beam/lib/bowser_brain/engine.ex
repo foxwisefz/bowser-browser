@@ -26,6 +26,12 @@ defmodule BowserBrain.Engine do
   end
 
   @impl true
+  def handle_call(:prepare_quit, _from, state) do
+    # Do not respawn or send TERM to the app while it finishes its quit handshake.
+    {:reply, :ok, %{state | enabled: false, os_pid: nil}}
+  end
+
+  @impl true
   def handle_info(:check, %{enabled: true} = state) do
     # Trust liveness, not bookkeeping: if the port is dead but we never got
     # exit_status (it happens — wrapper/pipe edge cases), self-heal here.
@@ -73,7 +79,7 @@ defmodule BowserBrain.Engine do
   def handle_info(:check, state), do: {:noreply, state}
 
   # Clean exit = the user quit on purpose (Cmd-Q, Dock > Quit, closed last
-  # window). Respawning would fight the user — and the periodic :check used
+  # window in older shells). Respawning would fight the user — and the periodic :check used
   # to do exactly that a few seconds later, so quitting was impossible.
   # Only dirty exits are crashes.
   def handle_info({port, {:exit_status, 0}}, %{port: port} = state) do

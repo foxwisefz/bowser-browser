@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cookies (bowser-browser-yll).
         EngineView.disableTrackingPrevention()
         BrainBridge.shared.start()
+        BackendLifecycle.shared.start()
         if let configuration = SiteAppConfiguration.current {
             let controller = BrowserWindowController(profile: Profile.find(configuration.profile))
             controller.showWindow(nil)
@@ -103,7 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        SiteAppConfiguration.current != nil
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        BackendLifecycle.shared.quit()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -118,7 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard SiteAppConfiguration.current != nil else { return true }
+        guard SiteAppConfiguration.current != nil else {
+            if BrowserWindowController.all.isEmpty { openWindow() }
+            return true
+        }
         currentController?.window?.deminiaturize(nil)
         currentController?.window?.makeKeyAndOrderFront(nil)
         return false

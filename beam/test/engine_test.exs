@@ -3,6 +3,15 @@ defmodule BowserBrain.EngineTest do
 
   alias BowserBrain.Engine
 
+  test "explicit app quit disarms supervision before backend shutdown" do
+    state = %{port: nil, os_pid: 123, enabled: true}
+    {:reply, :ok, quitting} = Engine.handle_call(:prepare_quit, self(), state)
+    assert quitting.os_pid == nil
+    assert quitting.enabled == false
+    assert {:noreply, ^quitting} = Engine.handle_info(:check, quitting)
+    assert :ok = Engine.terminate(:shutdown, quitting)
+  end
+
   describe "check_action/3" do
     test "a live port with a newer binary on disk rolls" do
       assert Engine.check_action(true, true, true) == :roll

@@ -60,13 +60,13 @@ final class SurfaceStateTests: XCTestCase {
         defer { model.reset(); window.orderOut(nil); SurfaceFormStore.shared.remove(surface: surface) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
-        let trigger = try XCTUnwrap(descendants(host).compactMap { $0 as? NSButton }.first)
-        trigger.performClick(nil)
+        try pressButton("Pick icon", in: host, at: NSPoint(x: 45, y: host.bounds.midY - 20))
         RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         let popup = try XCTUnwrap(NSApp.windows.first { !existing.contains(ObjectIdentifier($0)) && $0.isVisible })
         defer { popup.orderOut(nil) }
         let content = try XCTUnwrap(popup.contentView)
-        XCTAssertEqual(content.bounds.width, 260, accuracy: 1)
+        // Tahoe adds popover chrome around the requested content width.
+        XCTAssertGreaterThanOrEqual(content.bounds.width, 260)
         let point = content.convert(NSPoint(x: 50, y: content.bounds.midY), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: popup.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
@@ -90,13 +90,29 @@ final class SurfaceStateTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        try XCTUnwrap(descendants(host).compactMap { $0 as? NSButton }.first).performClick(nil)
+        try pressButton("Help", in: host)
         RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         let sheet = try XCTUnwrap(window.attachedSheet)
         let content = try XCTUnwrap(sheet.contentView)
-        try XCTUnwrap(descendants(content).compactMap { $0 as? NSButton }.first).performClick(nil)
+        try pressButton("Done", in: content)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertNil(window.attachedSheet)
+    }
+
+    @MainActor
+    private func pressButton(_ label: String, in view: NSView, at location: NSPoint? = nil) throws {
+        // Deliver real window events at the fixture action:
+        // SwiftUI no longer promises an NSButton backing view on Tahoe.
+        let window = try XCTUnwrap(view.window)
+        view.layoutSubtreeIfNeeded()
+        let point = view.convert(location ?? NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point,
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                clickCount: 1, pressure: 1), "Cannot click \(label)")
+            window.sendEvent(event)
+        }
     }
 
     @MainActor private func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }

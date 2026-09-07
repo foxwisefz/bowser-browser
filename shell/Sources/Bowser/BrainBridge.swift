@@ -47,6 +47,8 @@ final class BrainBridge {
     }
 
     func send(_ message: [String: Any]) {
+        // Quit is a lifecycle transaction, not a sequence of tab closures.
+        if BackendLifecycle.shared.isQuitting, message["op"] as? String == "event" { return }
         guard JSONSerialization.isValidJSONObject(message),
               let payload = try? JSONSerialization.data(withJSONObject: message)
         else {
@@ -214,6 +216,9 @@ final class BrainBridge {
         let requested = UInt64(message["webview"] as? Int ?? 0)
 
         switch op {
+        case "quit_ready":
+            BackendLifecycle.shared.quitAcknowledged = true
+
         case "navigate":
             guard let url = message["url"] as? String else { return }
             resolve(requested)?.load(urlString: url)
