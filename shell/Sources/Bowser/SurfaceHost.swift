@@ -90,6 +90,7 @@ final class SurfaceManager {
         case "close":
             guard let id = message["id"] as? String else { return }
             SettingsWindow.shared.remove(id: id)
+            SurfaceFormStore.shared.remove(surface: id)
             hostings.removeValue(forKey: id)
             overlayHostings.removeValue(forKey: id)
             if let panel = panels.removeValue(forKey: id) {
@@ -674,6 +675,8 @@ struct SurfaceTreeView: View {
 
     var body: some View {
         render(node)
+            .disabled(node["disabled"] as? Bool ?? false)
+            .modifier(SurfaceNodeStyle(node: node))
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -693,22 +696,55 @@ struct SurfaceTreeView: View {
         switch node["t"] as? String ?? "" {
         case "vstack":
             let spacing = node["spacing"] as? Double ?? 4
-            return AnyView(VStack(alignment: .leading, spacing: spacing) {
-                ForEach(Array(children(node).enumerated()), id: \.offset) { _, child in
-                    render(child)
+            return AnyView(VStack(alignment: SurfaceNodeStyle.horizontal(node["alignment"] as? String), spacing: spacing) {
+                ForEach(SurfaceNode.children(children(node))) { child in
+                    SurfaceTreeView(surfaceId: surfaceId, node: child.value)
                 }
             })
         case "hstack":
             let spacing = node["spacing"] as? Double ?? 8
             return AnyView(HStack(spacing: spacing) {
-                ForEach(Array(children(node).enumerated()), id: \.offset) { _, child in
-                    render(child)
+                ForEach(SurfaceNode.children(children(node))) { child in
+                    SurfaceTreeView(surfaceId: surfaceId, node: child.value)
                 }
+            })
+        case "form":
+            return AnyView(SurfaceFormView(surfaceId: surfaceId, node: node))
+        case "input":
+            return AnyView(SurfaceInput(node: node))
+        case "action":
+            return AnyView(SurfaceNativeAction(node: node, emit: emit))
+        case "sheet", "popover":
+            return AnyView(SurfacePresentation(surfaceId: surfaceId, node: node))
+        case "list_detail":
+            return AnyView(SurfaceListDetail(surfaceId: surfaceId, node: node))
+        case "grid":
+            return AnyView(LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: node["spacing"] as? Double ?? 12), count: max(1, min(12, node["columns"] as? Int ?? 2))), spacing: node["spacing"] as? Double ?? 12) {
+                ForEach(SurfaceNode.children(children(node))) { child in
+                    SurfaceTreeView(surfaceId: surfaceId, node: child.value)
+                }
+            })
+        case "fields":
+            return AnyView(Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 18) {
+                ForEach(SurfaceNode.children(children(node))) { child in
+                    GridRow {
+                        Text(child.value["label"] as? String ?? "").gridColumnAlignment(.trailing)
+                        SurfaceTreeView(surfaceId: surfaceId, node: child.value["content"] as? [String: Any] ?? [:])
+                    }
+                }
+            })
+        case "group":
+            return AnyView(GroupBox(node["label"] as? String ?? "") {
+                SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:]).padding(12)
             })
         case "text":
             let value = node["value"] as? String ?? ""
             let style = node["style"] as? String
             switch style {
+            case "heading":
+                return AnyView(Text(value).font(.title2.weight(.semibold)))
+            case "body":
+                return AnyView(Text(value).font(.body))
             case "title":
                 return AnyView(
                     Text(value)
@@ -733,7 +769,7 @@ struct SurfaceTreeView: View {
         case "button":
             return AnyView(SurfaceRow(node: node, emit: emit))
         case "row":
-            return AnyView(SurfaceListRow(node: node, emit: emit, render: { self.render($0) }))
+            return AnyView(SurfaceListRow(node: node, emit: emit, render: { AnyView(SurfaceTreeView(surfaceId: surfaceId, node: $0)) }))
         case "toggle":
             return AnyView(SurfaceToggle(
                 eventId: node["event"] as? String ?? "toggle",
@@ -768,15 +804,16 @@ struct SurfaceTreeView: View {
                 placeholder: node["placeholder"] as? String ?? "",
                 initial: node["value"] as? String ?? "",
                 emit: emit
-            ).id("\(eventId)|\(node["value"] as? String ?? "")"))
+            ).id(eventId))
         case "colorpicker":
             return AnyView(SurfaceColorPicker(
                 eventId: node["event"] as? String ?? "color",
                 initialHex: node["value"] as? String,
                 label: node["label"] as? String ?? "",
                 emit: emit
-            ).id("\(node["event"] as? String ?? "color")|\(node["value"] as? String ?? "")"))
+            ).id(node["event"] as? String ?? "color"))
         case "divider":
+            if node["axis"] as? String == "vertical" { return AnyView(Divider()) }
             return AnyView(
                 Rectangle()
                     .fill(.separator)
@@ -1121,6 +1158,7 @@ private struct SurfaceSlider: View {
 
     @State private var value = 0.0
     @State private var loaded = false
+    @State private var editing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -1131,8 +1169,10 @@ private struct SurfaceSlider: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: $value, in: min...max) { editing in
+                self.editing = editing
                 if !editing { emit(eventId, value) }
             }
+            .onChange(of: initial) { _, new in if !editing { value = new } }
             .controlSize(.small)
         }
         .padding(.horizontal, 9)
@@ -1149,15 +1189,19 @@ private struct SurfaceSlider: View {
 /// Native ColorPicker. Emits "#rrggbb" 350ms after the last change, so a
 /// drag across the wheel is one event and the brain can persist without
 /// re-rendering (a rebuild mid-drag would close the popover).
-private struct SurfaceColorPicker: View {
+struct SurfaceColorPicker: View {
     let eventId: String
     let initialHex: String?
     let label: String
     let emit: (String, Any?) -> Void
 
-    @State private var color: Color = .gray
-    @State private var loaded = false
+    @State private var color: Color
     @State private var pending: Task<Void, Never>?
+
+    init(eventId: String, initialHex: String?, label: String, emit: @escaping (String, Any?) -> Void) {
+        self.eventId = eventId; self.initialHex = initialHex; self.label = label; self.emit = emit
+        _color = State(initialValue: Color(nsColor: Profile.color(hex: initialHex) ?? .systemGray))
+    }
 
     /// "#rrggbb" for a color, in sRGB. Pure — tested.
     nonisolated static func hex(_ nsColor: NSColor) -> String {
@@ -1167,23 +1211,20 @@ private struct SurfaceColorPicker: View {
     }
 
     var body: some View {
-        ColorPicker(label, selection: $color, supportsOpacity: false)
+        ColorPicker(label, selection: Binding(get: { color }, set: { newValue in
+            color = newValue
+            pending?.cancel()
+            let hex = Self.hex(NSColor(newValue))
+            pending = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                if !Task.isCancelled { emit(eventId, hex); pending = nil }
+            }
+        }), supportsOpacity: false)
             .font(.system(size: 12))
-            .onAppear {
-                if !loaded {
-                    color = Color(nsColor: Profile.color(hex: initialHex) ?? .systemGray)
-                    loaded = true
-                }
+            .onChange(of: initialHex) { _, new in
+                if pending == nil { color = Color(nsColor: Profile.color(hex: new) ?? .systemGray) }
             }
-            .onChange(of: color) { _, newValue in
-                guard loaded else { return }
-                pending?.cancel()
-                let hex = Self.hex(NSColor(newValue))
-                pending = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    if !Task.isCancelled { emit(eventId, hex) }
-                }
-            }
+            .onDisappear { pending?.cancel(); pending = nil }
     }
 }
 
@@ -1215,8 +1256,8 @@ private struct SurfaceListRow: View {
                 }
             }
             Spacer(minLength: 8)
-            ForEach(Array(trailing.enumerated()), id: \.offset) { _, child in
-                render(child)
+            ForEach(SurfaceNode.children(trailing)) { child in
+                render(child.value)
             }
         }
         .padding(.vertical, 6)
@@ -1237,7 +1278,7 @@ private struct SurfaceListRow: View {
 
 /// A macOS switch. Emits its new value on change (with payload, when given,
 /// as {"on": bool, "payload": …} so one event id can serve a list).
-private struct SurfaceToggle: View {
+struct SurfaceToggle: View {
     let eventId: String
     let initial: Bool
     let payload: Any?
@@ -1259,17 +1300,15 @@ private struct SurfaceToggle: View {
     }
 
     var body: some View {
-        Toggle(label, isOn: $on)
+        Toggle(label, isOn: Binding(get: { on }, set: { value in
+            on = value
+            if let payload { emit(eventId, ["on": value, "payload": payload]) }
+            else { emit(eventId, value) }
+        }))
             .toggleStyle(.switch)
             .controlSize(.small)
             .labelsHidden()
-            .onChange(of: on) { _, value in
-                if let payload {
-                    emit(eventId, ["on": value, "payload": payload])
-                } else {
-                    emit(eventId, value)
-                }
-            }
+            .onChange(of: initial) { _, value in on = value }
     }
 }
 
@@ -1287,6 +1326,7 @@ private struct SurfaceTextField: View {
             .textFieldStyle(.roundedBorder)
             .font(.system(size: 12))
             .onSubmit { emit(eventId, text) }
+            .onChange(of: initial) { old, new in if text == old { text = new } }
             .padding(.horizontal, 9)
             .onAppear {
                 if !loaded {

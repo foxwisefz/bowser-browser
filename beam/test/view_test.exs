@@ -23,4 +23,32 @@ defmodule BowserBrain.ViewTest do
 
     assert View.section("Global mods") == %{t: "section", value: "Global mods"}
   end
+
+  test "native form and presentation trees round-trip over the wire" do
+    response = View.form_response("request-1", {:error, %{"name" => "Already taken"}})
+    tree = View.form(:editor, %{"name" => "Work"},
+      View.fields([
+        View.field("Name:", View.input(:name), key: :name),
+        View.field("Avatar:", View.popover(:avatar, "Choose", View.input(:avatar, kind: :choice,
+          options: [%{value: "star", label: "Star", symbol: "star"}]), width: 360), key: :avatar)
+      ]), required: [:name], response: response)
+    wire = tree |> JSON.encode!() |> JSON.decode!()
+    assert wire["key"] == "editor"
+    assert wire["required"] == ["name"]
+    assert wire["response"]["errors"]["name"] == "Already taken"
+    assert get_in(wire, ["content", "children", Access.at(1), "content", "content_width"]) == 360
+    refute Map.has_key?(Enum.at(tree.content.children, 1).content, :width)
+  end
+
+  test "layout and action semantics compose without changing legacy buttons" do
+    assert %{t: "vstack", alignment: :trailing, key: "group", padding: 20} =
+      View.vstack([], alignment: :trailing, key: :group, padding: 20)
+    assert %{t: "action", role: :destructive, disabled: true, shortcut: :cancel} =
+      View.action("Remove", role: :destructive, disabled: true, shortcut: :cancel)
+    assert %{t: "button"} = View.button("Old button", event: :click)
+    assert %{t: "grid", columns: 3} = View.grid([], columns: 3)
+    assert %{t: "list_detail", sidebar_width: 200} = View.list_detail([], sidebar_width: 200)
+    assert %{ok: true, values: %{"name" => "Saved"}} = View.form_response("id", {:ok, %{"name" => "Saved"}})
+  end
+
 end

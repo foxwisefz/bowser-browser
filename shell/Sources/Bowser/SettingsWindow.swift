@@ -156,7 +156,7 @@ struct SettingsRootView: View {
                             DefaultBrowserSettingsView(model: .shared)
                         }
                         SurfaceTreeView(surfaceId: section.id, node: section.tree)
-                            .id("\(section.id)-\(model.revision)")
+                            .id(section.id)
                     }
                     .padding(32)
                     .frame(maxWidth: 720, alignment: .leading)

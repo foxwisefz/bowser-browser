@@ -18,11 +18,11 @@ defmodule BowserBrain.View do
   """
 
   def vstack(children, opts \\ []) when is_list(children) do
-    %{t: "vstack", children: children, spacing: Keyword.get(opts, :spacing, 8)}
+    ui(%{t: "vstack", children: children, spacing: Keyword.get(opts, :spacing, 8)}, opts)
   end
 
   def hstack(children, opts \\ []) when is_list(children) do
-    %{t: "hstack", children: children, spacing: Keyword.get(opts, :spacing, 8)}
+    ui(%{t: "hstack", children: children, spacing: Keyword.get(opts, :spacing, 8)}, opts)
   end
 
   @doc "style: :title | :caption | nil"
@@ -167,4 +167,76 @@ defmodule BowserBrain.View do
       event: to_string(Keyword.get(opts, :event, :select))
     }
   end
+
+  @doc "Stable identity and shared layout/control options. Keys must be unique among siblings."
+  def ui(node, opts) when is_map(node) do
+    shared = Keyword.take(opts, [:key, :width, :height, :min_width, :max_width, :min_height,
+      :max_height, :fill_width, :fill_height, :padding, :alignment, :disabled,
+      :accessibility_label, :help]) |> Map.new()
+    shared = if Map.has_key?(shared, :key), do: Map.update!(shared, :key, &to_string/1), else: shared
+    Map.merge(node, shared)
+  end
+
+  @doc "Native bordered action. role: :primary/:destructive; shortcut: :default/:cancel or a command-key character. action: :dismiss closes a presentation."
+  def action(label, opts \\ []) do
+    %{t: "action", label: to_string(label), event: to_string(Keyword.get(opts, :event, :click)),
+      payload: Keyword.get(opts, :payload), role: Keyword.get(opts, :role),
+      shortcut: Keyword.get(opts, :shortcut), symbol: Keyword.get(opts, :symbol),
+      action: Keyword.get(opts, :action)} |> ui(opts)
+  end
+
+  @doc "Equal-width native grid. columns: 1..12."
+  def grid(children, opts \\ []) when is_list(children),
+    do: ui(%{t: "grid", children: children, columns: Keyword.get(opts, :columns, 2), spacing: Keyword.get(opts, :spacing, 12)}, opts)
+
+  @doc "Aligned label/control columns. Children are field/3 nodes."
+  def fields(children, opts \\ []), do: ui(%{t: "fields", children: children}, opts)
+  def field(label, content, opts \\ []), do: ui(%{label: to_string(label), content: content}, opts)
+  def group(label, content, opts \\ []), do: ui(%{t: "group", label: to_string(label), content: content}, opts)
+
+  @doc """
+  Local draft with atomic submission. key is unique within the surface. Inputs bind
+  to string keys in values. Emits value: %{request_id: uuid, values: draft} to event.
+  Re-show this form with response: form_response(request_id, result) to acknowledge.
+  Required fields are nonempty strings. Server validation remains authoritative.
+  """
+  def form(key, values, content, opts \\ []) when is_map(values) do
+    %{t: "form", key: to_string(key), values: values, content: content,
+      event: to_string(Keyword.get(opts, :event, key)),
+      required: Enum.map(Keyword.get(opts, :required, []), &to_string/1),
+      labels: Map.new(Keyword.get(opts, :labels, %{}), fn {k, v} -> {to_string(k), v} end),
+      require_changes: Keyword.get(opts, :require_changes, true),
+      dismiss_on_success: Keyword.get(opts, :dismiss_on_success, false),
+      dismiss_on_cancel: Keyword.get(opts, :dismiss_on_cancel, false),
+      submit_label: Keyword.get(opts, :submit_label, "Save Changes"),
+      cancel_label: Keyword.get(opts, :cancel_label, "Revert"),
+      response: Keyword.get(opts, :response)} |> ui(opts)
+  end
+
+  def form_response(request_id, {:ok, values}) when is_map(values),
+    do: %{request_id: request_id, ok: true, values: values}
+  def form_response(request_id, {:error, errors}) when is_map(errors),
+    do: %{request_id: request_id, ok: false, errors: errors}
+  def form_response(request_id, {:error, message}),
+    do: %{request_id: request_id, ok: false, error: to_string(message)}
+
+  @doc "Form-bound input. kind: :text/:toggle/:color/:choice. Choice options: %{value: string, label: string, path: image_path or symbol: sf_symbol}."
+  def input(name, opts \\ []) do
+    %{t: "input", key: to_string(name), field: to_string(name), kind: Keyword.get(opts, :kind, :text),
+      label: Keyword.get(opts, :label, to_string(name)), placeholder: Keyword.get(opts, :placeholder),
+      columns: Keyword.get(opts, :columns, 4), options: Keyword.get(opts, :options, [])} |> ui(opts)
+  end
+
+  @doc "Native sheet opened by a button; content is another tree. Include action(..., action: :dismiss) to close."
+  def sheet(key, label, content, opts \\ []), do: presentation("sheet", key, label, content, opts)
+  @doc "Native popover opened by a button; inputs inherit the enclosing form draft."
+  def popover(key, label, content, opts \\ []), do: presentation("popover", key, label, content, opts)
+  defp presentation(type, key, label, content, opts),
+    do: ui(%{t: type, key: to_string(key), label: to_string(label), content: content, content_width: Keyword.get(opts, :width, 480)}, Keyword.delete(opts, :width))
+
+  @doc "Selectable list with a detail tree per item. Items: %{id: string, title: string, symbol: optional, detail: tree}. Form drafts survive selection changes."
+  def list_detail(items, opts \\ []) when is_list(items),
+    do: ui(%{t: "list_detail", items: items, selection: Keyword.get(opts, :selection),
+      sidebar_width: Keyword.get(opts, :sidebar_width, 180), min_height: Keyword.get(opts, :min_height, 320)}, opts)
+
 end

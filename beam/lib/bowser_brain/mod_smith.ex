@@ -615,6 +615,28 @@ defmodule BowserBrain.ModSmith do
     label:) (sends "#rrggbb", debounced), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    NATIVE SETTINGS: Surface.show(id, tree, kind: :settings, title: "T", order: 30)
+    registers a native preferences category. Use fields([field("Name:", input(:name),
+    key: :name), ...]) for aligned forms, grid(children, columns: 3), group(label, tree),
+    and list_detail([%{id: "work", title: "Work", symbol: "briefcase", detail: tree}]).
+    form("unique-form-key", string_keyed_values, content, event: :save, required: [:name],
+    response: state.response) keeps local drafts and supplies Save/Revert. input(name,
+    kind: :text|:toggle|:color|:choice, label: ...) binds to that draft; choice options are
+    [%{value: "star", label: "Star", symbol: "star"}] (or path: for images), columns: 4.
+    Save's event value is %{"request_id"=>uuid,"values"=>draft}. Validate/persist in
+    the brain, update values, and re-show the form with response:
+    form_response(uuid, {:ok, saved_values}) or {:error, %{"field"=>"message"}}.
+    Use require_changes: false for creation. sheet(key, label, tree, width: 480) and
+    popover(key, label, tree, width: 320) present trees natively; popover inputs inherit
+    their enclosing form. Sheet forms can set dismiss_on_success: true and
+    dismiss_on_cancel: true, cancel_label: "Cancel". action(label, event:, role: :primary
+    or :destructive, disabled:, shortcut: :default|:cancel) is a native button;
+    action(label, action: :dismiss) closes a presentation. Use ui(node, key: stable_id,
+    padding: 16, fill_width: true, min_width: 200, accessibility_label: ..., help: ...)
+    for shared options. Give reordered siblings stable keys; form keys must be unique
+    across the surface. Use text(..., style: :heading) for settings headings. Layout
+    settings as focused editors and separate creation sheets, not a stack of every
+    editable record. Legacy button() is a panel row, not a native form action.
     PANEL RULE: the panel chrome already shows the title and a close button —
     NEVER add a title text of your own. Panels size to their content (up to
     480px) and the owner can resize and move them; still prefer one item per
