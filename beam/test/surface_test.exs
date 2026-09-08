@@ -59,6 +59,16 @@ defmodule BowserBrain.SurfaceTest do
     assert %{closed: false, suppressed: false} = Enum.find(Surface.list(), &(&1.id == "st_tog"))
   end
 
+  test "core dismissal is idempotent, suppresses updates, and can reopen without PanelsMod" do
+    Surface.show("st_dismiss", text("before"), title: "Dismiss")
+    for _ <- 1..2, do: send(Surface, {:browser_event, %{"event" => "surface_dismiss", "surface" => "st_dismiss"}})
+    assert %{closed: true, suppressed: true} = Enum.find(Surface.list(), &(&1.id == "st_dismiss"))
+    Surface.show("st_dismiss", text("after"), title: "Dismiss")
+    assert %{closed: true} = Enum.find(Surface.list(), &(&1.id == "st_dismiss"))
+    send(Surface, {:browser_event, %{"event" => "chrome_click", "id" => "surface_reopen:st_dismiss"}})
+    assert %{closed: false, suppressed: false} = Enum.find(Surface.list(), &(&1.id == "st_dismiss"))
+  end
+
   test "toggling an unknown id errors" do
     assert {:error, :unknown} = Surface.toggle("st_ghost")
   end

@@ -43,12 +43,46 @@ final class SurfaceRootViewTests: XCTestCase {
         // A surface render must not replace/reset the edge's supplied tracker.
         XCTAssertEqual(cursor.point, CGPoint(x: 30, y: 120))
     }
-    /// The ✕ must be indistinguishable from the View-menu toggle for the
-    /// same panel — that id is what the panels mod suppresses on.
-    func testCloseClickIdMatchesViewMenuToggleId() {
-        XCTAssertEqual(SurfaceRootView.closeClickId(for: "modsmith"), "panel:modsmith")
-        XCTAssertEqual(SurfaceRootView.closeClickId(for: "mods"), "panel:mods")
+    @MainActor func testFloatingPanelCloseWorksWithoutBrainOrPanelsMod() async throws {
+        _ = NSApplication.shared
+        let id = "panel-close-test-" + UUID().uuidString
+        let previous = Set(NSApp.windows.map(\.windowNumber))
+        let tree: [String: Any] = ["t": "vstack", "children": [
+            ["t": "text", "value": "Cobalt blue · silver bevels · gold accents"],
+            ["t": "button", "label": "Quick-links toolbar: On", "event": "quick", "active": true, "symbol": "checkmark.square.fill"],
+            ["t": "button", "label": "Left channel rail: On", "event": "rail", "active": true, "symbol": "checkmark.square.fill"],
+            ["t": "button", "label": "Bottom status bar: On", "event": "status", "active": true, "symbol": "checkmark.square.fill"],
+            ["t": "divider"],
+            ["t": "text", "value": "Layout choices are saved across restarts."],
+            ["t": "button", "label": "Back to Channels", "event": "back", "symbol": "arrow.left"]
+        ]]
+        SurfaceManager.shared.handle(["surface": "show", "id": id, "title": "Customize Classic AOL", "width": 320.0, "view": tree])
+        let panel = try XCTUnwrap(NSApp.windows.first { !previous.contains($0.windowNumber) && $0 is NSPanel })
+        defer { SurfaceManager.shared.handle(["surface": "close", "id": id]) }
+        XCTAssertLessThan(panel.frame.height, 350)
+        if let directory = ProcessInfo.processInfo.environment["BOWSER_PANEL_RENDER"] {
+            let capture = try await NativeVerification.screenshot(panel)
+            let png = try XCTUnwrap(Data(base64Encoded: capture["image"] as? String ?? ""))
+            try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("panel-fixed.png"))
+        }
+        try NativeVerification.click(panel, x: panel.frame.width - 23, y: 23)
+        let down = try XCTUnwrap(NSApp.nextEvent(matching: .leftMouseDown, until: Date(timeIntervalSinceNow: 1), inMode: .default, dequeue: true))
+        NSApp.sendEvent(down)
+        if let up = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) { NSApp.sendEvent(up) }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(panel.isVisible)
     }
+
+    @MainActor func testPanelHeightFitsWrappedContentAtActualWidth() {
+        let tree: [String: Any] = ["t": "vstack", "children": [
+            ["t": "text", "value": String(repeating: "Layout choices persist across restarts. ", count: 5)]
+        ]]
+        let narrow = SurfaceManager.fittedHeight(surfaceId: "test", title: "Customize", node: tree, width: 240)
+        let wide = SurfaceManager.fittedHeight(surfaceId: "test", title: "Customize", node: tree, width: 480)
+        XCTAssertGreaterThan(narrow, wide)
+        XCTAssertGreaterThan(wide, 60)
+    }
+
 }
 
 final class PanelSizingTests: XCTestCase {

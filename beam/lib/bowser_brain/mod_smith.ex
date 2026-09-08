@@ -212,7 +212,10 @@ defmodule BowserBrain.ModSmith do
     Undo history. Reference the installed relative asset path in final files.
     Raster uploads are not available here; existing accessible local PNG paths work.
     Never claim visual verification merely because an asset path is in a view tree.
-    PANEL RULE: the panel chrome already shows the title and a close button —
+    PANEL RULE: panel close is core behavior and suppresses automatic re-shows.
+    The owner can reopen it through View > Reopen <title>; Surface.reshow(id)
+    also explicitly restores it. No Panels mod is required.
+    The panel chrome already shows the title and a close button —
     NEVER add a title text of your own. Panels size to their content (up to
     480px) and the owner can resize and move them; still prefer one item per
     row (vstack) over crowded hstacks, keep labels short, and put counts in a

@@ -166,3 +166,11 @@ are not currently targets. A failed capture is not evidence that the skin render
 Embedded CLI runs use explicit settings to exclude CLAUDE.md, hooks and automatic
 memory, plus a focused ModSmith system prompt. OAuth authentication remains enabled.
 Existing resumed transcripts may still contain context from their earlier runs.
+
+## Floating panel dismissal
+
+The panel × closes locally and tells the core Surface registry to suppress
+background re-shows. It works without the optional Panels mod. The core adds
+`View > Reopen <title>` while dismissed; `Surface.reshow(id)` also restores it.
+Repeated dismissal is idempotent. Panel content is top-aligned and fitted at its
+actual width; explicit owner-resized frames remain respected.

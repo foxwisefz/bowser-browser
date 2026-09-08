@@ -88,7 +88,27 @@ defmodule BowserBrain.Surface do
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     panels = Map.new(state.panels, fn {id, e} -> {id, %{e | closed: true}} end)
+    for id <- state.suppressed, entry = panels[id], entry != nil,
+      do: BowserBrain.Chrome.add_menu_item("surface_reopen:" <> id, "Reopen " <> to_string(entry.title))
     {:noreply, %{state | panels: panels}}
+  end
+
+  # Dismissal is core browser behavior, never dependent on an optional mod.
+  def handle_info({:browser_event, %{"event" => "surface_dismiss", "surface" => id}}, state) do
+    case state.panels[id] do
+      nil -> {:noreply, state}
+      entry ->
+        Bridge.cast_msg(%{op: "surface", surface: "close", id: id})
+        BowserBrain.Chrome.add_menu_item("surface_reopen:" <> id, "Reopen " <> to_string(entry.title))
+        state = %{state | suppressed: MapSet.put(state.suppressed, id)}
+        {:noreply, update_entry(state, id, &%{&1 | closed: true})}
+    end
+  end
+
+  def handle_info({:browser_event, %{"event" => "chrome_click", "id" => "surface_reopen:" <> id}}, state) do
+    case handle_call({:reshow, id}, nil, state) do
+      {:reply, _, state} -> {:noreply, state}
+    end
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -135,6 +155,7 @@ defmodule BowserBrain.Surface do
   def handle_call({:reshow, id}, _from, state) do
     case state.panels do
       %{^id => entry} ->
+        BowserBrain.Chrome.remove_menu_item("surface_reopen:" <> id)
         Bridge.cast_msg(show_msg(id, entry.view, entry.opts))
         state = %{state | suppressed: MapSet.delete(state.suppressed, id)}
         {:reply, :ok, update_entry(state, id, &%{&1 | closed: false})}
@@ -148,6 +169,7 @@ defmodule BowserBrain.Surface do
     case state.panels do
       %{^id => entry} ->
         if entry.closed or MapSet.member?(state.suppressed, id) do
+          BowserBrain.Chrome.remove_menu_item("surface_reopen:" <> id)
           Bridge.cast_msg(show_msg(id, entry.view, entry.opts))
           state = %{state | suppressed: MapSet.delete(state.suppressed, id)}
           {:reply, {:ok, :shown}, update_entry(state, id, &%{&1 | closed: false})}
