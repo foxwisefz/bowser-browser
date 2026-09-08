@@ -15,6 +15,11 @@ SOCK = os.path.join(os.path.expanduser(os.environ.get("BOWSER_HOME", "~/.bowser"
 
 TOOLS = [
     {
+        "name": "put_asset",
+        "description": "Save self-contained SVG source in this mod's owned assets with Undo history. Returns image_path for View.image(path: image_path, size: 48). No external references or scripts; max 200KB. Reference installed relative path in final files.",
+        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
+    },
+    {
         "name": "toolbars",
         "description": "Read effective native edge toolbar definitions recorded by the brain. Confirms state, not rendered pixels.",
         "inputSchema": {"type": "object", "properties": {}},

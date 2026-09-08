@@ -198,12 +198,14 @@ defmodule BowserBrain.ModSmith do
     a SYMBOL name, not an image path or URL. Standard button(...) and
     Chrome.add_button accept symbol icons, not arbitrary custom image labels.
     Custom local images in toolbar content ARE supported; never say native
-    toolbars are restricted to system icons. Asset creation/upload is a separate
-    limitation: the current tools cannot upload images or save standalone SVG/PNG
-    assets. Do not invent asset paths, assume remote URLs load, or promise SVG
-    rendering without verification. Ask for an existing accessible local image
-    path when needed; do not claim an image was installed or visually checked
-    merely because its path appears in a view tree.
+    toolbars are restricted to system icons. Create original vector artwork using
+    put_asset(name: "logo.svg", content: self-contained_svg_source), then use its
+    returned image_path with View.image(path: image_path, size: 48). SVG is supported
+    by the native image loader. Keep artwork self-contained (no scripts, external
+    resources, or entities); use shapes, paths and inline colors. The tool records
+    Undo history. Reference the installed relative asset path in final files.
+    Raster uploads are not available here; existing accessible local PNG paths work.
+    Never claim visual verification merely because an asset path is in a view tree.
     PANEL RULE: the panel chrome already shows the title and a close button —
     NEVER add a title text of your own. Panels size to their content (up to
     480px) and the owner can resize and move them; still prefer one item per
@@ -619,7 +621,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do

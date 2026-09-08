@@ -120,6 +120,22 @@ defmodule BowserBrain.ModWorkshopTest do
     complete(pid, [])
   end
 
+  test "SVG assets belong to the current mod and are removed by Undo" do
+    event("submit", %{"text" => "AOL logo", "scope" => "browser"})
+    assert_receive {:runner, pid, token, _, nil, nil}, 1000
+    svg = ~s(<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>)
+    assert %{ok: true, installed: path, image_path: absolute} =
+      ModWorkshop.tool(token, "put_asset", %{"name" => "logo.svg", "content" => svg})
+    assert File.read!(absolute) == svg
+    assert %{ok: false} = ModWorkshop.tool(token, "put_asset", %{"name" => "../logo.svg", "content" => svg})
+    assert %{ok: false} = ModWorkshop.tool(token, "put_asset", %{"name" => "bad.svg", "content" => "<svg><script/></svg>"})
+    state = complete(pid, [%{"path" => path}])
+    [p] = state.data["projects"]
+    assert p["status"] == "active"
+    event("undo", %{"project" => p["id"]})
+    refute File.exists?(absolute)
+  end
+
   test "Elixir draft rejects paths, syntax errors, and unscoped code for site requests" do
     event("submit", %{"text" => "Style this site", "scope" => "site"})
     assert_receive {:runner, pid, token, _, nil, nil}, 1000

@@ -9,6 +9,9 @@ defmodule BowserBrain.ModWorkshop do
     case GenServer.call(__MODULE__, {:context, token}) do
       {:ok, run} ->
         cond do
+          tool == "put_asset" and run.app == nil ->
+            GenServer.call(__MODULE__, {:draft_asset, token, args}, 15_000)
+
           tool == "put_payload" ->
             GenServer.call(__MODULE__, {:draft, token, args}, 15_000)
 
@@ -325,6 +328,22 @@ defmodule BowserBrain.ModWorkshop do
 
   def handle_call({:draft, _, _}, _, state), do: {:reply, %{ok: false, error: "Run ended"}, state}
 
+  def handle_call({:draft_asset, token, args}, _, %{run: %{token: token, app: nil}} = state) do
+    name = args["name"]
+    if is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.svg$/, name) do
+      path = "assets/#{state.run.project}/#{name}"
+      case write_files(state, [%{"path" => path, "content" => args["content"]}]) do
+        {:ok, state} ->
+          {:reply, %{ok: true, installed: path, image_path: ModRevision.absolute(path)}, state}
+        {:error, reason, state} -> {:reply, %{ok: false, error: reason}, state}
+      end
+    else
+      {:reply, %{ok: false, error: "Expected an SVG filename without directories"}, state}
+    end
+  end
+  def handle_call({:draft_asset, _, _}, _, state),
+    do: {:reply, %{ok: false, error: "An active ModSmith run is required"}, state}
+
   def handle_call({:draft_mod, token, args}, _, %{run: %{token: token, app: nil}} = state) do
     name = args["name"]
 
@@ -560,6 +579,10 @@ defmodule BowserBrain.ModWorkshop do
         not ModRevision.allowed?(path) ->
           {:error, "Invalid mod file path"}
 
+        String.starts_with?(path, "assets/") ->
+          if String.starts_with?(path, "assets/#{p["id"]}/"),
+            do: {:ok, path}, else: {:error, "Asset belongs to another mod"}
+
         String.starts_with?(path, "app-mods/") ->
           {:error, "Saved-app files are outside this mod's scope"}
 
@@ -581,6 +604,11 @@ defmodule BowserBrain.ModWorkshop do
   end
 
   defp prepare_file(_, _), do: {:error, "Invalid or oversized generated file"}
+
+  defp validate_code(_, "assets/" <> _, content) do
+    if String.contains?(content, "<svg") and not Regex.match?(~r/<!DOCTYPE|<!ENTITY|<script|<foreignObject|\b(?:href|src)\s*=\s*["'](?!#)|\burl\s*\(/i, content),
+      do: :ok, else: {:error, "Use a self-contained SVG with no scripts, external resources, or entities"}
+  end
 
   defp validate_code(p, path, content) do
     if String.ends_with?(String.replace_suffix(path, ".off", ""), ".ex") do

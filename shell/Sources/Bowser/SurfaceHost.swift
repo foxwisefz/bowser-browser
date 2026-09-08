@@ -897,12 +897,17 @@ private struct PaletteRowStyle: ButtonStyle {
 
 @MainActor
 enum ImageCache {
-    private static var cache: [String: NSImage] = [:]
+    private static var cache: [String: (Date, NSImage)] = [:]
 
     static func load(_ path: String) -> NSImage? {
-        if let cached = cache[path] { return cached }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let modified = attributes[.modificationDate] as? Date else {
+            cache.removeValue(forKey: path)
+            return nil
+        }
+        if let cached = cache[path], cached.0 == modified { return cached.1 }
         guard let image = NSImage(contentsOfFile: path) else { return nil }
-        cache[path] = image
+        cache[path] = (modified, image)
         return image
     }
 }
