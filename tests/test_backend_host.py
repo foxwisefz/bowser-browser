@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +18,25 @@ hostmod = importlib.machinery.SourceFileLoader('backend_host', str(ROOT / 'bin/b
 update = importlib.machinery.SourceFileLoader('backend_update', str(ROOT / 'bin/apply-update')).load_module()
 
 class ProtocolTests(unittest.TestCase):
+    def test_cli_constructs_host_inside_running_loop(self):
+        # Separate process: the tests' own async loop must not hide CLI startup bugs.
+        script = """
+import asyncio, importlib.machinery, sys
+module = importlib.machinery.SourceFileLoader('host', sys.argv[1]).load_module()
+async def exercise(host):
+    asyncio.get_running_loop().call_soon(host.done.set)
+    await host.done.wait()
+    async with host.update_lock:
+        pass
+module.Host.run = exercise
+sys.argv = ['backend-host', sys.argv[2], sys.argv[2]]
+module.main()
+"""
+        with tempfile.TemporaryDirectory(prefix='host-cli.') as home:
+            result = subprocess.run([sys.executable, '-c', script, str(ROOT / 'bin/backend-host'), home],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_runtime_process_in_generation_blocks_native_activation(self):
         manifest = dict(home='/tmp/test-home', bundle='/tmp/Bowser.app', runtime='/tmp/app')
         self.assertTrue(update.busy(manifest, '/tmp/test-home/releases/abc/brain/erts-16/bin/beam.smp'))
@@ -100,6 +121,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         hostmod.send(self.native_writer, dict(op='event', event='counter', id='fixture_button'))
 
     async def asyncTearDown(self):
+        self.assertIsNone(self.host.transaction, "completed updates must release transaction ownership")
         self.host.done.set()
         await asyncio.wait_for(self.running, 10)
         self.server.close()

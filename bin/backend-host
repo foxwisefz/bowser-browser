@@ -286,62 +286,65 @@ class Host:
                 return {'ok': True, 'already_active': True}
             await self.active.call('preflight')
             self.transaction = asyncio.current_task()
-            candidate = await self.boot(runtime)
-            if self.quitting:
-                await candidate.stop()
-                self.children.remove(candidate)
-                raise RuntimeError('browser is quitting')
-            old = self.active
-            started = time.monotonic()
-            self.paused = True
-            self.journal_error = None
-            committed = False
             try:
-                await self.barrier(old)
-                frozen = await old.call('freeze')
-                await candidate.call('restore', snapshot=frozen['snapshot'])
-                await asyncio.wait_for(candidate.attached.wait(), .3)
-                # Candidate has adopted all state, but has had zero event or
-                # command authority. Failure up to here is fully reversible.
-                await candidate.call('status')
-                if self.journal_error:
-                    raise self.journal_error
-                if time.monotonic() - started >= .8:
-                    raise RuntimeError('handoff exceeded its time budget')
-                atomic_json(self.root / 'active.json', {'runtime': str(runtime)})
-                self.active = candidate
-                committed = True
-                # Old listeners are closed. Retire it without resuming its mods.
-                # SIGKILL avoids terminate callbacks producing duplicate effects.
-                old.process.kill()
-                await old.process.wait()
-                await old.stop()
-                self.children.remove(old)
-                self.requests = {key: owner for key, owner in self.requests.items() if owner[0] is not old}
-                await candidate.call('commit')
-                count = self.drain()
-                result = {'ok': True, 'handoff_ms': (time.monotonic() - started) * 1000,
-                          'buffered_events': count, 'runtime': str(runtime)}
-                atomic_json(self.root / 'last-update.json', result)
-                return result
-            except BaseException:
-                if not committed:
-                    if candidate.process.returncode is None:
-                        candidate.process.kill()
-                        await candidate.process.wait()
-                    await old.call('resume')
+                candidate = await self.boot(runtime)
+                if self.quitting:
                     await candidate.stop()
                     self.children.remove(candidate)
-                    self.active = old
+                    raise RuntimeError('browser is quitting')
+                old = self.active
+                started = time.monotonic()
+                self.paused = True
+                self.journal_error = None
+                committed = False
+                try:
+                    await self.barrier(old)
+                    frozen = await old.call('freeze')
+                    await candidate.call('restore', snapshot=frozen['snapshot'])
+                    await asyncio.wait_for(candidate.attached.wait(), .3)
+                    # Candidate has adopted all state, but has had zero event or
+                    # command authority. Failure up to here is fully reversible.
+                    await candidate.call('status')
+                    if self.journal_error:
+                        raise self.journal_error
+                    if time.monotonic() - started >= .8:
+                        raise RuntimeError('handoff exceeded its time budget')
+                    atomic_json(self.root / 'active.json', {'runtime': str(runtime)})
+                    self.active = candidate
+                    committed = True
+                    # Old listeners are closed. Retire it without resuming its mods.
+                    # SIGKILL avoids terminate callbacks producing duplicate effects.
+                    old.process.kill()
+                    await old.process.wait()
+                    await old.stop()
+                    self.children.remove(old)
+                    self.requests = {key: owner for key, owner in self.requests.items() if owner[0] is not old}
+                    await candidate.call('commit')
                     count = self.drain()
-                    atomic_json(self.root / 'last-rollback.json', {
-                        'rollback_ms': (time.monotonic() - started) * 1000,
-                        'buffered_events': count, 'runtime': str(old.runtime)})
-                else:
-                    # The authority boundary has passed: never replay effects
-                    # into the retired generation pretending it is a rollback.
-                    asyncio.create_task(self.recover(candidate))
-                raise
+                    result = {'ok': True, 'handoff_ms': (time.monotonic() - started) * 1000,
+                              'buffered_events': count, 'runtime': str(runtime)}
+                    atomic_json(self.root / 'last-update.json', result)
+                    return result
+                except BaseException:
+                    if not committed:
+                        if candidate.process.returncode is None:
+                            candidate.process.kill()
+                            await candidate.process.wait()
+                        await old.call('resume')
+                        await candidate.stop()
+                        self.children.remove(candidate)
+                        self.active = old
+                        count = self.drain()
+                        atomic_json(self.root / 'last-rollback.json', {
+                            'rollback_ms': (time.monotonic() - started) * 1000,
+                            'buffered_events': count, 'runtime': str(old.runtime)})
+                    else:
+                        # The authority boundary has passed: never replay effects
+                        # into the retired generation pretending it is a rollback.
+                        asyncio.create_task(self.recover(candidate))
+                    raise
+            finally:
+                self.transaction = None
 
     async def control(self, reader, writer):
         try:
@@ -411,7 +414,13 @@ class Host:
             self.db.close()
             lock.close()
 
-if __name__ == '__main__':
+async def run_host(home, runtime):
+    # Python 3.9 binds asyncio primitives at construction, before their first wait.
+    # Construct the host only after asyncio.run has installed the running loop.
+    await Host(home, runtime).run()
+
+
+def main():
     if sys.argv[1] == '--control':
         home, op = Path(sys.argv[2]), sys.argv[3]
         message = {'op': op}
@@ -423,4 +432,8 @@ if __name__ == '__main__':
             print(str(error), file=sys.stderr)
             sys.exit(1)
     else:
-        asyncio.run(Host(sys.argv[1], sys.argv[2]).run())
+        asyncio.run(run_host(sys.argv[1], sys.argv[2]))
+
+
+if __name__ == '__main__':
+    main()
