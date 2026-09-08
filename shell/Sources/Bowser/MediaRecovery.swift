@@ -19,6 +19,11 @@ enum MediaRecovery {
             if(d && d.runtime!==runtime && Date.now()-d.at<120000 && Date.now()>=d.at && Number.isFinite(d.t)) pending=d;
           } catch(e) {}
           window.__bowserMediaRestoring=!!(pending && pending.tweet);
+          // Cold native restart only. Warm before metadata arrives, since an
+          // unmounted background player may need a mount to produce metadata.
+          if(pending && pending.paused===false) {
+            window.webkit?.messageHandlers?.bowserMediaWarm?.postMessage({runtime});
+          }
           const deadline=Date.now()+20000;
           function tweet(m) {
             if(!isX) return null;

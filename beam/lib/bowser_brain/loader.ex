@@ -35,7 +35,8 @@ defmodule BowserBrain.Loader do
   @impl true
   def handle_info(:scan, state) do
     mtimes =
-      for path <- Path.wildcard(Path.join(mods_dir(), "*.ex")), into: %{} do
+      for path <- Path.wildcard(Path.join(mods_dir(), "*.ex")),
+          not BowserBrain.LegacyMods.superseded?(path), into: %{} do
         {path, File.stat!(path, time: :posix).mtime}
       end
 

@@ -28,6 +28,14 @@ private final class PageRelay: NSObject, WKScriptMessageHandler {
                     "level": dict["level"] as? String ?? "log",
                     "message": dict["message"] as? String ?? "",
                 ])
+            case "bowserMediaWarm":
+                guard message.frameInfo.isMainFrame,
+                      let dict = body as? [String: Any],
+                      dict["runtime"] as? String == MediaRecovery.runtime,
+                      let engine = EngineView.live[id], !engine.didWarmMediaRecovery
+                else { return }
+                engine.didWarmMediaRecovery = true
+                BrowserWindowController.host(of: id)?.warmTab(id: id, ms: 10_000)
             case "bowserEmit":
                 // The page->brain duplex channel: whatever the page emits,
                 // mods receive as {"event": "page", "payload": ...}.
@@ -65,6 +73,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     let webView: WKWebView
 
     private let pageRelay = PageRelay()
+    fileprivate var didWarmMediaRecovery = false
     private var urlObservation: NSKeyValueObservation?
     private var titleObservation: NSKeyValueObservation?
     private var currentScripts: [String] = []
@@ -400,8 +409,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "bowserConsole")
         controller.removeScriptMessageHandler(forName: "bowserEmit")
+        controller.removeScriptMessageHandler(forName: "bowserMediaWarm")
         controller.add(pageRelay, name: "bowserConsole")
         controller.add(pageRelay, name: "bowserEmit")
+        controller.add(pageRelay, name: "bowserMediaWarm")
         if SiteAppConfiguration.current != nil {
             controller.removeScriptMessageHandler(forName: "bowserNotifications", contentWorld: .page)
             controller.addScriptMessageHandler(SiteAppNotifications.shared, contentWorld: .page, name: "bowserNotifications")
@@ -418,6 +429,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "bowserConsole")
         controller.removeScriptMessageHandler(forName: "bowserEmit")
+        controller.removeScriptMessageHandler(forName: "bowserMediaWarm")
         // A sibling sharing this controller (popup lineage) must keep
         // receiving page messages after this tab dies.
         EngineView.live.values
@@ -611,6 +623,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        didWarmMediaRecovery = false
         // An empty path renders the dock's globe, including in existing mods
         // that ignore nil attributes. Never retain the previous page's icon.
         announceFavicon("")

@@ -3,13 +3,14 @@ import XCTest
 @testable import Bowser
 
 final class MediaRecoveryTests: XCTestCase {
-    private func fixture(runtime: String = "previous", fullscreen: Bool = false) -> JSContext {
+    private func fixture(runtime: String = "previous", fullscreen: Bool = false, paused: Bool = false, age: Int = 0) -> JSContext {
         let context = JSContext()!
         context.evaluateScript("""
         var window=globalThis;window.top=window;
+        var warms=0;window.webkit={messageHandlers:{bowserMediaWarm:{postMessage:()=>warms++}}};
         var location={host:'x.com',hostname:'x.com',origin:'https://x.com',pathname:'/i/bookmarks',search:'',href:'https://x.com/i/bookmarks'};
         var URL=class {constructor(s){this.pathname=s.replace('https://x.com','');this.origin='https://x.com';this.host='x.com';this.href=s;}};
-        var stored={runtime:'\(runtime)',id:'tweet:222:0',t:42,paused:false,at:Date.now(),tweet:'222',url:'https://x.com/me/status/222',offset:150,fullscreen:\(fullscreen)};
+        var stored={runtime:'\(runtime)',id:'tweet:222:0',t:42,paused:\(paused),at:Date.now()-\(age),tweet:'222',url:'https://x.com/me/status/222',offset:150,fullscreen:\(fullscreen)};
         var writes=0, key='bowser-media-v2:x.com/i/bookmarks';
         var localStorage={getItem:()=>JSON.stringify(stored),setItem:(k,v)=>{writes++;stored=JSON.parse(v);}};
         var timers=[],buttons=[],scrolled=0;
@@ -28,6 +29,14 @@ final class MediaRecoveryTests: XCTestCase {
         """)
         context.evaluateScript(MediaRecovery.makeScript(runtime: "current"))
         return context
+    }
+
+    func testOnlyFreshPlayingSnapshotsFromAnotherRuntimeWarmBackgroundMedia() {
+        XCTAssertEqual(fixture().evaluateScript("warms")?.toInt32(), 1)
+        XCTAssertEqual(fixture(runtime: "current").evaluateScript("warms")?.toInt32(), 0)
+        XCTAssertEqual(fixture(paused: true).evaluateScript("warms")?.toInt32(), 0)
+        XCTAssertEqual(fixture(age: 120001).evaluateScript("warms")?.toInt32(), 0)
+        XCTAssertEqual(fixture(age: -1000).evaluateScript("warms")?.toInt32(), 0)
     }
 
     func testBookmarkedTweetWaitsForCorrectPlayerWithoutOverwritingSnapshot() {
