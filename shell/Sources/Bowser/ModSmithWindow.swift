@@ -283,8 +283,11 @@ struct ModSmithRootView: View {
             Text(turn.text).font(.system(size: 13)).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if let notes = turn.notes, !notes.isEmpty {
-                Label { Text(notes).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: "info.circle") }
-                    .font(.callout).foregroundStyle(.orange)
+                DisclosureGroup("Details and limitations") {
+                    Text(notes).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                .font(.callout).foregroundStyle(.secondary)
             }
             if let checks = turn.checks {
                 if checks.isEmpty {
