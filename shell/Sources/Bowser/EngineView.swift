@@ -230,6 +230,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let title = view.title ?? ""
+                SiteAppBadge.shared.updateTitle(title, id: self.webviewId, url: view.url)
                 self.onTitleChange?(title)
                 BrainBridge.shared.send([
                     "op": "event", "event": "title_changed",
@@ -344,6 +345,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         if SiteAppConfiguration.current != nil {
+            controller.addUserScript(WKUserScript(source: SiteAppBadge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             controller.addUserScript(WKUserScript(source: SiteAppNotifications.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         controller.addUserScript(WKUserScript(
@@ -414,12 +416,15 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         controller.add(pageRelay, name: "bowserEmit")
         controller.add(pageRelay, name: "bowserMediaWarm")
         if SiteAppConfiguration.current != nil {
+            controller.removeScriptMessageHandler(forName: "bowserBadge", contentWorld: .page)
+            controller.addScriptMessageHandler(SiteAppBadge.shared, contentWorld: .page, name: "bowserBadge")
             controller.removeScriptMessageHandler(forName: "bowserNotifications", contentWorld: .page)
             controller.addScriptMessageHandler(SiteAppNotifications.shared, contentWorld: .page, name: "bowserNotifications")
         }
     }
 
     func tearDown() {
+        SiteAppBadge.shared.clear(id: webviewId)
         EngineView.live.removeValue(forKey: webviewId)
         BrainBridge.shared.send([
             "op": "event", "event": "webview_closed", "webview": webviewId,
@@ -623,6 +628,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        SiteAppBadge.shared.clear(id: webviewId)
         didWarmMediaRecovery = false
         // An empty path renders the dock's globe, including in existing mods
         // that ignore nil attributes. Never retain the previous page's icon.
