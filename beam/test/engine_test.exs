@@ -13,9 +13,9 @@ defmodule BowserBrain.EngineTest do
   end
 
   describe "check_action/3" do
-    test "a live port with a newer binary on disk rolls" do
-      assert Engine.check_action(true, true, true) == :roll
-      assert Engine.check_action(true, true, false) == :roll
+    test "a live browser is never retired because a newer binary exists" do
+      assert Engine.check_action(true, true, true) == :keep
+      assert Engine.check_action(true, true, false) == :keep
     end
 
     test "a live port with a current binary keeps" do
@@ -50,15 +50,6 @@ defmodule BowserBrain.EngineTest do
 
     test "no previous spawn: instant" do
       assert Engine.respawn_delay(0, 2_000_000) == 100
-    end
-  end
-
-  describe "roll_kill_args/1" do
-    test "rolls with TERM so the wrapper's trap can forward to the browser" do
-      # kill -9 here orphans the browser: SIGKILL skips the wrapper's trap,
-      # the child and watcher survive holding the port pipe, and the brain
-      # loops 'rolling respawn' on a dead pid forever (bowser-browser-p7l).
-      assert Engine.roll_kill_args(21481) == ["-TERM", "21481"]
     end
   end
 

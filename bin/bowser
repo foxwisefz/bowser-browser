@@ -25,6 +25,10 @@ dev_brains() {
 
 case "${1:-status}" in
   start|start-brain)
+    UPDATE_ROOT="${BOWSER_HOME:-$HOME/.bowser}/updates"
+    if [ -f "$UPDATE_ROOT/pending.json" ] && [ -x "$UPDATE_ROOT/apply-update" ]; then
+      "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json"
+    fi
     if [ -n "$(brain_pid)" ]; then
       # Reuse an existing backend, including one started by an older app.
       # App bootstrap must never launch a second browser.

@@ -31,10 +31,9 @@ The brain is the differentiator:
 - **Mods are OTP processes.** A crashing mod restarts alone; it can never
   take the browser down. Edit its `.ex` file and it hot-swaps on the next
   event, state intact.
-- **The browser is cattle, the brain is the pet.** The brain spawns and
-  supervises the browser binary. Kill it — or ship a new build — and it
-  respawns in well under a second with tabs, scroll positions, cookies,
-  even playing music restored.
+- **The brain supervises the browser.** After a crash it respawns the shell
+  and recovers the saved session. Updates stay staged until Bowser and its
+  saved apps quit, preserving live video, fullscreen, and page state.
 - **No extension store, ever.** You build the exact mod you want, the
   moment you want it (see `brain/decisions/0004`).
 
@@ -71,7 +70,8 @@ runs standalone (start order doesn't matter — they find each other).
 `BOWSER_NO_SPAWN=1` stops the brain from spawning its own browser.
 
 For the installed app, run `bin/install`, then open `~/Applications/Bowser.app`
-normally. The app starts its backend automatically. Closing a window leaves
+normally. Updates activate after Bowser, its backend, and saved apps have
+quit; installation never restarts them. The app starts its backend automatically. Closing a window leaves
 Bowser running; opening it from the Dock creates a window again. **Quit Bowser**
 (or ⌘Q) saves the session before closing windows and stops the backend and its
 mod processes. Backend startup failures show a retry dialog with the log path.

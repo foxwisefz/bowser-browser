@@ -1,37 +1,47 @@
 #!/usr/bin/env bash
-# Build Bowser, install the app in ~/Applications, then (re)start the
-# installed system. The brain release and helpers remain under ~/.bowser/app.
+# Build Bowser and stage updates until the installed apps have quit. The
+# brain release and helpers remain under ~/.bowser/app.
 # The working copy is never executed by the installed brain: it runs its own
 # release and spawns the installed Bowser.app, so builds and edits here do not
-# touch the browser you are using until you run this.
+# replace the browser while you are using it.
 #
-#   bin/install                 release shell + brain release, restart everything
-#   bin/install --shell-only    rebuild + reinstall only the browser (rolls it, brain stays)
-#   bin/install --brain-only    rebuild + reinstall only the brain (restarts it, tabs restore)
+#   bin/install                 stage shell + brain; activate only when apps are stopped
+#   bin/install --shell-only    stage only the browser and helpers
+#   bin/install --brain-only    stage only the brain and helpers
 #   bin/install --release       release shell build (DEFAULT IS DEBUG until the
 #                               release-only SIGTRAP in BrainBridge's listener is fixed —
 #                               see bead bowser-browser-oeo; debug in a bundle runs fine)
 #   bin/install --debug         explicit debug shell build (the current default)
-#   bin/install --no-restart    install but leave the running system alone
+#   bin/install --no-restart    compatibility alias; installs never restart apps
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
-SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=1; RESTART=1
+SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=1
 for a in "$@"; do case "$a" in
-  --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) RESTART=0;;
+  --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) :;;
   *) echo "unknown flag: $a" >&2; exit 2;;
 esac; done
 
-VERSION="$(cd "$REPO" && (jj log -r @- --no-graph -T 'change_id.short()' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev))"
+VERSION="$(cd "$REPO" && (jj log -r @ --no-graph -T 'change_id.short()' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev))"
 BUILD="$(date +%Y%m%d%H%M%S)"
 say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
 
 say "checking icon crash isolation before replacing the installed app"
 "$REPO/bin/check-icon-isolation"
 
-mkdir -p "$APP_DIR/bin" "$(dirname "$BUNDLE")"
+# Never replace a running bundle/runtime: older brains still watch mtime.
+DEST_APP_DIR="$APP_DIR"
+DEST_BUNDLE="$BUNDLE"
+UPDATE_ROOT="${BOWSER_HOME:-$HOME/.bowser}/updates"
+mkdir -p "$UPDATE_ROOT" "$(dirname "$BUNDLE")"
+BUILD_STAGE="$(mktemp -d "$UPDATE_ROOT/build.XXXXXX")"
+APP_DIR="$BUILD_STAGE/runtime"
+BUNDLE="$BUILD_STAGE/bundle"
+# Partial updates start from the installed runtime, preserving its release.
+if [ -d "$DEST_APP_DIR" ]; then cp -R "$DEST_APP_DIR" "$APP_DIR"; fi
+mkdir -p "$APP_DIR/bin"
 
 # ---------------------------------------------------------------- shell
 if [ "$BRAIN_ONLY" = 0 ]; then
@@ -41,7 +51,7 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   BIN="$REPO/shell/.build/$CONF/Bowser"
   [ -x "$BIN" ] || { echo "no binary at $BIN — build failed" >&2; exit 1; }
   # Never trust "Build complete": the artifact must be newer than the sources.
-  NEWEST_SRC="$(find "$REPO/shell/Sources" -name '*.swift' -newer "$BIN" | head -1)"
+  NEWEST_SRC="$(find "$REPO/shell/Sources/Bowser" -name '*.swift' -newer "$BIN" | head -1)"
   [ -z "$NEWEST_SRC" ] || { echo "binary older than $NEWEST_SRC — stale build" >&2; exit 1; }
 
   say "shell: assembling $BUNDLE ($VERSION)"
@@ -52,15 +62,14 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$REPO/bin/Info.plist" > "$STAGE/Bowser.app/Contents/Info.plist"
   printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
   codesign --force --deep --sign - "$STAGE/Bowser.app" >/dev/null 2>&1 || echo "  (codesign skipped)"
-  # Swap atomically: the brain watches the binary's mtime and blue-green
-  # rolls the browser when it changes.
+  # Assemble inside the unpublished generation.
   rm -rf "$BUNDLE.new"; mv "$STAGE/Bowser.app" "$BUNDLE.new"; rm -rf "$BUNDLE.old"
   [ -d "$BUNDLE" ] && mv "$BUNDLE" "$BUNDLE.old"; mv "$BUNDLE.new" "$BUNDLE"; rm -rf "$BUNDLE.old" "$STAGE"
 fi
 
 # ---------------------------------------------------------------- helpers
 say "bin: engine-wrapper, mcp bridge, bowser"
-cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$APP_DIR/bin/"
+cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$REPO/bin/apply-update" "$APP_DIR/bin/"
 WORKER="$REPO/shell/.build/${CONF:-debug}/BowserIconWorker"
 [ -x "$WORKER" ] || { echo "missing icon worker: $WORKER" >&2; exit 1; }
 cp -f "$WORKER" "$APP_DIR/bin/BowserIconWorker.new"
@@ -80,24 +89,39 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
-say "installed $VERSION → $BUNDLE (runtime: $APP_DIR)"
+say "built $VERSION → $BUILD_STAGE"
 
-# ---------------------------------------------------------------- run
-if [ "$RESTART" = 1 ]; then
-  if [ "$SHELL_ONLY" = 1 ] && BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" status >/dev/null 2>&1; then
-    BEFORE_PID="$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1 || true)"
-    if [ -z "$BEFORE_PID" ]; then
-      say "browser was quit — relaunching"; BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" start
-    else
-      say "waiting for the brain's blue-green roll"
-      for i in 1 2 3 4 5 6 7 8; do sleep 1; [ "$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1)" != "$BEFORE_PID" ] && break; done
-      if [ "$(pgrep -f "$BUNDLE/Contents/MacOS/Bowser" | head -1)" = "$BEFORE_PID" ]; then
-        say "no roll (browser not owned by the brain) — restarting"; BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" restart
-      else
-        say "rolled"
-      fi
-    fi
-  else
-    BOWSER_BUNDLE_PATH="$BUNDLE" "$APP_DIR/bin/bowser" restart
-  fi
+# Publish a complete generation only after builds and signatures succeed.
+cp -f "$REPO/bin/apply-update" "$UPDATE_ROOT/apply-update"
+PYTHONDONTWRITEBYTECODE=1 python3 - "$UPDATE_ROOT/pending.json" "$BUILD_STAGE" "$DEST_APP_DIR" "$DEST_BUNDLE" "$SHELL_ONLY" "$BRAIN_ONLY" "$REPO/bin/apply-update" <<'PYCODE'
+import importlib.machinery, sys
+path, stage, runtime, bundle, shell_only, brain_only, helper = sys.argv[1:]
+module = importlib.machinery.SourceFileLoader('bowser_update', helper).load_module()
+module.publish(path, dict(stage=stage, runtime=runtime, bundle=bundle), shell_only == '1', brain_only == '1')
+PYCODE
+# A dormant login job resumes pending activation even if this session reboots.
+# It runs only while a manifest exists and exits immediately after activation.
+AGENT_DIR="$HOME/Library/LaunchAgents"
+AGENT_LABEL="com.gezim.bowser.pending-update"
+mkdir -p "$AGENT_DIR"
+python3 - "$AGENT_DIR/$AGENT_LABEL.plist" "$UPDATE_ROOT" <<'PYCODE'
+import plistlib, sys
+path, root = sys.argv[1:]
+with open(path, 'wb') as out:
+    plistlib.dump(dict(Label='com.gezim.bowser.pending-update',
+        ProgramArguments=[root+'/apply-update', root+'/pending.json', '--wait'],
+        RunAtLoad=True, KeepAlive={'PathState': {root+'/pending.json': True}},
+        ThrottleInterval=10, StandardOutPath=root+'/install.log', StandardErrorPath=root+'/install.log'), out)
+PYCODE
+if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+  launchctl bootstrap "gui/$(id -u)" "$AGENT_DIR/$AGENT_LABEL.plist" || {
+    echo "Unable to register pending-update login job; update remains staged." >&2; exit 1;
+  }
+fi
+
+"$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json"
+if [ -f "$UPDATE_ROOT/pending.json" ]; then
+  say "update staged — current windows stay alive; activates after all Bowser apps quit"
+else
+  say "installed — ready for next launch"
 fi

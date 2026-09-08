@@ -1,10 +1,10 @@
 defmodule BowserBrain.Engine do
   @moduledoc """
   The engine as cattle (bowser-browser-7qq): the brain launches and
-  supervises the Bowser binary itself. If the engine exits — crash, kill,
-  or binary upgrade — it respawns within a second and Session restores the
+  supervises the Bowser binary itself. If the engine crashes,
+  it respawns and Session restores the
   tabs. If a browser is already running (started by hand), we notice the
-  bridge is connected and spawn nothing.
+  bridge is connected and spawn nothing. New builds never retire a live engine.
 
   Set BOWSER_NO_SPAWN=1 to disable supervision for a session.
   """
@@ -42,25 +42,6 @@ defmodule BowserBrain.Engine do
 
     state =
       case check_action(port_alive, binary_newer, BowserBrain.Bridge.connected?()) do
-        :roll ->
-          # Blue-green-lite (bowser-browser-ekd): an upgrade must never look
-          # like a restart. Spawn the NEW instance first — its window appears
-          # at the same saved frame wearing the freeze-frame, pixel-perfect
-          # over the old one — then retire the old wrapper once the new
-          # window has had time to paint. The old port's exit_status no
-          # longer matches state.port, so it can't trigger a double respawn;
-          # the bridge follows on its own (old connection dies -> reconnect
-          # lands on the new listener -> hello -> restore).
-          Logger.info("engine: binary updated on disk — blue-green roll")
-          old_os_pid = state.os_pid
-          state = spawn_engine(state)
-
-          if old_os_pid != nil and state.os_pid != old_os_pid do
-            Process.send_after(self(), {:retire, old_os_pid}, 1_200)
-          end
-
-          state
-
         :keep ->
           state
 
@@ -100,13 +81,6 @@ defmodule BowserBrain.Engine do
     {:noreply, spawn_engine(state)}
   end
 
-  # The old instance of a blue-green roll: its replacement is already on
-  # screen, so this is a quiet retirement, not a death worth reacting to.
-  def handle_info({:retire, os_pid}, state) do
-    System.cmd("kill", roll_kill_args(os_pid))
-    {:noreply, state}
-  end
-
   # Engine output: surface our own diagnostics, drop the GL probing spam.
   def handle_info({_port, {:data, data}}, state) do
     for line <- String.split(data, "\n", trim: true),
@@ -129,9 +103,8 @@ defmodule BowserBrain.Engine do
 
   @doc false
   # Pure decision for the liveness check. Public for tests.
-  def check_action(port_alive?, binary_newer?, bridge_connected?) do
+  def check_action(port_alive?, _binary_newer?, bridge_connected?) do
     cond do
-      port_alive? and binary_newer? -> :roll
       port_alive? or bridge_connected? -> :keep
       true -> :spawn
     end
@@ -145,14 +118,6 @@ defmodule BowserBrain.Engine do
   def respawn_delay(last_spawn_at_ms, now_ms) do
     if now_ms - last_spawn_at_ms < 10_000, do: 2_000, else: 100
   end
-
-  @doc false
-  # os_pid is the WRAPPER's pid, and its trap only runs on catchable
-  # signals: TERM forwards to the browser child and the wrapper exits with
-  # its status, closing the port. SIGKILL here orphans the browser and the
-  # watcher — they keep the port pipe open, no exit_status ever arrives,
-  # and the roll loops on a dead pid forever (bowser-browser-p7l).
-  def roll_kill_args(os_pid), do: ["-TERM", Integer.to_string(os_pid)]
 
   defp engine_path do
     Application.get_env(:bowser_brain, :engine_path, BowserBrain.Paths.engine_binary())

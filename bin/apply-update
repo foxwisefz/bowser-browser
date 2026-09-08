@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Activate staged builds only after all Bowser processes exit; never kill one."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import time
+
+
+def busy(manifest, processes=None):
+    if processes is None:
+        processes = subprocess.check_output(['/bin/ps', '-axo', 'comm='], text=True)
+    roots = [manifest['bundle'] + '/', manifest['runtime'] + '/',
+             str(Path.home() / 'Applications/Bowser Apps') + '/']
+    return any(any(line.strip().startswith(root) for root in roots)
+               for line in processes.splitlines())
+
+
+def activate(manifest):
+    """Keep the previous pair, and roll back both destinations on failure."""
+    changed = []
+    try:
+        for key in ('runtime', 'bundle'):
+            source = Path(manifest['stage']) / key
+            if not source.exists():
+                continue
+            target = Path(manifest[key])
+            previous = target.with_name(target.name + '.previous')
+            if previous.exists():
+                shutil.rmtree(previous)
+            existed = target.exists()
+            if existed:
+                target.rename(previous)
+            changed.append((target, previous, existed, source))
+            source.rename(target)
+    except Exception:
+        for target, previous, existed, source in reversed(changed):
+            if target.exists():
+                target.rename(source)
+            if existed and previous.exists():
+                previous.rename(target)
+        raise
+
+
+def publish(path, manifest, shell_only=False, brain_only=False):
+    """Merge partial builds into the pending generation under the activation lock."""
+    path = Path(path)
+    with open(path.with_suffix('.lock'), 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        previous = json.loads(path.read_text()) if path.exists() else None
+        if previous:
+            if any(previous[key] != manifest[key] for key in ('runtime', 'bundle')):
+                raise ValueError('Pending update targets differ; use a separate BOWSER_HOME.')
+            old = Path(previous['stage'])
+            new = Path(manifest['stage'])
+            if shell_only and (old / 'runtime/brain').exists():
+                shutil.rmtree(new / 'runtime/brain', ignore_errors=True)
+                shutil.copytree(old / 'runtime/brain', new / 'runtime/brain')
+            if brain_only and (old / 'bundle').exists():
+                shutil.copytree(old / 'bundle', new / 'bundle')
+        temporary = path.with_suffix('.new')
+        temporary.write_text(json.dumps(manifest))
+        os.replace(temporary, path)
+        if previous and previous['stage'] != manifest['stage']:
+            shutil.rmtree(previous['stage'], ignore_errors=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('pending', type=Path)
+    parser.add_argument('--wait', action='store_true')
+    args = parser.parse_args()
+    args.pending.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.pending.with_suffix('.watcher.lock'), 'w') as watcher:
+        try:
+            fcntl.flock(watcher, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        while True:
+            with open(args.pending.with_suffix('.lock'), 'w') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                if not args.pending.exists():
+                    return
+                manifest = json.loads(args.pending.read_text())
+                if not busy(manifest):
+                    time.sleep(2)
+                    if not busy(manifest):
+                        activate(manifest)
+                        args.pending.unlink()
+                        shutil.rmtree(manifest['stage'], ignore_errors=True)
+                        print('Staged Bowser update activated. Ready for next launch.', flush=True)
+                        return
+            if not args.wait:
+                print('Update staged; it will activate after Bowser and saved apps quit.', flush=True)
+                return
+            time.sleep(2)
+
+
+if __name__ == '__main__':
+    main()
