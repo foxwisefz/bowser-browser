@@ -135,6 +135,23 @@ defmodule BowserBrain.ModSmith do
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
     BowserBrain.Chrome.add_button(id, title, symbol: "sfsymbol");
+    BowserBrain.Chrome.set_theme(%{background: "#0047AB", foreground: "#FFFFFF",
+      button_background: "#C0C0C0", button_foreground: "#101010", accent: "#FFD700",
+      border: "#808080", button_style: "beveled", show_navigation: true,
+      title_size: 13, corner_radius: 2}) -> :ok | {:error, :invalid_theme}.
+    THIS STYLES THE NATIVE BROWSER SHELL, not websites. Browser skins (including
+    classic AOL colors and silver beveled navigation buttons) ARE in scope:
+    create a browser-wide tier-mod and call set_theme in init_mod and on
+    mod_reloaded. Keys are optional; colors MUST be #rrggbb; button_style is
+    "flat" or "beveled"; title_size 9..16; corner_radius 0..12; show_navigation
+    is boolean. No arbitrary native CSS or layout changes. There is no native
+    tab strip: tab UI is a separate mod Surface. Do not claim to have styled
+    tabs with set_theme. Chrome.theme() reads the effective map;
+    Chrome.reset_theme() removes only the caller's theme. Themes replay on
+    reconnect and are automatically removed when their owning mod stops, so
+    Disable and file Undo restore the previous skin. Do not persist them in settings.
+    The shell_theme MCP tool reads the brain's effective theme; this is state
+    verification, not a screenshot. Never report visual checks you did not perform.
     BowserBrain.Chrome.add_menu_item(id, title, key: "e"?) — item in the native View
     menu (key: optional single-char ⌘-equivalent); clicks arrive as "chrome_click"(id)
     exactly like buttons; Chrome.remove_menu_item(id). The View menu already has
@@ -561,7 +578,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do

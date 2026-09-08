@@ -12,8 +12,14 @@ defmodule BowserBrain.ModWorkshop do
           tool == "put_payload" ->
             GenServer.call(__MODULE__, {:draft, token, args}, 15_000)
 
+          tool == "put_mod" and run.app == nil ->
+            GenServer.call(__MODULE__, {:draft_mod, token, args}, 15_000)
+
           tool == "list_tabs" ->
             %{ok: true, active: run.webview, tabs: [%{webview: run.webview, url: run.url}]}
+
+          tool == "shell_theme" and run.app == nil ->
+            BowserBrain.AgentPort.dispatch(%{"tool" => tool})
 
           tool in ["page_eval", "page_html", "list_mods", "read_mod", "store_get", "store_put"] ->
             args = args |> Map.delete("site_app") |> Map.put("webview", run.webview)
@@ -310,6 +316,27 @@ defmodule BowserBrain.ModWorkshop do
 
   def handle_call({:draft, _, _}, _, state), do: {:reply, %{ok: false, error: "Run ended"}, state}
 
+  def handle_call({:draft_mod, token, args}, _, %{run: %{token: token, app: nil}} = state) do
+    name = args["name"]
+
+    if is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex$/, name) do
+      path = "mods/#{name}"
+
+      case write_files(state, [%{"path" => path, "content" => args["content"]}]) do
+        {:ok, state} ->
+          {:reply, %{ok: true, installed: path,
+            applies: "Written with Undo history. Loader compiles asynchronously; verify runtime state before reporting success."}, state}
+        {:error, reason, state} ->
+          {:reply, %{ok: false, error: reason}, state}
+      end
+    else
+      {:reply, %{ok: false, error: "Expected a mod filename ending in .ex, without directories"}, state}
+    end
+  end
+
+  def handle_call({:draft_mod, _, _}, _, state),
+    do: {:reply, %{ok: false, error: "An active browser/site ModSmith run is required"}, state}
+
   defp client(event), do: get_in(event, ["app", "id"]) || "main"
   defp project(state, id), do: Enum.find(state.data["projects"], &(&1["id"] == id))
   defp selected(state, client), do: state.data["selected"][client]
@@ -501,7 +528,13 @@ defmodule BowserBrain.ModWorkshop do
       You are refining the SAME mod when there is prior conversation. Read the current files before editing: the owner may have undone a revision since your last reply.
       Give the mod a short human-readable "name" in the JSON envelope. Include "notes" for ALL caveats and unfinished parts.
       Add "checks": ["what you actually checked and observed"]. Do not claim checks you did not perform. Use an empty list if none.
-      No shell or direct filesystem tools: all draft writes go through put_payload so the owner can undo them.
+      No shell or direct filesystem tools: CSS/JS draft writes go through put_payload;
+      Elixir drafts go through put_mod(name: "my_mod.ex", content: full_source), so the owner can undo them.
+      For a native shell theme, use put_mod BEFORE checking shell_theme. The loader scans
+      every 500ms: repeat the read if the first result is still the old theme. Compare the
+      returned map to the intended settings. This verifies runtime theme state, not pixels.
+      Include the same mod path and content in the final files envelope. Do not claim the
+      installer cannot accept Elixir mods. Saved apps still support only CSS/JS.
       Previous visible conversation: #{JSON.encode!(Enum.take(p["turns"], -12))}
       """
   end

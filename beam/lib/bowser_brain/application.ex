@@ -24,6 +24,7 @@ defmodule BowserBrain.Application do
       BowserBrain.Bridge,
       BowserBrain.AgentPort,
       BowserBrain.Surface,
+      BowserBrain.ShellTheme,
       BowserBrain.ModLog,
       BowserBrain.XFeed,
       BowserBrain.XServer,

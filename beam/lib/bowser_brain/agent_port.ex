@@ -146,6 +146,10 @@ defmodule BowserBrain.AgentPort do
     %{ok: true, tabs: tabs, active: session.active}
   end
 
+  def dispatch(%{"tool" => "shell_theme"}) do
+    %{ok: true, theme: BowserBrain.Chrome.theme()}
+  end
+
   def dispatch(%{"tool" => "page_eval"} = request) do
     args = Map.get(request, "args", %{})
     js = Map.get(args, "js", "")

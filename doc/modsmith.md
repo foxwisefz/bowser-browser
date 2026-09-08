@@ -70,3 +70,42 @@ Tests run with bridge connections, engine spawning and user-mod loading disabled
 Run `mix test` in `beam/` and `swift test` in `shell/`. To render the native
 workspace at normal and compact widths, set `BOWSER_MODSMITH_RENDER` to an
 existing output directory and run `swift test --filter ModSmithTests`.
+
+## Native shell skins
+
+Browser-wide mods can call `BowserBrain.Chrome.set_theme/1` to style the
+native top bar and controls. This is independent of website CSS. Supported
+keys (atoms or strings) are:
+
+| Property | Value |
+|---|---|
+| `background`, `foreground` | Bar and title colors, `#rrggbb` |
+| `button_background`, `button_foreground` | Button face and glyph colors, `#rrggbb` |
+| `accent`, `border` | Command-button accent and bar/bevel border colors, `#rrggbb` |
+| `button_style` | `"flat"` or `"beveled"` |
+| `show_navigation` | `true` keeps navigation visible without hovering |
+| `title_size` | 9–16 points |
+| `corner_radius` | 0–12 points |
+
+Call from `init_mod/1` and on `"mod_reloaded"`. The complete map replaces
+that mod's previous theme; omitted values use native defaults. Invalid maps
+return `{:error, :invalid_theme}` without changing the current theme.
+The latest caller wins. Disabling or deleting it restores the preceding
+mod's theme, or native defaults. `Chrome.reset_theme/0` removes only the
+caller's theme. Themes replay on engine reconnect and apply to new browser
+windows. Undo that removes theme code clears its previous styling as well.
+
+`Chrome.theme/0` and the read-only `shell_theme` MCP tool return the brain's
+effective map; they do not verify pixels. The built-in tab UI has no native
+strip to skin: a tab dock/strip remains a separate Surface mod. These APIs
+do not expose arbitrary AppKit layouts or restyle the Settings/ModSmith windows.
+
+During generation, `put_mod(name, content)` writes an Elixir draft through
+the same scoped revision journal used by final output. The loader compiles
+it asynchronously; theme runs then check `shell_theme` before reporting.
+Drafts and final files share one original snapshot for Undo. The tool requires
+an active ModSmith run and is unavailable for saved apps.
+
+See `beam/example_mods/aol_skin.ex` for a blue and silver AOL-inspired skin.
+Copy it into the **desired profile's** `mods/` directory to apply it live;
+rename it to `.ex.off` or remove it to restore the previous appearance.

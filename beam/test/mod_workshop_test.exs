@@ -91,6 +91,36 @@ defmodule BowserBrain.ModWorkshopTest do
 
   defp file(content), do: %{"path" => "sites/example.com/reading.css", "content" => content}
 
+  test "Elixir drafts share final revision history and Undo removes the installed file" do
+    event("submit", %{"text" => "AOL shell", "scope" => "browser"})
+    assert_receive {:runner, pid, token, prompt, nil, nil}, 1000
+    assert prompt =~ "put_mod"
+    content = "defmodule DraftSkin do\n use BowserBrain.Mod\nend"
+    assert %{ok: true, installed: "mods/draft_skin.ex"} =
+      ModWorkshop.tool(token, "put_mod", %{"name" => "draft_skin.ex", "content" => content})
+    assert ModRevision.read("mods/draft_skin.ex") == content
+    state = complete(pid, [%{"path" => "mods/draft_skin.ex", "content" => content}])
+    [project] = state.data["projects"]
+    assert hd(project["revisions"])["files"]["mods/draft_skin.ex"]["before"] == nil
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "late.ex", "content" => content})
+    event("undo", %{"project" => project["id"]})
+    assert ModRevision.read("mods/draft_skin.ex") == nil
+  end
+
+  test "Elixir draft rejects paths, syntax errors, and unscoped code for site requests" do
+    event("submit", %{"text" => "Style this site", "scope" => "site"})
+    assert_receive {:runner, pid, token, _, nil, nil}, 1000
+    for args <- [
+      %{"name" => "../escape.ex", "content" => "defmodule Escape do end"},
+      %{"name" => "invalid.ex", "content" => "defmodule Broken do"},
+      %{"name" => "unscoped.ex", "content" => "defmodule Unscoped do use BowserBrain.Mod end"}
+    ] do
+      assert %{ok: false} = ModWorkshop.tool(token, "put_mod", args)
+    end
+    assert ModRevision.read("mods/unscoped.ex") == nil
+    complete(pid, [])
+  end
+
   test "draft and final share an original snapshot; repeated refinements and undo retain identity" do
     ModRevision.write("sites/example.com/reading.css", "original")
     event("submit", %{"text" => "Bigger text", "request_id" => "request-1"})
@@ -221,6 +251,11 @@ defmodule BowserBrain.ModWorkshopTest do
     app = %{"id" => "com.gezim.bowser.site.0123456789abcdef", "url" => "https://example.com"}
     event("submit", %{"app" => app, "text" => "App reading mode"})
     assert_receive {:runner, pid, token, _, nil, ^app}, 1000
+
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{
+      "name" => "app.ex", "content" => "defmodule AppDraft do use BowserBrain.Mod end"
+    })
+    assert ModRevision.read("mods/app.ex") == nil
 
     assert %{ok: true} =
              ModWorkshop.tool(token, "put_payload", %{

@@ -96,6 +96,9 @@ defmodule BowserBrain.Loader do
 
           {:error, {:already_started, pid}} ->
             Logger.info("loader: hot-swapped mod #{inspect(module)}")
+            # An edit/Undo may remove theme code entirely. Drop the old
+            # ownership before the new code reasserts its appearance.
+            BowserBrain.ShellTheme.release(pid)
             # Let the mod re-assert injected content/chrome with its NEW code.
             send(pid, {:browser_event, %{"event" => "mod_reloaded"}})
 

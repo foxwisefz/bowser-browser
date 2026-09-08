@@ -26,11 +26,13 @@ enum ChromeSurface {
     private(set) static var menuItems: [ModMenuItem] = []
     /// Registered omnibar commands: name → hint (shown while typing).
     private(set) static var commands: [String: String] = [:]
+    private(set) static var theme: ShellTheme = .native
     private static var controllers: [ObjectIdentifier: BrowserWindowController] = [:]
 
     static func register(_ controller: BrowserWindowController) {
         controllers[ObjectIdentifier(controller)] = controller
         controller.syncModButtons()
+        controller.syncShellTheme()
     }
 
     static func unregister(_ controller: BrowserWindowController) {
@@ -44,6 +46,12 @@ enum ChromeSurface {
         }
 
         switch action {
+        case "set_theme":
+            guard let json = object["theme"] as? [String: Any],
+                  let next = ShellTheme(json: json) else { return }
+            theme = next
+            for controller in controllers.values { controller.syncShellTheme() }
+            return
         case "add_button":
             guard let id = object["id"] as? String else { return }
             buttons.removeAll { $0.id == id }

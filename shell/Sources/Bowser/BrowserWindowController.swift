@@ -442,7 +442,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         // The band shows the PAGE's theme color through its scrim — the
         // profile tint lives on the ⌘K keycap only (owner's call).
-        let color = pageColor
+        let color = ChromeSurface.theme.color("background") ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
@@ -488,6 +488,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Mod buttons render inside the hover cluster now; rebuild it.
     func syncModButtons() {
         clusterHosting?.rootView = AnyView(clusterView())
+    }
+
+    func syncShellTheme() {
+        let theme = ChromeSurface.theme
+        band?.theme = theme
+        titleLabel.textColor = theme.color("foreground") ?? .secondaryLabelColor
+        titleLabel.font = .systemFont(ofSize: theme.titleSize,
+                                     weight: theme.buttonStyle == "beveled" ? .bold : .medium)
+        applyThemeColor(activeTab?.themeColor)
+        syncModButtons()
     }
 
     // Bare words search; things that look like URLs get https://.
@@ -567,7 +577,8 @@ private final class RevealZone: NSView {
     override func mouseExited(with event: NSEvent) { onExit() }
 }
 
-private struct CmdCluster: View {
+struct CmdCluster: View {
+    private var theme: ShellTheme { ChromeSurface.theme }
     @ObservedObject var reveal: ChromeReveal
     /// The window's profile tint — painted on the ⌘K keycap only (the
     /// owner's call: not the whole bar, not the command palette).
@@ -587,17 +598,20 @@ private struct CmdCluster: View {
                 Text("⌘+K")
                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     .kerning(0.8)
-                    .foregroundStyle(tint == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.95)))
+                    .foregroundStyle(theme.color("button_foreground").map { AnyShapeStyle(Color(nsColor: $0)) }
+                        ?? (tint == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.95))))
                     .padding(.horizontal, 8)
                     .frame(height: 22)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(tint ?? Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
+                            .fill(theme.color("button_background").map { Color(nsColor: $0) }
+                                  ?? tint ?? Color(nsColor: .controlBackgroundColor))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
                             .strokeBorder(
-                                Color(red: 0.83, green: 0.65, blue: 0.13).opacity(0.95),
+                                theme.color("accent").map { Color(nsColor: $0) }
+                                    ?? Color(red: 0.83, green: 0.65, blue: 0.13).opacity(0.95),
                                 lineWidth: 1.2
                             )
                     )
@@ -606,7 +620,7 @@ private struct CmdCluster: View {
             .buttonStyle(.plain)
             .help("Command bar (⌘K)")
             // Revealed together with the window lights, same grace/fade.
-            if reveal.lights {
+            if reveal.lights || theme.showNavigation {
                 clusterButton("chevron.left", action: goBack)
                 clusterButton("chevron.right", action: goForward)
                 clusterButton("arrow.clockwise", action: reload)
@@ -631,8 +645,20 @@ private struct CmdCluster: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
+                .foregroundStyle(theme.color("button_foreground").map { Color(nsColor: $0) } ?? .secondary)
+                .frame(width: theme.buttonStyle == "beveled" ? 28 : 20,
+                       height: theme.buttonStyle == "beveled" ? 22 : 20)
+                .background {
+                    RoundedRectangle(cornerRadius: theme.cornerRadius)
+                        .fill(theme.color("button_background").map { Color(nsColor: $0) } ?? .clear)
+                }
+                .overlay {
+                    if theme.buttonStyle == "beveled" {
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
+                            .strokeBorder(LinearGradient(colors: [.white, Color(nsColor: theme.color("border") ?? .darkGray)],
+                                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -642,6 +668,7 @@ private struct CmdCluster: View {
 /// Translucent adaptive wash over the page top; fully click-through so the
 /// page under it stays interactive. Alpha is the transparency dial.
 final class BandScrimView: NSView {
+    var theme: ShellTheme = .native { didSet { needsDisplay = true } }
     override var wantsUpdateLayer: Bool { true }
 
 
@@ -655,7 +682,9 @@ final class BandScrimView: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor =
-            NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
+            (theme.color("background") ?? NSColor.windowBackgroundColor.withAlphaComponent(0.42)).cgColor
+        layer?.borderColor = theme.color("border")?.cgColor
+        layer?.borderWidth = theme.color("border") == nil ? 0 : 1
     }
 
     // Page content is transform-shifted below the band, so nothing
