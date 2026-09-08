@@ -368,6 +368,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     private func rebuildUserScripts() {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
+        if SiteAppConfiguration.current != nil {
+            controller.addUserScript(WKUserScript(source: SiteAppNotifications.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         controller.addUserScript(WKUserScript(
             source: Self.consoleHook,
             injectionTime: .atDocumentStart,
@@ -433,6 +436,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         controller.removeScriptMessageHandler(forName: "bowserEmit")
         controller.add(pageRelay, name: "bowserConsole")
         controller.add(pageRelay, name: "bowserEmit")
+        if SiteAppConfiguration.current != nil {
+            controller.removeScriptMessageHandler(forName: "bowserNotifications", contentWorld: .page)
+            controller.addScriptMessageHandler(SiteAppNotifications.shared, contentWorld: .page, name: "bowserNotifications")
+        }
     }
 
     func tearDown() {

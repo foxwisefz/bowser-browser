@@ -76,6 +76,11 @@ Bowser running; opening it from the Dock creates a window again. **Quit Bowser**
 (or ⌘Q) saves the session before closing windows and stops the backend and its
 mod processes. Backend startup failures show a retry dialog with the log path.
 
+Saved apps support page notifications (`new Notification`) while running, with
+website permission and macOS notification authorization. Notification clicks
+return to that app. Background Web Push and service-worker notifications are
+not implemented; Safari’s support does not imply public WKWebView support.
+
 ### Your first mod
 
 ```sh

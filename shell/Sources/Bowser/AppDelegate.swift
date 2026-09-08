@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         didFinishLaunching = true
+        if SiteAppConfiguration.current != nil { SiteAppNotifications.shared.start() }
         buildMenu()
         // Before any webview exists: embedded players need real third-party
         // cookies (bowser-browser-yll).
@@ -391,6 +392,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
         }
         appMenu.addItem(.separator())
+        if SiteAppConfiguration.current != nil {
+            let item = appMenu.addItem(withTitle: "Reset Website Notification Permissions…", action: #selector(SiteAppNotifications.resetPermissions(_:)), keyEquivalent: "")
+            item.target = SiteAppNotifications.shared
+        }
         appMenu.addItem(withTitle: "Quit " + (SiteAppConfiguration.current?.url.host ?? "Bowser"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
