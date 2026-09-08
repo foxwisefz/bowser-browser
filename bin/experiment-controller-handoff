@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Builds a disposable native .app. Open the printed path to run the experiment.
+# It does not install or restart Bowser. Requires ffmpeg and the Swift toolchain.
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
+FIXTURE="$(mktemp -d /tmp/bowser-handoff.XXXXXX)"
+command -v ffmpeg >/dev/null || { echo 'ffmpeg is needed to generate the local fixture video.' >&2; exit 1; }
+echo "Experiment artifacts: $FIXTURE"
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=640x360:rate=30' -t 30 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -movflags +faststart "$FIXTURE/video.mp4"
+BUNDLE="$FIXTURE/Bowser Handoff Experiment.app"
+mkdir -p "$BUNDLE/Contents/MacOS"
+SOURCES=()
+for source in "$REPO"/shell/Sources/Bowser/*.swift; do
+  [ "$(basename "$source")" = main.swift ] || SOURCES+=("$source")
+done
+swiftc -swift-version 6 -module-name BowserHandoff "${SOURCES[@]}" "$REPO/experiments/controller-handoff/main.swift" -o "$BUNDLE/Contents/MacOS/BowserHandoff"
+python3 - "$BUNDLE/Contents/Info.plist" "$FIXTURE" "$REPO" <<'PY'
+import plistlib, sys
+path, home, repo = sys.argv[1:]
+with open(path, 'wb') as f:
+    plistlib.dump(dict(CFBundleIdentifier='com.gezim.bowser.handoff-experiment', CFBundleName='Bowser Handoff Experiment',
+        CFBundleExecutable='BowserHandoff', CFBundlePackageType='APPL', NSHighResolutionCapable=True,
+        BowserExperimentHome=home, BowserExperimentRepo=repo), f)
+PY
+codesign --force --sign - "$BUNDLE"
+echo "Open: $BUNDLE"

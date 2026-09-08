@@ -1,0 +1,339 @@
+{
+  "failures": [],
+  "hostPID": 42048,
+  "passed": true,
+  "samples": [
+    {
+      "after": {
+        "frames": 32,
+        "generation": 1,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 51,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 132,
+        "time": 3.038389749664597,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 59,
+        "generation": 0,
+        "htmlFullscreen": false,
+        "interruptions": 1,
+        "maxGapMS": 619,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 87,
+        "time": 1.966540166333412,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42062,
+      "generation": 1,
+      "handoffMS": 68.39754166867351,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 33,
+        "generation": 2,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 178,
+        "time": 4.140308332999466,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 32,
+        "generation": 1,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 51,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 132,
+        "time": 3.0392295413327104,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42065,
+      "generation": 2,
+      "handoffMS": 81.26875000016298,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 32,
+        "generation": 3,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 35,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 222,
+        "time": 5.2107612496665165,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 33,
+        "generation": 2,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 178,
+        "time": 4.140674166332956,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42066,
+      "generation": 3,
+      "handoffMS": 67.12516666812007,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 33,
+        "generation": 4,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 268,
+        "time": 6.312392332334884,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 32,
+        "generation": 3,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 35,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 222,
+        "time": 5.211296416332457,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42068,
+      "generation": 4,
+      "handoffMS": 77.0684999988589,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 33,
+        "generation": 5,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 313,
+        "time": 7.397761707668815,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 33,
+        "generation": 4,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 268,
+        "time": 6.312966540668885,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42069,
+      "generation": 5,
+      "handoffMS": 79.79554166740854,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 32,
+        "generation": 6,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 359,
+        "time": 8.484143582333276,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 33,
+        "generation": 5,
+        "htmlFullscreen": false,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 313,
+        "time": 7.398449207668728,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42071,
+      "generation": 6,
+      "handoffMS": 79.35345833539031,
+      "mode": "nativeFullscreen"
+    },
+    {
+      "after": {
+        "frames": 32,
+        "generation": 7,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 477,
+        "time": 11.306374416000024,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 80,
+        "generation": 6,
+        "htmlFullscreen": true,
+        "interruptions": 1,
+        "maxGapMS": 545,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 430,
+        "time": 10.192304499666882,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42077,
+      "generation": 7,
+      "handoffMS": 66.86279166751774,
+      "mode": "htmlVideoFullscreen"
+    },
+    {
+      "after": {
+        "frames": 34,
+        "generation": 8,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 523,
+        "time": 12.426695957666526,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 32,
+        "generation": 7,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 477,
+        "time": 11.306948541002482,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42079,
+      "generation": 8,
+      "handoffMS": 79.3100000009872,
+      "mode": "htmlVideoFullscreen"
+    },
+    {
+      "after": {
+        "frames": 32,
+        "generation": 9,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 570,
+        "time": 13.549747999330473,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 34,
+        "generation": 8,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 523,
+        "time": 12.427253874334712,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42082,
+      "generation": 9,
+      "handoffMS": 67.38079166825628,
+      "mode": "htmlVideoFullscreen"
+    },
+    {
+      "after": {
+        "frames": 34,
+        "generation": 10,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 51,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 617,
+        "time": 14.676044791331265,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 32,
+        "generation": 9,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 570,
+        "time": 13.550383707667104,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42083,
+      "generation": 10,
+      "handoffMS": 67.37829166740994,
+      "mode": "htmlVideoFullscreen"
+    },
+    {
+      "after": {
+        "frames": 32,
+        "generation": 11,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 50,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 662,
+        "time": 15.755742124332421,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "before": {
+        "frames": 34,
+        "generation": 10,
+        "htmlFullscreen": true,
+        "interruptions": 0,
+        "maxGapMS": 51,
+        "paused": false,
+        "samePlayer": true,
+        "ticks": 617,
+        "time": 14.67793737466684,
+        "token": "ce766d0a-d61a-48da-9bb4-49c637c91d1b"
+      },
+      "controllerPID": 42086,
+      "generation": 11,
+      "handoffMS": 68.11220833333209,
+      "mode": "htmlVideoFullscreen"
+    }
+  ],
+  "scope": "Production EngineView/BrainBridge; disposable controllers; local muted video; native and HTML video fullscreen. Does not replace native host, upgrade full BEAM backend, or verify audio output.",
+  "windowNumber": 2421
+}
