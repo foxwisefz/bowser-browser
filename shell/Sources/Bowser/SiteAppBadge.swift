@@ -1,10 +1,13 @@
 import AppKit
 import WebKit
+import UserNotifications
 
 /// Each saved app has its own process and Dock tile. Never aggregate across profiles.
 @MainActor
 final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
     static let shared = SiteAppBadge()
+    private var authorizationRequested = false
+    private var currentLabel: String?
     private var titles: [UInt64: String] = [:]
     private var explicit: [UInt64: String] = [:]
 
@@ -14,12 +17,9 @@ final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
         return host == saved || host.hasSuffix("." + saved)
     }
 
-    static func titleBadge(_ title: String, url: URL? = nil) -> String {
+    static func titleBadge(_ title: String) -> String {
         // Only a leading unread marker; dates and numbers in normal titles aren't counts.
-        let host = url?.host?.lowercased() ?? ""
-        let slack = host == "slack.com" || host.hasSuffix(".slack.com")
-        let slackCount = slack ? title.range(of: #" - [0-9]{1,9}\+? new items? - Slack$"#, options: .regularExpression) : nil
-        guard let match = slackCount ?? title.range(of: #"^\s*[\(\[]([0-9]{1,9}\+?)[\)\]]\s*"#, options: .regularExpression) else { return "" }
+        guard let match = title.range(of: #"^\s*[\(\[]([0-9]{1,9}\+?)[\)\]]\s*"#, options: .regularExpression) else { return "" }
         let value = String(title[match]).filter { $0.isNumber || $0 == "+" }
         guard let number = Int(value.replacingOccurrences(of: "+", with: "")), number > 0 else { return "" }
         return number > 999 ? "999+" : value
@@ -27,7 +27,7 @@ final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
 
     func updateTitle(_ title: String, id: UInt64, url: URL?) {
         guard SiteAppConfiguration.current != nil else { return }
-        titles[id] = Self.allows(url, configuration: SiteAppConfiguration.current) ? Self.titleBadge(title, url: url) : ""
+        titles[id] = Self.allows(url, configuration: SiteAppConfiguration.current) ? Self.titleBadge(title) : ""
         publish()
     }
 
@@ -40,7 +40,20 @@ final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
     private func publish() {
         // Multiple windows on the same account can report the same count. Don't sum it.
         let labels = Set(titles.keys).union(explicit.keys).map { explicit[$0] ?? titles[$0] ?? "" }
-        NSApp.dockTile.badgeLabel = labels.max(by: { Self.rank($0) < Self.rank($1) }).flatMap { $0.isEmpty ? nil : $0 }
+        currentLabel = labels.max(by: { Self.rank($0) < Self.rank($1) }).flatMap { $0.isEmpty ? nil : $0 }
+        NSApp.dockTile.badgeLabel = currentLabel
+        guard currentLabel != nil, !authorizationRequested else { return }
+        authorizationRequested = true
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined {
+                do { _ = try await center.requestAuthorization(options: [.badge]) }
+                catch { NSLog("Bowser: Dock badge authorization failed: %@", error.localizedDescription) }
+            }
+            // The unread count may have changed while authorization was pending.
+            NSApp.dockTile.badgeLabel = currentLabel
+        }
     }
 
     private static func rank(_ value: String) -> Int {

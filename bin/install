@@ -121,12 +121,14 @@ with open(path, 'wb') as out:
         RunAtLoad=True, KeepAlive={'PathState': {root+'/pending.json': True}},
         ThrottleInterval=10, StandardOutPath=root+'/install.log', StandardErrorPath=root+'/install.log'), out)
 PYCODE
+"$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json" --refresh-watcher
 if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
   launchctl bootstrap "gui/$(id -u)" "$AGENT_DIR/$AGENT_LABEL.plist" || {
     echo "Unable to register pending-update login job; update remains staged." >&2; exit 1;
   }
 fi
 
+launchctl kickstart "gui/$(id -u)/$AGENT_LABEL"
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json"
 if [ -f "$UPDATE_ROOT/pending.json" ]; then
   say "native update staged — compatible backend updates apply live; native changes activate after apps quit"

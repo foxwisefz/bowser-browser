@@ -82,7 +82,9 @@ return to that app. Background Web Push and service-worker notifications are
 not implemented; Safari’s support does not imply public WKWebView support.
 Saved apps display Dock badges from `navigator.setAppBadge()` /
 `clearAppBadge()`, with leading unread counts such as `(2)` in page titles as a
-fallback. Badges reflect the running website’s session, not the separate desktop
+fallback. There are no site-specific unread-count scrapers. macOS must allow
+badge icons for the saved app.
+Badges reflect the running website’s session, not the separate desktop
 app, and clear on navigation or when the page closes.
 
 For a development browser with no mods or site tweaks loaded, run

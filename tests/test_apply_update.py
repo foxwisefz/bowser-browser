@@ -13,6 +13,19 @@ class UpdateTests(unittest.TestCase):
             self.assertTrue(update.busy(m, process))
         self.assertFalse(update.busy(m, '/usr/bin/python3\n/tmp/Other.app/Contents/MacOS/Other'))
 
+    def test_refresh_only_retires_matching_watcher(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        with tempfile.TemporaryDirectory() as directory:
+            pending = Path(directory).resolve() / 'pending.json'
+            expected = f"/usr/bin/python3 {pending.parent}/apply-update {pending} --wait"
+            def run(args, **kwargs):
+                output = '123 456' if 'lsof' in args[0] else (expected if args[2] == '123' else '/bin/other --wait')
+                return CompletedProcess(args, 0, stdout=output)
+            with patch.object(update.subprocess, 'run', side_effect=run), patch.object(update.os, 'kill') as kill:
+                update.refresh_watcher(pending)
+                kill.assert_called_once_with(123, update.signal.SIGTERM)
+
     def test_activation_preserves_previous_pair(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

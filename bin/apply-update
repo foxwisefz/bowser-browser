@@ -12,6 +12,8 @@ import socket
 import struct
 import uuid
 import re
+import shlex
+import signal
 
 
 def busy(manifest, processes=None):
@@ -127,12 +129,36 @@ def live_update(manifest):
     return False
 
 
+def refresh_watcher(pending):
+    """Retire only this manifest's old watcher, outside its activation transaction."""
+    pending = Path(pending).resolve()
+    with open(pending.with_suffix('.lock'), 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        result = subprocess.run(['/usr/sbin/lsof', '-t', str(pending.with_suffix('.watcher.lock'))],
+                                capture_output=True, text=True)
+        for value in set(result.stdout.split()):
+            if not value.isdigit() or int(value) == os.getpid():
+                continue
+            pid = int(value)
+            process = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'args='], capture_output=True, text=True)
+            args = shlex.split(process.stdout.strip())
+            # Never terminate browsers, backends, or a watcher for another home.
+            expected = [str(pending.parent / 'apply-update'), str(pending), '--wait']
+            if len(args) >= 3 and args[-3:] == expected:
+                os.kill(pid, signal.SIGTERM)
+                print('Retired previous pending-update watcher.', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pending', type=Path)
     parser.add_argument('--wait', action='store_true')
+    parser.add_argument('--refresh-watcher', action='store_true')
     args = parser.parse_args()
     args.pending.parent.mkdir(parents=True, exist_ok=True)
+    if args.refresh_watcher:
+        refresh_watcher(args.pending)
+        return
     with open(args.pending.with_suffix('.watcher.lock'), 'w') as watcher:
         try:
             fcntl.flock(watcher, fcntl.LOCK_EX | fcntl.LOCK_NB)
