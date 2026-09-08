@@ -1,0 +1,81 @@
+{
+  "after": {
+    "frames": 133,
+    "generation": 2,
+    "htmlFullscreen": true,
+    "interruptions": 0,
+    "maxGapMS": 51,
+    "paused": false,
+    "samePlayer": true,
+    "scrollY": 0,
+    "sequence": 184,
+    "ticks": 266,
+    "time": 6.373151292000164,
+    "token": "51fcaa5b-c358-40a5-b45f-a9f6020efa11",
+    "url": "file:///tmp/bowser-handoff.FPQlIF/fixture.html"
+  },
+  "backend": {
+    "acknowledged": 189,
+    "adopted": {
+      "active": 1,
+      "children": 21,
+      "generation": 2,
+      "pid": "47109",
+      "profiles": {
+        "1": "handoff-work",
+        "2": "handoff-personal"
+      },
+      "restore": null,
+      "tabs": {
+        "1": "file:///tmp/bowser-handoff.FPQlIF/fixture.html",
+        "2": "https://profile-fixture.invalid/"
+      }
+    },
+    "duplicateProbeDeliveries": 0,
+    "journalEvents": 189,
+    "limitations": "Experimental relay and receipt observer, not shipped updater; at-least-once durable receipt, not exactly-once arbitrary mod effects.",
+    "passed": true,
+    "phases": [
+      {
+        "case": "incompatible_candidate",
+        "passed": true
+      },
+      {
+        "ack": 114,
+        "case": "full_backend_replacement",
+        "gapStartSequence": 28,
+        "handoffMS": 41.26212499999981
+      },
+      {
+        "ack": 147,
+        "case": "candidate_crash_rollback",
+        "gapStartSequence": 128,
+        "rollbackMS": 40.549458000000094,
+        "totalGapMS": 392.2044590000002
+      }
+    ],
+    "probesCaptured": 184,
+    "staleResponsesRejected": 1,
+    "uniqueProbesReceived": 184
+  },
+  "before": {
+    "frames": 0,
+    "generation": 1,
+    "htmlFullscreen": true,
+    "interruptions": 0,
+    "maxGapMS": 0,
+    "paused": false,
+    "samePlayer": true,
+    "scrollY": 0,
+    "sequence": 0,
+    "ticks": 81,
+    "time": 1.9391596246690121,
+    "token": "51fcaa5b-c358-40a5-b45f-a9f6020efa11",
+    "url": "file:///tmp/bowser-handoff.FPQlIF/fixture.html"
+  },
+  "failures": [],
+  "hostPID": 47032,
+  "passed": true,
+  "scope": "Full production BEAM supervision tree with isolated empty user directories and extra receipt observer; prototype stable relay; muted media; not installed updater.",
+  "source": "local fixture"
+}

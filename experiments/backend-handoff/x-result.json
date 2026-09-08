@@ -1,0 +1,81 @@
+{
+  "after": {
+    "frames": 108,
+    "generation": 2,
+    "htmlFullscreen": true,
+    "interruptions": 0,
+    "maxGapMS": 55,
+    "paused": false,
+    "samePlayer": true,
+    "scrollY": 0,
+    "sequence": 185,
+    "ticks": 273,
+    "time": 6.267315923670031,
+    "token": "c904d35a-02bf-4ce4-93aa-4b28d1492f92",
+    "url": "https://x.com/ycombinator/status/2096970626036855197"
+  },
+  "backend": {
+    "acknowledged": 194,
+    "adopted": {
+      "active": 1,
+      "children": 21,
+      "generation": 2,
+      "pid": "48613",
+      "profiles": {
+        "1": "handoff-work",
+        "2": "handoff-personal"
+      },
+      "restore": null,
+      "tabs": {
+        "1": "https://x.com/ycombinator/status/2096970626036855197",
+        "2": "https://profile-fixture.invalid/"
+      }
+    },
+    "duplicateProbeDeliveries": 0,
+    "journalEvents": 194,
+    "limitations": "Experimental relay and receipt observer, not shipped updater; at-least-once durable receipt, not exactly-once arbitrary mod effects.",
+    "passed": true,
+    "phases": [
+      {
+        "case": "incompatible_candidate",
+        "passed": true
+      },
+      {
+        "ack": 118,
+        "case": "full_backend_replacement",
+        "gapStartSequence": 31,
+        "handoffMS": 41.15991699999988
+      },
+      {
+        "ack": 152,
+        "case": "candidate_crash_rollback",
+        "gapStartSequence": 132,
+        "rollbackMS": 34.97366700000004,
+        "totalGapMS": 386.89608299999986
+      }
+    ],
+    "probesCaptured": 185,
+    "staleResponsesRejected": 1,
+    "uniqueProbesReceived": 185
+  },
+  "before": {
+    "frames": 0,
+    "generation": 1,
+    "htmlFullscreen": true,
+    "interruptions": 0,
+    "maxGapMS": 0,
+    "paused": false,
+    "samePlayer": true,
+    "scrollY": 0,
+    "sequence": 0,
+    "ticks": 87,
+    "time": 1.7899234463362625,
+    "token": "c904d35a-02bf-4ce4-93aa-4b28d1492f92",
+    "url": "https://x.com/ycombinator/status/2096970626036855197"
+  },
+  "failures": [],
+  "hostPID": 48502,
+  "passed": true,
+  "scope": "Full production BEAM supervision tree with isolated empty user directories and extra receipt observer; prototype stable relay; muted media; not installed updater.",
+  "source": "https://x.com/ycombinator/status/2096970626036855197/video/1"
+}
