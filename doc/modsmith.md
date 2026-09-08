@@ -13,7 +13,8 @@ Subsequent submissions include that ID; New mod explicitly clears selection.
 Switching tabs does not retarget an existing mod's refinement.
 
 The page changes live. Results retain the agent's summary, caveats and reported
-checks. A nonempty notes field produces a partial result; verification is
+checks. Only an explicit `status: "partial"` marks requested work unfinished; notes
+are expandable details and do not determine status. Verification is
 labelled as agent-reported, not an independent guarantee. Failed and interrupted
 runs retain recorded drafts and expose undo. No action claims to transfer work
 to another agent.
@@ -101,8 +102,10 @@ strip to skin: a tab dock/strip remains a separate Surface mod. These APIs
 do not expose arbitrary AppKit layouts or restyle the Settings/ModSmith windows.
 
 During generation, `put_mod(name, content)` writes an Elixir draft through
-the same scoped revision journal used by final output. The loader compiles
-it asynchronously; theme runs then check `shell_theme` before reporting.
+the same scoped revision journal used by final output. The tool returns compilation
+and startup/reload results; theme runs then check `shell_theme` before reporting.
+An unchanged draft from the current run can be finalized as `{"path":"mods/name.ex"}`
+without regenerating its content. Other files still require full content.
 Drafts and final files share one original snapshot for Undo. The tool requires
 an active ModSmith run and is unavailable for saved apps.
 
@@ -143,3 +146,23 @@ lights. It follows normal theme ownership and reset behavior.
 
 See `beam/example_mods/status_bar.ex` for a bottom status bar with a clickable
 Home control and a full-window beveled outline. No Window Style editor is required.
+
+## Native artwork and verification
+
+`put_asset(name: "logo.svg", content: svg_source)` saves self-contained SVG
+artwork beneath `assets/<project-id>/`, with the same revision and Undo handling
+as code. Its `image_path` can be passed to `View.image(path: path, size: 48)`
+in surfaces and toolbars. Images are square; the renderer reloads changed files.
+Use paths/shapes and inline colors without scripts, entities or external resources.
+Existing local PNGs also work, but a raster-upload interface is not provided.
+
+`native_screenshot` returns a real screenshot of the selected visible browser
+window as an MCP image plus its window id. `native_click(x, y, window)` dispatches
+a click in that browser's native content, using top-left window coordinates from
+the screenshot; it rejects website content. Capture again to verify effects.
+Screen capture requires macOS permission. Separate floating panels and saved apps
+are not currently targets. A failed capture is not evidence that the skin rendered.
+
+Embedded CLI runs use explicit settings to exclude CLAUDE.md, hooks and automatic
+memory, plus a focused ModSmith system prompt. OAuth authentication remains enabled.
+Existing resumed transcripts may still contain context from their earlier runs.

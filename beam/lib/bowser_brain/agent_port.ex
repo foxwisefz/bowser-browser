@@ -159,6 +159,17 @@ defmodule BowserBrain.AgentPort do
 
   def dispatch(%{"tool" => "toolbars"}), do: %{ok: true, toolbars: BowserBrain.Chrome.toolbars()}
 
+  def dispatch(%{"tool" => tool} = request) when tool in ["native_screenshot", "native_click"] do
+    try do
+      case GenServer.call(Bridge, {:native_verify, tool, Map.get(request, "args", %{})}, 15_000) do
+        {:ok, result} -> Map.put(result, "ok", true)
+        {:error, reason} -> %{ok: false, error: inspect(reason)}
+      end
+    catch
+      :exit, _ -> %{ok: false, error: "Native verification timed out; check shell version and screen capture permission"}
+    end
+  end
+
   def dispatch(%{"tool" => "page_eval"} = request) do
     args = Map.get(request, "args", %{})
     js = Map.get(args, "js", "")

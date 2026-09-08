@@ -187,6 +187,12 @@ defmodule BowserBrain.ModSmith do
     label:) (sends "#rrggbb", debounced), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    NATIVE VERIFICATION: native_screenshot captures the selected visible browser
+    window, including native toolbar pixels, and returns an image and window id.
+    Use native_click(x:, y:, window:) on controls visible in that screenshot;
+    coordinates are window points from top-left. Screenshot again after clicking.
+    These tools target the browser window, not separate floating panels or websites.
+    A capture permission error is a verification limitation; do not claim success.
     NATIVE IMAGES: BowserBrain.View.image(path: "/absolute/path/logo.png", size: 48)
     displays an existing local image in a native Surface OR Chrome.put_toolbar
     view tree. For example hstack([image(path: "/absolute/path/logo.png", size: 48),
@@ -621,7 +627,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__native_screenshot,mcp__bowser__native_click,mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do

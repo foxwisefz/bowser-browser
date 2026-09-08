@@ -15,6 +15,16 @@ SOCK = os.path.join(os.path.expanduser(os.environ.get("BOWSER_HOME", "~/.bowser"
 
 TOOLS = [
     {
+        "name": "native_screenshot",
+        "description": "Capture the selected visible browser window including native toolbars. Returns an image and window id; coordinates are points from top-left. Requires macOS screen capture permission; errors are not visual verification.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "native_click",
+        "description": "Click a native browser control using coordinates and window id from the latest screenshot. Website content is excluded. Screenshot again to verify the result; dispatch alone does not prove success.",
+        "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "integer"}}, "required": ["x", "y", "window"]},
+    },
+    {
         "name": "put_asset",
         "description": "Save self-contained SVG source in this mod's owned assets with Undo history. Returns image_path for View.image(path: image_path, size: 48). No external references or scripts; max 200KB. Reference installed relative path in final files.",
         "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
@@ -172,8 +182,12 @@ def main():
         elif method == "tools/call":
             params = msg.get("params", {})
             result = call_brain(params.get("name"), params.get("arguments", {}))
+            image_data = result.pop("image", None)
+            content = [{"type": "text", "text": json.dumps(result)}]
+            if image_data and result.get("ok"):
+                content.append({"type": "image", "data": image_data, "mimeType": result.get("mimeType", "image/png")})
             reply(msg_id, {
-                "content": [{"type": "text", "text": json.dumps(result)}],
+                "content": content,
                 "isError": not result.get("ok", False),
             })
         elif msg_id is not None:
