@@ -247,8 +247,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     // MARK: Commands
 
+    static func localFileURL(_ input: String) -> URL? {
+        let path = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix("/") || path.hasPrefix("~/") else { return nil }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
+
     func load(urlString: String) {
-        guard let url = URL(string: urlString) else { return }
+        guard let url = Self.localFileURL(urlString) ?? URL(string: urlString) else { return }
         // file:// needs explicit read access to the containing directory or
         // WebKit sandboxes sibling resources — a local page's <video>, css,
         // and images silently fail to load (bowser-browser-vus). Grant the

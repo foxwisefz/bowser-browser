@@ -490,9 +490,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     // Bare words search; things that look like URLs get https://.
     static func normalize(_ input: String) -> String {
         let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if input.hasPrefix("/") || input.hasPrefix("~/") {
-            return URL(fileURLWithPath: (input as NSString).expandingTildeInPath).absoluteString
-        }
+        if let file = EngineView.localFileURL(input) { return file.absoluteString }
         if input.contains("://") { return input }
         if input.contains(".") && !input.contains(" ") { return "https://\(input)" }
         let query = input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
