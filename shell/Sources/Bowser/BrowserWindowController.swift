@@ -47,9 +47,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init(profile requested: Profile? = nil) {
         let profile = requested ?? Profile.main
+        let isSiteApp = SiteAppConfiguration.current != nil
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: isSiteApp ? [.titled, .closable, .miniaturizable, .resizable] : [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -65,7 +66,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.titleVisibility = .hidden
+        window.titleVisibility = isSiteApp ? .visible : .hidden
         self.init(window: window)
         self.profile = profile
 
@@ -92,6 +93,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // living in the REAL titlebar view (the traffic lights' superview) —
         // plain view, obeys constraints; page starts below the band so
         // nothing ever collides. The band still takes the page's theme tint.
+        if !isSiteApp {
         let hosting = NSHostingView(rootView: AnyView(clusterView()))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         if let titlebar = window.standardWindowButton(.closeButton)?.superview {
@@ -139,6 +141,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                 profilePortrait.widthAnchor.constraint(equalToConstant: 24),
                 profilePortrait.heightAnchor.constraint(equalToConstant: 24),
             ])
+        }
         }
         refreshProfileBadge()
 

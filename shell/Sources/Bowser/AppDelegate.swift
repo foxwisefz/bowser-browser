@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { return event }
             switch key {
             case "k", "l":
+                guard SiteAppConfiguration.current == nil else { return event }
                 if let controller = self?.currentController {
                     CommandBar.shared.show(for: controller)
                 }
@@ -265,10 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// ⌘,: the conventional Settings window.
     @objc func openSettings(_ sender: Any?) {
-        if SiteAppConfiguration.current != nil, let controller = currentController {
-            SiteAppCommands.shared.show(for: controller)
-            return
-        }
+        guard SiteAppConfiguration.current == nil else { return }
         SettingsWindow.shared.show()
     }
 
@@ -449,8 +447,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let goMenuItem = NSMenuItem()
         let goMenu = NSMenu(title: "Go")
-        goMenu.addItem(withTitle: SiteAppConfiguration.current == nil ? "Command Bar" : "App Actions", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
         if SiteAppConfiguration.current == nil {
+            goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
             goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
         }
         let copyURLItem = goMenu.addItem(
@@ -467,6 +465,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Next Tab", action: #selector(nextTabInOrder(_:)), keyEquivalent: "]"
         )
         nextItem.keyEquivalentModifierMask = [.command, .shift]
+        }
+        if SiteAppConfiguration.current != nil {
+            for action in [SiteAppCommands.Action.back, .forward, .openInBowser, .createMod] {
+                let item = goMenu.addItem(withTitle: action.rawValue, action: #selector(SiteAppCommands.runMenuAction(_:)), keyEquivalent: "")
+                item.target = SiteAppCommands.shared
+                item.representedObject = action.rawValue
+            }
         }
         goMenuItem.submenu = goMenu
         mainMenu.addItem(goMenuItem)

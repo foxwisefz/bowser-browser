@@ -112,7 +112,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     /// Height of the chrome band. The page runs FULL height underneath it —
     /// the band is a click-through scrim, so page pixels show (and scroll)
     /// through the chrome.
-    static let pageTopInset: CGFloat = 34
+    static let pageTopInset: CGFloat = SiteAppConfiguration.current == nil ? 34 : 0
 
     /// WebKit's own top content inset (what Safari uses under its toolbar):
     /// the page's viewport starts below the band — position:fixed headers

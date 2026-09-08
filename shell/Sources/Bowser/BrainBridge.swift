@@ -299,6 +299,7 @@ final class BrainBridge {
             send(["op": "site_app_info", "id": message["id"] ?? 0,
                   "app": config.identifier, "profile": config.profile,
                   "windows": BrowserWindowController.all.count, "menu_titles": titles,
+                  "page_top_inset": EngineView.pageTopInset,
                   "app_mod_count": SiteAppRuntime.shared.modCount,
                   "favicon": EngineView.live.values.first?.faviconPath ?? "",
                   "actions": SiteAppCommands.Action.allCases.map(\.rawValue)])
