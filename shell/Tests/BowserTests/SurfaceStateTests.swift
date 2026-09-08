@@ -4,6 +4,26 @@ import SwiftUI
 
 final class SurfaceStateTests: XCTestCase {
     @MainActor
+    func testScreenDockIsIndependentAndAvailableAcrossSpaces() throws {
+        let controller = BrowserWindowController(profile: .defaultProfile)
+        let owner = try XCTUnwrap(controller.window)
+        defer { owner.close() }
+        let manager = SurfaceManager()
+        let before = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let keyBefore = NSApp.keyWindow
+        manager.handle(["surface": "show", "id": "space-dock-test", "kind": "edge", "attach": "screen",
+                        "view": ["t": "text", "text": "Tabs"], "width": 48.0])
+        defer { manager.handle(["surface": "close", "id": "space-dock-test"]) }
+        let panel = try XCTUnwrap(NSApp.windows.first { !before.contains(ObjectIdentifier($0)) } as? NSPanel)
+        XCTAssertNil(panel.parent)
+        XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertFalse(panel.collectionBehavior.contains(.moveToActiveSpace))
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+        XCTAssertTrue(NSApp.keyWindow === keyBefore)
+    }
+
+    @MainActor
     func testKeyedInsertionPreservesActualTextFieldFocus() throws {
         _ = NSApplication.shared
         let field: [String: Any] = ["t": "textfield", "key": "name", "event": "name", "value": "Reading"]

@@ -223,7 +223,10 @@ final class SurfaceManager {
         panel.contentView = container
 
         if attach == "screen" {
-            // Screen-edge dock: independent of any window; just float.
+            // The dock belongs to the screen, not the Space it was created
+            // in. Joining all Spaces also avoids moving an inactive browser
+            // window when the dock is revealed beside a fullscreen window.
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.level = .floating
             panel.orderFront(nil)
         } else {
