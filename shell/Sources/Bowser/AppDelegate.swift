@@ -140,7 +140,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated static func webURLs(from urls: [URL]) -> [URL] {
         urls.filter { url in
             guard let scheme = url.scheme?.lowercased() else { return false }
-            return scheme == "http" || scheme == "https"
+            return scheme == "http" || scheme == "https" || url.isFileURL
+        }
+    }
+
+    @objc func openFile(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.begin { [weak self] response in
+            guard response == .OK else { return }
+            self?.openExternalURLs(panel.urls)
         }
     }
 
@@ -404,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w")
         } else {
         fileMenu.addItem(withTitle: "New Tab", action: #selector(newTab(_:)), keyEquivalent: "t")
+        fileMenu.addItem(withTitle: "Open File…", action: #selector(openFile(_:)), keyEquivalent: "o")
         fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
         let inItem = NSMenuItem(title: "New Window In", action: nil, keyEquivalent: "")
         let inMenu = NSMenu(title: "New Window In")

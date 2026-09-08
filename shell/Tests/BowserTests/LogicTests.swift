@@ -7,6 +7,13 @@ final class NormalizeTests: XCTestCase {
         XCTAssertEqual(BrowserWindowController.normalize("https://x.com/a"), "https://x.com/a")
     }
 
+    @MainActor func testLocalFileInputPreservesURLAndEncodesBarePaths() {
+        XCTAssertEqual(BrowserWindowController.normalize(" file:///tmp/My%20Page.html#slide2 "), "file:///tmp/My%20Page.html#slide2")
+        XCTAssertEqual(BrowserWindowController.normalize("/tmp/My Page#1.html"), "file:///tmp/My%20Page%231.html")
+        XCTAssertEqual(BrowserWindowController.normalize("~/Documents/page.html"),
+                       URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/page.html").absoluteString)
+    }
+
     @MainActor func testBareDomainGetsHTTPS() {
         XCTAssertEqual(BrowserWindowController.normalize("news.ycombinator.com"),
                        "https://news.ycombinator.com")

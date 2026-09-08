@@ -64,6 +64,9 @@ cd beam && iex -S mix
 A browser window appears. `⌘K` opens the command bar: type a URL, or a
 `:command`. Useful ones out of the box: `:settings`, `:panels`, `:do`.
 `⌘T` new tab, `⌘⇧[`/`⌘⇧]` cycle tabs, `⌘R` reload, `⌘0/+/-` zoom.
+Open local HTML, images, PDFs or text with **File → Open File…** (`⌘O`),
+Finder’s **Open With → Bowser**, or a `file:///…`, `/…` or `~/…` path in `⌘K`.
+Local HTML can load assets from its containing directory.
 
 Prefer to run the browser without the brain? `shell/.build/debug/Bowser`
 runs standalone (start order doesn't matter — they find each other).

@@ -20,7 +20,7 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertEqual(DefaultBrowserSettingsModel.status(httpIsBowser: false, httpsIsBowser: true), .partial)
     }
 
-    func testExternalURLFilteringAcceptsOnlyWebSchemes() {
+    func testExternalURLFilteringAcceptsWebAndLocalFiles() {
         let urls = [
             URL(string: "https://example.com/a")!,
             URL(string: "HTTP://example.com/b")!,
@@ -31,6 +31,7 @@ final class SettingsWindowTests: XCTestCase {
         XCTAssertEqual(AppDelegate.webURLs(from: urls).map(\.absoluteString), [
             "https://example.com/a",
             "HTTP://example.com/b",
+            "file:///tmp/index.html",
         ])
     }
 
