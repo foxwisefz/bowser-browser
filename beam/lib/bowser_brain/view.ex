@@ -164,6 +164,7 @@ defmodule BowserBrain.View do
       items: items,
       size: Keyword.get(opts, :size, 28),
       magnify: Keyword.get(opts, :magnify, 1.9),
+      spacing: Keyword.get(opts, :spacing, 8),
       event: to_string(Keyword.get(opts, :event, :select))
     }
   end

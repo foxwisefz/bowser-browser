@@ -154,13 +154,13 @@ defmodule EdgeDockTabs do
 
     BowserBrain.Surface.show(
       :edge_dock,
-      magnify_strip(items, size: 28, magnify: 2.1, event: "select"),
+      magnify_strip(items, size: 32, spacing: 4, magnify: 1.4, event: "select"),
       title: "Tabs",
       kind: :edge,
       edge: :left,
       peek: 3,
       attach: :screen,
-      width: 64
+      width: 48
     )
 
     state

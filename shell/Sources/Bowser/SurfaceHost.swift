@@ -981,7 +981,7 @@ struct MagnifyStripView: View {
     // passing pixels here (it happened) must not explode the layout.
     private var magnify: CGFloat { min(3.0, max(1.0, CGFloat(node["magnify"] as? Double ?? 1.9))) }
     private var eventId: String { node["event"] as? String ?? "select" }
-    private let spacing: CGFloat = 8
+    private var spacing: CGFloat { max(0, CGFloat(node["spacing"] as? Double ?? 8)) }
     private let topPad: CGFloat = 12
 
     /// Vertical origin of the icon block: centered in the view, clamping
@@ -1035,7 +1035,7 @@ struct MagnifyStripView: View {
                                     Circle()
                                         .fill(Color.accentColor)
                                         .frame(width: 4, height: 4)
-                                        .offset(y: 5)
+                                        .offset(y: 2)
                                 }
                             }
                             .frame(height: baseSize * s)
@@ -1078,6 +1078,10 @@ struct MagnifyStripView: View {
             if let path = item["path"] as? String, let image = ImageCache.load(path) {
                 Image(nsImage: image).resizable().interpolation(.high)
                     .scaledToFit()
+                    // Worker tiles contain 100px outer padding per side.
+                    // Remove it in this compact strip, not in saved app icons.
+                    .scaleEffect(surfaceId == "edge_dock" && path.contains("/favicons/tiles-v2/") ? 1024.0 / 824.0 : 1)
+                    .clipped()
             } else {
                 Image(systemName: item["symbol"] as? String ?? "globe")
                     .resizable().scaledToFit()
