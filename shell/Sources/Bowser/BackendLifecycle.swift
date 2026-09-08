@@ -5,6 +5,8 @@ import AppKit
 final class BackendLifecycle {
     static let shared = BackendLifecycle()
     private var startup: Task<Void, Never>?
+    private var monitor: Task<Void, Never>?
+    private var isStarting = false
     private var launcher: Process?
     private(set) var isQuitting = false
     var quitAcknowledged = false
@@ -19,9 +21,20 @@ final class BackendLifecycle {
     }
 
     func start() {
-        guard SiteAppConfiguration.current == nil else { return }
+        guard SiteAppConfiguration.current == nil, !isStarting, !isQuitting else { return }
+        isStarting = true
+        if monitor == nil {
+            monitor = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard let self, !isQuitting, !Task.isCancelled else { return }
+                    if !BrainBridge.shared.isConnected { start() }
+                }
+            }
+        }
         startup = Task { [weak self] in
             guard let self else { return }
+            defer { isStarting = false }
             // A supervising brain may already be reconnecting to this shell.
             try? await Task.sleep(for: .milliseconds(750))
             guard !Task.isCancelled, !isQuitting, !BrainBridge.shared.isConnected else { return }
@@ -67,7 +80,12 @@ final class BackendLifecycle {
         alert.informativeText = "Tabs and mods need the backend. Details are in \(BowserPaths.home.appendingPathComponent("brain.log").path)."
         alert.addButton(withTitle: "Retry")
         alert.addButton(withTitle: "Quit Bowser")
-        if alert.runModal() == .alertFirstButtonReturn { start() }
+        if alert.runModal() == .alertFirstButtonReturn {
+            Task { [weak self] in
+                await Task.yield()
+                self?.start()
+            }
+        }
         else { NSApp.terminate(nil) }
     }
 
@@ -76,6 +94,7 @@ final class BackendLifecycle {
         guard !isQuitting else { return .terminateLater }
         isQuitting = true
         startup?.cancel()
+        monitor?.cancel()
         Task {
             // Let an in-flight launcher finish so it cannot start a brain after quit.
             while launcher?.isRunning == true {

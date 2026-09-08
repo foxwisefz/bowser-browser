@@ -30,6 +30,20 @@ defmodule BowserBrain.AgentPort do
   end
 
   @impl true
+  def handle_call(:handoff_pause, _from, state) do
+    if state.listener, do: :gen_tcp.close(state.listener)
+    case Map.get(state, :acceptor) do
+      {pid, _} ->
+        ref = Process.monitor(pid)
+        receive do {:DOWN, ^ref, :process, ^pid, _} -> :ok after 150 -> raise "acceptor did not stop" end
+      _ -> :ok
+    end
+    {:reply, :ok, %{state | listener: nil}}
+  end
+
+  @impl true
+  def handle_info(:listen, %{listener: listener} = state) when not is_nil(listener), do: {:noreply, state}
+
   def handle_info(:listen, state) do
     path = socket_path()
     File.rm(path)
@@ -96,7 +110,7 @@ defmodule BowserBrain.AgentPort do
         # this file hot-reloads must be served by CURRENT code, not by a
         # closure the old version created (that made exactly one request
         # after every reload answer "unknown tool").
-        Task.start(fn -> __MODULE__.serve(sock) end)
+        BowserBrain.Handoff.external_task(fn -> __MODULE__.serve(sock) end)
         __MODULE__.accept_loop(listener)
 
       {:error, _closed} ->

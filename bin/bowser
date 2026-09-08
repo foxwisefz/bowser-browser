@@ -23,6 +23,42 @@ dev_brains() {
   done
 }
 
+# New installations keep a stable relay beside the native host. The relay owns
+# versioned BEAM children; the shell is never a child of a replaceable backend.
+if [ -f "$APP_DIR/HANDOFF.json" ]; then
+  STATE_HOME="${BOWSER_HOME:-$HOME/.bowser}"
+  HOST="$APP_DIR/bin/backend-host"
+  case "${1:-status}" in
+    start)
+      if [ -f "$STATE_HOME/updates/pending.json" ] && [ -x "$STATE_HOME/updates/apply-update" ]; then
+        "$STATE_HOME/updates/apply-update" "$STATE_HOME/updates/pending.json"
+      fi
+      open "$BUNDLE"
+      exit 0;;
+    start-brain)
+      if "$HOST" --control "$STATE_HOME" status >/dev/null 2>&1; then exit 0; fi
+      (cd "$APP_DIR" && "$APP_DIR/bin/detach" "$LOG" -- "$HOST" "$STATE_HOME" "$APP_DIR" >/dev/null)
+      for i in {1..40}; do
+        if "$HOST" --control "$STATE_HOME" status >/dev/null 2>&1; then exit 0; fi
+        sleep 0.25
+      done
+      echo "backend host did not start — see $LOG" >&2; exit 1;;
+    stop|stop-brain)
+      "$HOST" --control "$STATE_HOME" stop >/dev/null 2>&1 || true
+      for i in {1..40}; do
+        "$HOST" --control "$STATE_HOME" status >/dev/null 2>&1 || break
+        sleep 0.25
+      done
+      if [ "${2:-}" = "--all" ]; then
+        for p in $(dev_brains); do kill -TERM "$p" 2>/dev/null || true; done
+      fi
+      if [ "${1}" = stop ]; then pkill -f "$BUNDLE/Contents/MacOS/Bowser" 2>/dev/null || true; fi
+      exit 0;;
+    restart) "$0" stop; "$0" start; exit 0;;
+    status) "$HOST" --control "$STATE_HOME" status; exit $?;;
+  esac
+fi
+
 case "${1:-status}" in
   start|start-brain)
     UPDATE_ROOT="${BOWSER_HOME:-$HOME/.bowser}/updates"

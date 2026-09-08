@@ -38,7 +38,7 @@ defmodule BowserBrain.Bridge do
     cast_msg(%{op: "set_cookie", url: url, cookie: cookie})
   end
 
-  def socket_path, do: Path.join(BowserBrain.Paths.home(), "brain.sock")
+  def socket_path, do: Path.join(System.get_env("BOWSER_RELAY_DIR") || BowserBrain.Paths.home(), "brain.sock")
 
   @doc "Is the engine currently connected?"
   def connected?, do: GenServer.call(__MODULE__, :connected?)
@@ -71,6 +71,13 @@ defmodule BowserBrain.Bridge do
   def handle_info({:tcp, _sock, data}, state) do
     state =
       case JSON.decode(data) do
+        {:ok, %{"op" => "handoff_barrier", "id" => id}} ->
+          send_frame(state.sock, %{op: "handoff_barrier", id: id})
+          state
+        {:ok, %{"op" => "handoff_attached"}} ->
+          send_frame(state.sock, %{op: "handoff_attached"})
+          state
+
         {:ok, %{"op" => "app_quit"}} ->
           # A worker avoids deadlocking Engine's liveness call back into Bridge.
           # First flush Session here: all earlier broadcasts came from this process.

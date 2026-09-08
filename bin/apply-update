@@ -8,13 +8,26 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import socket
+import struct
+import uuid
+import re
 
 
 def busy(manifest, processes=None):
+    # The relay itself is Python, so ps comm cannot identify it by runtime path.
+    owner = Path(manifest.get('home', Path(manifest['runtime']).parent)) / 'backend/owner.lock'
+    if owner.exists():
+        with open(owner, 'r') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
     if processes is None:
         processes = subprocess.check_output(['/bin/ps', '-axo', 'comm='], text=True)
     roots = [manifest['bundle'] + '/', manifest['runtime'] + '/',
-             str(Path.home() / 'Applications/Bowser Apps') + '/']
+             str(Path.home() / 'Applications/Bowser Apps') + '/',
+             str(Path(manifest.get('home', Path(manifest['runtime']).parent)) / 'releases') + '/']
     return any(any(line.strip().startswith(root) for root in roots)
                for line in processes.splitlines())
 
@@ -68,6 +81,52 @@ def publish(path, manifest, shell_only=False, brain_only=False):
             shutil.rmtree(previous['stage'], ignore_errors=True)
 
 
+def live_update(manifest):
+    """Ask the existing relay to adopt an immutable copy; legacy hosts defer."""
+    home = Path(manifest.get('home', Path(manifest['runtime']).parent))
+    endpoint = home / 'backend/host.sock'
+    stage = Path(manifest['stage']) / 'runtime'
+    if not endpoint.exists() or not (stage / 'HANDOFF.json').exists():
+        return False
+    if manifest.get('live_runtime'):
+        runtime = Path(manifest['live_runtime'])
+    else:
+        releases = home / 'releases'
+        releases.mkdir(mode=0o700, parents=True, exist_ok=True)
+        runtime = releases / uuid.uuid4().hex
+        temporary = runtime.with_suffix('.new')
+        shutil.copytree(stage, temporary)
+        temporary.rename(runtime)
+        manifest['live_runtime'] = str(runtime)
+    message = json.dumps(dict(op='update', runtime=str(runtime))).encode()
+    try:
+        with socket.socket(socket.AF_UNIX) as peer:
+            peer.settimeout(30)
+            peer.connect(str(endpoint))
+            peer.sendall(struct.pack('>I', len(message)) + message)
+            def read(n):
+                data = b''
+                while len(data) < n:
+                    part = peer.recv(n - len(data))
+                    if not part:
+                        raise ConnectionError('backend host disconnected')
+                    data += part
+                return data
+            size, = struct.unpack('>I', read(4))
+            if size > 65536:
+                raise ValueError('oversized update response')
+            reply = json.loads(read(size))
+        if reply.get('ok'):
+            manifest['backend_applied'] = True
+            print('Backend updated live; existing pages remain alive.', flush=True)
+            return True
+        manifest['deferred_reason'] = reply.get('error', 'backend deferred')
+    except (OSError, ValueError) as error:
+        manifest['deferred_reason'] = str(error)
+    print('Live update deferred: ' + manifest['deferred_reason'], flush=True)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pending', type=Path)
@@ -85,10 +144,25 @@ def main():
                 if not args.pending.exists():
                     return
                 manifest = json.loads(args.pending.read_text())
+                if busy(manifest) and not manifest.get('backend_applied'):
+                    # Retry only once per minute, not a constant freeze loop.
+                    if time.time() - manifest.get('live_attempt_at', 0) >= 60:
+                        manifest['live_attempt_at'] = time.time()
+                        live_update(manifest)
+                        temporary = args.pending.with_suffix('.new')
+                        temporary.write_text(json.dumps(manifest))
+                        os.replace(temporary, args.pending)
                 if not busy(manifest):
                     time.sleep(2)
                     if not busy(manifest):
                         activate(manifest)
+                        home = Path(manifest.get('home', Path(manifest['runtime']).parent))
+                        (home / 'backend/active.json').unlink(missing_ok=True)
+                        # These are installer-owned immutable copies. At this
+                        # boundary no native/relay/BEAM process is using them.
+                        for release in (home / 'releases').glob('*'):
+                            if re.fullmatch(r'[0-9a-f]{32}', release.name) and release.is_dir() and not release.is_symlink():
+                                shutil.rmtree(release)
                         args.pending.unlink()
                         shutil.rmtree(manifest['stage'], ignore_errors=True)
                         print('Staged Bowser update activated. Ready for next launch.', flush=True)

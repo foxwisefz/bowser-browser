@@ -22,7 +22,7 @@ path, home, repo, url = sys.argv[1:]
 with open(path, 'wb') as f:
     plistlib.dump(dict(CFBundleIdentifier='com.gezim.bowser.backend-handoff-experiment', CFBundleName='Bowser Backend Handoff Experiment',
         CFBundleExecutable='BowserHandoff', CFBundlePackageType='APPL', NSHighResolutionCapable=True,
-        BowserExperimentURL=url, BowserExperimentHome=home, BowserExperimentRepo=repo), f)
+        BowserExperimentDriver=__import__("os").environ.get("BOWSER_EXPERIMENT_DRIVER", "experiments/backend-handoff/relay.py"), BowserExperimentURL=url, BowserExperimentHome=home, BowserExperimentRepo=repo), f)
 PY
 codesign --force --sign - "$BUNDLE"
 echo "Open: $BUNDLE"

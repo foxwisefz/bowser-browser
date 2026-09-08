@@ -1,0 +1,50 @@
+{
+  "after" : {
+    "frames" : 241,
+    "generation" : 0,
+    "htmlFullscreen" : true,
+    "interruptions" : 0,
+    "maxGapMS" : 62,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "sequence" : 323,
+    "ticks" : 507,
+    "time" : 12.17585758300112,
+    "token" : "3a8b1603-0289-4154-bcf5-45dac28c6493",
+    "url" : "file:\/\/\/tmp\/bowser-handoff.pZoRsG\/fixture.html"
+  },
+  "backend" : {
+    "buffered_events" : 0,
+    "exactOrderedReceipts" : true,
+    "handoff_ms" : 14.809833000000161,
+    "modHeapPreserved" : true,
+    "ok" : true,
+    "probesCaptured" : 323,
+    "rollbackIncludingWarmupMS" : 3127.7181250000003,
+    "runtime" : "\/private\/tmp\/bowser-handoff.pZoRsG\/releases\/7f462fd017174fc38ca10d344127de09",
+    "scope" : "Shipped installer live_update and backend-host with full release and stateful mod"
+  },
+  "before" : {
+    "frames" : 0,
+    "generation" : 0,
+    "htmlFullscreen" : true,
+    "interruptions" : 0,
+    "maxGapMS" : 0,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "sequence" : 0,
+    "ticks" : 171,
+    "time" : 4.1061172910018575,
+    "token" : "3a8b1603-0289-4154-bcf5-45dac28c6493",
+    "url" : "file:\/\/\/tmp\/bowser-handoff.pZoRsG\/fixture.html"
+  },
+  "failures" : [
+
+  ],
+  "hostPID" : 57069,
+  "passed" : true,
+  "scope" : "Installed updater\/relay, actual release and stateful mod; muted media; disposable native host.",
+  "source" : "local fixture"
+}

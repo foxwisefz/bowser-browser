@@ -23,7 +23,7 @@ defmodule BowserBrain.XServer do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, nil, name: Keyword.get(opts, :name, __MODULE__))
 
-  def port, do: @port
+  def port, do: System.get_env("BOWSER_X_PORT", Integer.to_string(@port)) |> String.to_integer()
 
   @impl true
   def init(nil) do
@@ -35,13 +35,27 @@ defmodule BowserBrain.XServer do
   end
 
   @impl true
+  def handle_call(:handoff_pause, _from, state) do
+    if state.listener, do: :gen_tcp.close(state.listener)
+    case Map.get(state, :acceptor) do
+      {pid, _} ->
+        ref = Process.monitor(pid)
+        receive do {:DOWN, ^ref, :process, ^pid, _} -> :ok after 150 -> raise "acceptor did not stop" end
+      _ -> :ok
+    end
+    {:reply, :ok, %{state | listener: nil}}
+  end
+
+  @impl true
+  def handle_info(:listen, %{listener: listener} = state) when not is_nil(listener), do: {:noreply, state}
+
   def handle_info(:listen, state) do
-    case :gen_tcp.listen(@port, [:binary, packet: :http_bin, active: false, reuseaddr: true, ip: {0, 0, 0, 0}]) do
+    case :gen_tcp.listen(port(), [:binary, packet: :http_bin, active: false, reuseaddr: true, ip: {0, 0, 0, 0}]) do
       {:ok, listener} ->
         server = self()
-        Task.start(fn -> accept_loop(listener, server) end)
+        {:ok, pid} = Task.start(fn -> accept_loop(listener, server) end)
         Logger.info("xserver: listening on http://0.0.0.0:#{@port}")
-        {:noreply, %{state | listener: listener}}
+        {:noreply, Map.merge(state, %{listener: listener, acceptor: {pid, nil}})}
 
       {:error, reason} ->
         Logger.error("xserver: listen failed: #{inspect(reason)}")
@@ -54,7 +68,7 @@ defmodule BowserBrain.XServer do
   defp accept_loop(listener, server) do
     case :gen_tcp.accept(listener) do
       {:ok, sock} ->
-        Task.start(fn -> serve(sock) end)
+        BowserBrain.Handoff.external_task(fn -> serve(sock) end)
         accept_loop(listener, server)
 
       {:error, _} ->

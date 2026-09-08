@@ -1,0 +1,426 @@
+#!/usr/bin/env python3
+"""Stable installed backend owner. Native windows/WebKit outlive release changes."""
+import asyncio
+import contextlib
+import fcntl
+import json
+import os
+from pathlib import Path
+import signal
+import shutil
+import sqlite3
+import struct
+import sys
+import tempfile
+import time
+
+PROTOCOL = 1
+LIMIT = 64 * 1024 * 1024
+BUFFER_LIMIT = 16 * 1024 * 1024
+
+async def receive(reader):
+    size, = struct.unpack('>I', await reader.readexactly(4))
+    if size > LIMIT:
+        raise ValueError('frame exceeds limit')
+    return json.loads(await reader.readexactly(size))
+
+def send(writer, message):
+    data = json.dumps(message, separators=(',', ':')).encode()
+    if len(data) > LIMIT:
+        raise ValueError('frame exceeds limit')
+    writer.write(struct.pack('>I', len(data)) + data)
+
+async def request(path, message, timeout=1):
+    async def exchange():
+        reader, writer = await asyncio.open_unix_connection(str(path))
+        try:
+            send(writer, message)
+            await writer.drain()
+            reply = await receive(reader)
+            if not reply.get('ok'):
+                raise RuntimeError(reply.get('error', 'backend refused'))
+            return reply
+        finally:
+            writer.close()
+    return await asyncio.wait_for(exchange(), timeout)
+
+async def until(predicate, timeout=10):
+    end = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= end:
+            raise TimeoutError('backend readiness timed out')
+        await asyncio.sleep(.005)
+
+def atomic_json(path, value):
+    temp = path.with_suffix('.new')
+    with open(temp, 'w') as out:
+        json.dump(value, out)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(temp, path)
+
+class Generation:
+    def __init__(self, runtime, directory):
+        self.runtime, self.directory = Path(runtime), Path(directory)
+        self.process = self.writer = self.server = None
+        self.attached = asyncio.Event()
+        self.barriers = {}
+
+    async def call(self, op, **values):
+        return await request(self.directory / 'control.sock', dict(op=op, **values), .4 if op == "freeze" else 1)
+
+    async def stop(self):
+        if self.process and self.process.returncode is None:
+            # Only this relay's children, never an existing browser/backend.
+            self.process.terminate()
+            try:
+                await asyncio.wait_for(self.process.wait(), 3)
+            except asyncio.TimeoutError:
+                self.process.kill()
+                await self.process.wait()
+        if self.writer:
+            self.writer.close()
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+class Host:
+    def __init__(self, home, runtime):
+        self.home, self.runtime = Path(home), Path(runtime)
+        self.root = self.home / 'backend'
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.root, 0o700)
+        self.active = None
+        self.children = []
+        self.host = None
+        self.hello = None
+        self.paused = False
+        self.quitting = False
+        self.requests = {}
+        self.serial = 0
+        self.update_lock = asyncio.Lock()
+        self.transaction = None
+        self.done = asyncio.Event()
+        self.buffer = []
+        self.buffer_bytes = 0
+        self.journal_error = None
+        self.db = None
+
+    async def boot(self, runtime):
+        meta = json.loads((Path(runtime) / 'HANDOFF.json').read_text())
+        if meta != {'protocol': PROTOCOL, 'state_schema': 1}:
+            raise RuntimeError('incompatible release; waiting for native restart')
+        directory = Path(tempfile.mkdtemp(prefix='g', dir=self.root))
+        generation = Generation(runtime, directory)
+        self.children.append(generation)
+        try:
+            generation.server = await asyncio.start_unix_server(
+                lambda r, w: self.backend(generation, r, w), path=str(directory / 'brain.sock'))
+            os.chmod(directory / 'brain.sock', 0o600)
+            env = dict(os.environ, BOWSER_HOME=str(self.home), BOWSER_ROOT=str(runtime),
+                       BOWSER_RELAY_DIR=str(directory), BOWSER_RELAY_PID=str(os.getpid()), BOWSER_NO_SPAWN='1',
+                       RELEASE_DISTRIBUTION='none', RELEASE_TMP=str(directory / 'tmp'))
+            with open(self.home / 'brain.log', 'ab') as log:
+                generation.process = await asyncio.create_subprocess_exec(
+                    str(Path(runtime) / 'brain/bin/bowser_brain'), 'eval', 'BowserBrain.Handoff.run()',
+                    env=env, stdout=log, stderr=log)
+            await until(lambda: (directory / 'control.sock').exists() or generation.process.returncode is not None, 20)
+            info = await generation.call('status')
+            if info['schema'] != 1:
+                raise RuntimeError('incompatible state schema')
+            return generation
+        except BaseException:
+            await generation.stop()
+            self.children.remove(generation)
+            raise
+
+    async def backend(self, generation, reader, writer):
+        generation.writer = writer
+        try:
+            if generation is self.active and self.hello and not self.paused:
+                send(writer, self.hello)
+            else:
+                send(writer, {'op': 'handoff_attached'})
+            while True:
+                message = await receive(reader)
+                op = message.get('op')
+                if op == 'handoff_attached':
+                    generation.attached.set()
+                    continue
+                if op == 'handoff_barrier':
+                    event = generation.barriers.pop(message['id'], None)
+                    if event:
+                        event.set()
+                    continue
+                if generation is not self.active or generation.writer is not writer:
+                    continue
+                if op in ('eval_js', 'site_eval', 'get_cookies', 'site_app_info') and 'id' in message:
+                    self.serial += 1
+                    self.requests[self.serial] = (generation, message['id'])
+                    message['id'] = self.serial
+                if self.host:
+                    send(self.host, message)
+                    await self.host.drain()
+                if op == 'quit_ready':
+                    self.quitting = True
+                    self.done.set()
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            writer.close()
+            if generation.writer is writer:
+                generation.writer = None
+            if generation is self.active and not self.quitting and not self.paused:
+                # A backend crash must not tear down the native app. Reboot/adopt
+                # its live pages using normal hello on this same relay connection.
+                asyncio.create_task(self.recover(generation))
+
+    async def recover(self, failed):
+        async with self.update_lock:
+            if self.active is not failed or self.quitting:
+                return
+            try:
+                self.paused = True
+                await failed.stop()
+                self.children.remove(failed)
+                self.requests = {key: owner for key, owner in self.requests.items() if owner[0] is not failed}
+                fresh = await self.boot(failed.runtime)
+                self.active = fresh
+                await fresh.call('start')
+                await until(lambda: fresh.writer is not None, 2)
+                send(fresh.writer, self.hello)
+                self.drain()
+            except Exception as error:
+                print('backend recovery failed:', error, flush=True)
+                self.done.set()
+
+    async def native(self):
+        while not self.done.is_set():
+            try:
+                reader, writer = await asyncio.open_unix_connection(str(self.home / 'brain.sock'))
+                self.host = writer
+                while True:
+                    message = await receive(reader)
+                    if message.get('op') == 'hello':
+                        self.hello = message
+                    elif message.get('op') == 'event':
+                        self.note_tab(message)
+                    if message.get('op') in ('js_result', 'cookies_result', 'site_app_info') and 'id' in message:
+                        owner = self.requests.pop(message['id'], None)
+                        if owner and owner[0] is self.active and self.active.writer:
+                            message['id'] = owner[1]
+                            send(self.active.writer, message)
+                        continue
+                    if self.paused:
+                        data = json.dumps(message)
+                        self.buffer.append(message)
+                        self.buffer_bytes += len(data)
+                        try:
+                            if self.buffer_bytes > BUFFER_LIMIT:
+                                raise RuntimeError('handoff buffer limit exceeded')
+                            self.db.execute('insert into buffered(data) values(?)', (data,))
+                            self.db.commit()
+                        except Exception as error:
+                            self.journal_error = error
+                            if self.transaction and not self.transaction.done():
+                                self.transaction.cancel()
+                    elif self.active and self.active.writer:
+                        send(self.active.writer, message)
+            except (ConnectionError, FileNotFoundError, asyncio.IncompleteReadError, ValueError):
+                if self.host:
+                    self.host.close()
+                self.host = None
+                if self.quitting:
+                    return
+                await asyncio.sleep(.25)
+
+    def note_tab(self, message):
+        if not self.hello:
+            return
+        tabs = {tab['id']: tab for tab in self.hello.get('tabs', [])}
+        wv, event = message.get('webview'), message.get('event')
+        if event == 'tab_opened':
+            tabs[wv] = {key: value for key, value in message.items() if key in ('url', 'profile', 'title', 'favicon')}
+            tabs[wv]['id'] = wv
+        elif event == 'webview_closed':
+            tabs.pop(wv, None)
+        elif event in ('url_changed', 'title_changed') and wv in tabs:
+            key = 'url' if event == 'url_changed' else 'title'
+            tabs[wv][key] = message.get(key)
+        elif event == 'tab_activated':
+            self.hello['active'] = wv
+        self.hello.update(tabs=list(tabs.values()), webviews=list(tabs))
+
+    async def barrier(self, generation):
+        self.serial += 1
+        event = asyncio.Event()
+        generation.barriers[self.serial] = event
+        send(generation.writer, {'op': 'handoff_barrier', 'id': self.serial})
+        await asyncio.wait_for(event.wait(), .3)
+
+    def drain(self):
+        # Ordered on the relay's one event loop: no live event can overtake replay.
+        for message in self.buffer:
+            send(self.active.writer, message)
+        count = len(self.buffer)
+        self.buffer.clear()
+        self.buffer_bytes = 0
+        self.paused = False
+        try:
+            self.db.execute('delete from buffered')
+            self.db.commit()
+        except sqlite3.Error as error:
+            print('journal cleanup failed:', error, flush=True)
+        return count
+
+    async def update(self, runtime):
+        async with self.update_lock:
+            if self.quitting or not self.active or not self.host:
+                raise RuntimeError('browser is not ready')
+            runtime = Path(runtime).resolve()
+            # Only immutable generations published by the installer are admitted.
+            if runtime.parent != (self.home / 'releases').resolve():
+                raise ValueError('release is outside the installed generations directory')
+            if runtime == self.active.runtime:
+                return {'ok': True, 'already_active': True}
+            await self.active.call('preflight')
+            self.transaction = asyncio.current_task()
+            candidate = await self.boot(runtime)
+            if self.quitting:
+                await candidate.stop()
+                self.children.remove(candidate)
+                raise RuntimeError('browser is quitting')
+            old = self.active
+            started = time.monotonic()
+            self.paused = True
+            self.journal_error = None
+            committed = False
+            try:
+                await self.barrier(old)
+                frozen = await old.call('freeze')
+                await candidate.call('restore', snapshot=frozen['snapshot'])
+                await asyncio.wait_for(candidate.attached.wait(), .3)
+                # Candidate has adopted all state, but has had zero event or
+                # command authority. Failure up to here is fully reversible.
+                await candidate.call('status')
+                if self.journal_error:
+                    raise self.journal_error
+                if time.monotonic() - started >= .8:
+                    raise RuntimeError('handoff exceeded its time budget')
+                atomic_json(self.root / 'active.json', {'runtime': str(runtime)})
+                self.active = candidate
+                committed = True
+                # Old listeners are closed. Retire it without resuming its mods.
+                # SIGKILL avoids terminate callbacks producing duplicate effects.
+                old.process.kill()
+                await old.process.wait()
+                await old.stop()
+                self.children.remove(old)
+                self.requests = {key: owner for key, owner in self.requests.items() if owner[0] is not old}
+                await candidate.call('commit')
+                count = self.drain()
+                result = {'ok': True, 'handoff_ms': (time.monotonic() - started) * 1000,
+                          'buffered_events': count, 'runtime': str(runtime)}
+                atomic_json(self.root / 'last-update.json', result)
+                return result
+            except BaseException:
+                if not committed:
+                    if candidate.process.returncode is None:
+                        candidate.process.kill()
+                        await candidate.process.wait()
+                    await old.call('resume')
+                    await candidate.stop()
+                    self.children.remove(candidate)
+                    self.active = old
+                    count = self.drain()
+                    atomic_json(self.root / 'last-rollback.json', {
+                        'rollback_ms': (time.monotonic() - started) * 1000,
+                        'buffered_events': count, 'runtime': str(old.runtime)})
+                else:
+                    # The authority boundary has passed: never replay effects
+                    # into the retired generation pretending it is a rollback.
+                    asyncio.create_task(self.recover(candidate))
+                raise
+
+    async def control(self, reader, writer):
+        try:
+            message = await asyncio.wait_for(receive(reader), 2)
+            if message.get('op') == 'update':
+                result = await self.update(message['runtime'])
+            elif message.get('op') == 'status':
+                result = {'ok': True, 'pid': os.getpid(), 'runtime': str(self.active.runtime) if self.active else None}
+            elif message.get('op') == 'stop':
+                self.quitting = True
+                self.done.set()
+                result = {'ok': True}
+            else:
+                raise ValueError('unknown operation')
+            send(writer, result)
+        except Exception as error:
+            send(writer, {'ok': False, 'error': str(error)})
+        finally:
+            with contextlib.suppress(ConnectionError):
+                await writer.drain()
+            writer.close()
+
+    async def run(self):
+        lock = open(self.root / 'owner.lock', 'w')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock.close()
+            return
+        self.db = sqlite3.connect(self.root / 'handoff.sqlite')
+        self.db.execute('pragma journal_mode=WAL')
+        self.db.execute('pragma synchronous=FULL')
+        self.db.execute('create table if not exists buffered (seq integer primary key, data text)')
+        # A relay restart cannot claim to recover arbitrary already-applied effects.
+        # Never replay an uncertain previous epoch as if effects were exactly-once.
+        self.db.execute('delete from buffered')
+        self.db.commit()
+
+        path = self.root / 'host.sock'
+        path.unlink(missing_ok=True)
+        server = await asyncio.start_unix_server(self.control, path=str(path))
+        os.chmod(path, 0o600)
+        task = asyncio.create_task(self.native())
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            asyncio.get_running_loop().add_signal_handler(sig, self.done.set)
+        try:
+            pointer = self.root / 'active.json'
+            if pointer.exists():
+                self.runtime = Path(json.loads(pointer.read_text())['runtime'])
+            self.active = await self.boot(self.runtime)
+            await until(lambda: self.hello is not None, 20)
+            await self.active.call('start')
+            await self.done.wait()
+        finally:
+            self.quitting = True
+            if self.transaction and not self.transaction.done():
+                self.transaction.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self.transaction
+            task.cancel()
+            for child in self.children:
+                await child.stop()
+            if self.host:
+                self.host.close()
+            server.close()
+            path.unlink(missing_ok=True)
+            self.db.close()
+            lock.close()
+
+if __name__ == '__main__':
+    if sys.argv[1] == '--control':
+        home, op = Path(sys.argv[2]), sys.argv[3]
+        message = {'op': op}
+        if op == 'update':
+            message['runtime'] = sys.argv[4]
+        try:
+            print(json.dumps(asyncio.run(request(home / 'backend/host.sock', message, 30))))
+        except Exception as error:
+            print(str(error), file=sys.stderr)
+            sys.exit(1)
+    else:
+        asyncio.run(Host(sys.argv[1], sys.argv[2]).run())

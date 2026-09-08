@@ -40,7 +40,12 @@ BUILD_STAGE="$(mktemp -d "$UPDATE_ROOT/build.XXXXXX")"
 APP_DIR="$BUILD_STAGE/runtime"
 BUNDLE="$BUILD_STAGE/bundle"
 # Partial updates start from the installed runtime, preserving its release.
-if [ -d "$DEST_APP_DIR" ]; then cp -R "$DEST_APP_DIR" "$APP_DIR"; fi
+BASE_RUNTIME="$DEST_APP_DIR"
+ACTIVE_RUNTIME="${BOWSER_HOME:-$HOME/.bowser}/backend/active.json"
+if [ -f "$ACTIVE_RUNTIME" ]; then
+  BASE_RUNTIME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime"])' "$ACTIVE_RUNTIME")"
+fi
+if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi
 mkdir -p "$APP_DIR/bin"
 
 # ---------------------------------------------------------------- shell
@@ -69,7 +74,7 @@ fi
 
 # ---------------------------------------------------------------- helpers
 say "bin: engine-wrapper, mcp bridge, bowser"
-cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$REPO/bin/apply-update" "$APP_DIR/bin/"
+cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$REPO/bin/apply-update" "$REPO/bin/backend-host" "$APP_DIR/bin/"
 WORKER="$REPO/shell/.build/${CONF:-debug}/BowserIconWorker"
 [ -x "$WORKER" ] || { echo "missing icon worker: $WORKER" >&2; exit 1; }
 cp -f "$WORKER" "$APP_DIR/bin/BowserIconWorker.new"
@@ -88,6 +93,9 @@ if [ "$SHELL_ONLY" = 0 ]; then
   mv "$APP_DIR/brain.new" "$APP_DIR/brain"; rm -rf "$APP_DIR/brain.old"
 fi
 
+if [ "$SHELL_ONLY" = 0 ]; then
+  printf '{"protocol":1,"state_schema":1}\n' > "$APP_DIR/HANDOFF.json"
+fi
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"
 
@@ -97,7 +105,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 - "$UPDATE_ROOT/pending.json" "$BUILD_STAGE" "
 import importlib.machinery, sys
 path, stage, runtime, bundle, shell_only, brain_only, helper = sys.argv[1:]
 module = importlib.machinery.SourceFileLoader('bowser_update', helper).load_module()
-module.publish(path, dict(stage=stage, runtime=runtime, bundle=bundle), shell_only == '1', brain_only == '1')
+module.publish(path, dict(stage=stage, runtime=runtime, bundle=bundle, home=str(__import__("pathlib").Path(path).parent.parent)), shell_only == '1', brain_only == '1')
 PYCODE
 # A dormant login job resumes pending activation even if this session reboots.
 # It runs only while a manifest exists and exits immediately after activation.
@@ -121,7 +129,7 @@ fi
 
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json"
 if [ -f "$UPDATE_ROOT/pending.json" ]; then
-  say "update staged — current windows stay alive; activates after all Bowser apps quit"
+  say "native update staged — compatible backend updates apply live; native changes activate after apps quit"
 else
   say "installed — ready for next launch"
 fi

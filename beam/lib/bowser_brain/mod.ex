@@ -57,6 +57,7 @@ defmodule BowserBrain.Mod do
       @bowser_mod_host unquote(Keyword.get(opts, :host))
 
       def __bowser_mod__, do: true
+      def __bowser_handoff__, do: unquote(Keyword.get(opts, :handoff, false))
 
       def start_link(opts) do
         GenServer.start_link(__MODULE__, opts,
@@ -67,7 +68,10 @@ defmodule BowserBrain.Mod do
       @impl GenServer
       def init(opts) do
         {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
-        {:ok, init_mod(opts)}
+        case Application.get_env(:bowser_brain, :handoff_mod_states, %{}) do
+          %{__MODULE__ => state} -> {:ok, state}
+          _ -> {:ok, init_mod(opts)}
+        end
       end
 
       @impl GenServer

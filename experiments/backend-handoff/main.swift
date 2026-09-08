@@ -38,7 +38,8 @@ import WebKit
             (try? await engine.webView.evaluateJavaScript("!probe.player.paused && probe.player.currentTime>0.2")) as? Bool == true
         }
         let process=Process();process.executableURL=URL(fileURLWithPath:"/usr/bin/python3")
-        process.arguments=[repo.appendingPathComponent("experiments/backend-handoff/relay.py").path,home.path,repo.path]
+        let driver = Bundle.main.object(forInfoDictionaryKey:"BowserExperimentDriver") as? String ?? "experiments/backend-handoff/relay.py"
+        process.arguments=[repo.appendingPathComponent(driver).path,home.path,repo.path]
         let log=home.appendingPathComponent("relay.log");FileManager.default.createFile(atPath:log.path,contents:nil)
         process.standardOutput=try FileHandle(forWritingTo:log);process.standardError=process.standardOutput
         try process.run();relay=process
@@ -81,7 +82,7 @@ import WebKit
         check(after["sequence"] as? Int == backend["probesCaptured"] as? Int,"Generated host events were lost before journal capture")
         let result:[String:Any]=["passed":failures.isEmpty,"failures":failures,"hostPID":ProcessInfo.processInfo.processIdentifier,
             "before":before,"after":after,"backend":backend,"source":urlString.isEmpty ? "local fixture" : urlString,
-            "scope":"Full production BEAM supervision tree with isolated empty user directories and extra receipt observer; prototype stable relay; muted media; not installed updater."]
+            "scope":driver == "experiments/installed-handoff/drive.py" ? "Installed updater/relay, actual release and stateful mod; muted media; disposable native host." : "Full production BEAM supervision tree; prototype stable relay; muted media; not installed updater."]
         try JSONSerialization.data(withJSONObject:result,options:[.prettyPrinted,.sortedKeys]).write(to:home.appendingPathComponent("result.json"))
         _ = try await engine.webView.evaluateJavaScript("document.exitFullscreen();true")
         try await Task.sleep(for:.seconds(1))

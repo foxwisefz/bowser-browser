@@ -1,0 +1,51 @@
+{
+  "after" : {
+    "frames" : 221,
+    "generation" : 0,
+    "htmlFullscreen" : true,
+    "interruptions" : 0,
+    "maxGapMS" : 57,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "sequence" : 370,
+    "ticks" : 582,
+    "time" : 13.473241622666494,
+    "token" : "7ce1571a-d168-4910-8531-132a43685759",
+    "url" : "https:\/\/x.com\/ycombinator\/status\/2096970626036855197"
+  },
+  "backend" : {
+    "buffered_events" : 1,
+    "exactOrderedReceipts" : true,
+    "handoff_ms" : 15.776917000000168,
+    "modHeapPreserved" : true,
+    "ok" : true,
+    "probesCaptured" : 370,
+    "rollbackGapMS" : 312.37450000000069,
+    "rollbackIncludingWarmupMS" : 3807.6694579999994,
+    "runtime" : "\/private\/tmp\/bowser-handoff.rez1honr\/releases\/9af279838d74494e9dab19a674a9ed32",
+    "scope" : "Shipped installer live_update and backend-host with full release and stateful mod"
+  },
+  "before" : {
+    "frames" : 0,
+    "generation" : 0,
+    "htmlFullscreen" : true,
+    "interruptions" : 0,
+    "maxGapMS" : 0,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "sequence" : 0,
+    "ticks" : 199,
+    "time" : 4.2656169386696234,
+    "token" : "7ce1571a-d168-4910-8531-132a43685759",
+    "url" : "https:\/\/x.com\/ycombinator\/status\/2096970626036855197"
+  },
+  "failures" : [
+
+  ],
+  "hostPID" : 62476,
+  "passed" : true,
+  "scope" : "Installed updater\/relay, actual release and stateful mod; muted media; disposable native host.",
+  "source" : "https:\/\/x.com\/ycombinator\/status\/2096970626036855197\/video\/1"
+}
