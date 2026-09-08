@@ -106,6 +106,18 @@ defmodule BowserBrain.ModWorkshopTest do
     assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "late.ex", "content" => content})
     event("undo", %{"project" => project["id"]})
     assert ModRevision.read("mods/draft_skin.ex") == nil
+    for {mod_pid, _} <- Registry.lookup(BowserBrain.ModRegistry, DraftSkin),
+      do: DynamicSupervisor.terminate_child(BowserBrain.ModSupervisor, mod_pid)
+  end
+
+  test "draft reports init failures without losing Undo history" do
+    event("submit", %{"text" => "AOL shell", "scope" => "browser"})
+    assert_receive {:runner, pid, token, _, nil, nil}, 1000
+    source = "defmodule BrokenDraftInit do use BowserBrain.Mod; def init_mod(_), do: raise(\"broken init\") end"
+    assert %{ok: false, runtime: %{modules: [%{status: "failed", error: error}]}} =
+      ModWorkshop.tool(token, "put_mod", %{"name" => "broken_init.ex", "content" => source})
+    assert error =~ "broken init"
+    complete(pid, [])
   end
 
   test "Elixir draft rejects paths, syntax errors, and unscoped code for site requests" do

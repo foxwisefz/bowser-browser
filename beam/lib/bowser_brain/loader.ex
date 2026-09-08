@@ -56,6 +56,16 @@ defmodule BowserBrain.Loader do
     {:noreply, state |> Map.put(:mtimes, mtimes) |> Map.put(:modules, Map.drop(modules, gone))}
   end
 
+  def load_now(path), do: GenServer.call(__MODULE__, {:load_now, path}, 15_000)
+
+  @impl true
+  def handle_call({:load_now, path}, _, state) do
+    result = load_file(path)
+    mtimes = Map.put(state.mtimes, path, :crypto.hash(:sha256, File.read!(path)))
+    modules = Map.put(Map.get(state, :modules, %{}), path, modules_in(path))
+    {:reply, result, state |> Map.put(:mtimes, mtimes) |> Map.put(:modules, modules)}
+  end
+
   @doc "Paths the previous scan knew that no longer exist. Public for tests."
   def vanished(previous, current) do
     for {path, _} <- previous, not Map.has_key?(current, path), do: path
@@ -88,11 +98,12 @@ defmodule BowserBrain.Loader do
     Logger.info("loader: compiling #{Path.basename(path)}")
 
     try do
-      for {module, _bytecode} <- Code.compile_file(path),
+      results = for {module, _bytecode} <- Code.compile_file(path),
           function_exported?(module, :__bowser_mod__, 0) do
         case DynamicSupervisor.start_child(BowserBrain.ModSupervisor, {module, []}) do
           {:ok, _pid} ->
             Logger.info("loader: started mod #{inspect(module)}")
+            %{module: inspect(module), status: "started"}
 
           {:error, {:already_started, pid}} ->
             Logger.info("loader: hot-swapped mod #{inspect(module)}")
@@ -102,17 +113,27 @@ defmodule BowserBrain.Loader do
             BowserBrain.Toolbars.release(pid)
             # Let the mod re-assert injected content/chrome with its NEW code.
             send(pid, {:browser_event, %{"event" => "mod_reloaded"}})
+            # A system message from this sender is processed after that event.
+            try do
+              :sys.get_state(pid, 2_000)
+              %{module: inspect(module), status: "reloaded"}
+            catch
+              :exit, reason -> %{module: inspect(module), status: "failed", error: inspect(reason)}
+            end
 
           {:error, reason} ->
             Logger.error("loader: mod #{inspect(module)} failed to start: #{inspect(reason)}")
+            %{module: inspect(module), status: "failed", error: inspect(reason)}
         end
       end
+      %{ok: results != [] and Enum.all?(results, &(&1.status != "failed")), modules: results}
     rescue
       error ->
         Logger.error(
           "loader: #{Path.basename(path)} failed to compile — old code still running\n" <>
             Exception.format(:error, error, __STACKTRACE__)
         )
+        %{ok: false, error: Exception.message(error)}
     end
   end
 end

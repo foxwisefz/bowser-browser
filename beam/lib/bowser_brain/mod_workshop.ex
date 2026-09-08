@@ -13,7 +13,16 @@ defmodule BowserBrain.ModWorkshop do
             GenServer.call(__MODULE__, {:draft, token, args}, 15_000)
 
           tool == "put_mod" and run.app == nil ->
-            GenServer.call(__MODULE__, {:draft_mod, token, args}, 15_000)
+            case GenServer.call(__MODULE__, {:draft_mod, token, args}, 15_000) do
+              %{ok: true, installed: path} = reply ->
+                runtime =
+                  if ModRevision.actual_path(path) == path,
+                    do: BowserBrain.Loader.load_now(ModRevision.absolute(path)),
+                    else: %{ok: true, status: "disabled"}
+                Map.merge(reply, %{ok: runtime.ok, runtime: runtime,
+                  applies: "File recorded for Undo. Runtime result reports compilation and startup/reload; verify appearance separately."})
+              reply -> reply
+            end
 
           tool == "list_tabs" ->
             %{ok: true, active: run.webview, tabs: [%{webview: run.webview, url: run.url}]}
@@ -530,8 +539,7 @@ defmodule BowserBrain.ModWorkshop do
       Add "checks": ["what you actually checked and observed"]. Do not claim checks you did not perform. Use an empty list if none.
       No shell or direct filesystem tools: CSS/JS draft writes go through put_payload;
       Elixir drafts go through put_mod(name: "my_mod.ex", content: full_source), so the owner can undo them.
-      For a native shell theme, use put_mod BEFORE checking shell_theme. The loader scans
-      every 500ms: repeat the read if the first result is still the old theme. Compare the
+      For a native shell theme, use put_mod BEFORE checking shell_theme. put_mod returns compilation and startup/reload results; fix reported errors before continuing. Compare the
       returned map to the intended settings. This verifies runtime theme state, not pixels.
       For drafts already installed in this run, return files as [{"path":"mods/example.ex"}] without repeating content. Only unchanged drafts from this run can be referenced. New or changed files still require content. Do not claim the
       installer cannot accept Elixir mods. Saved apps still support only CSS/JS.
