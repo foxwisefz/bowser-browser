@@ -1,10 +1,8 @@
 # Full backend handoff experiment
 
-Build with `bin/experiment-backend-handoff [video-tweet-URL]`, then open the printed
-app path. Without a URL it uses a generated local video. The app takes foreground
-focus and enters HTML video fullscreen. All sockets, profile stores, backend data
-and logs live in the printed `/tmp/bowser-handoff.*` directory. It does not install
-or restart the owner's browser. Requires Swift, Elixir, Python 3 and ffmpeg.
+> Archived experiment results. The Python prototype and its launch harness were
+> retired after the native Swift runtime replaced them. Current executable-level
+> regression tests live in `tests/`; see the repository README for the command.
 
 The fixture compiles the production native sources with a separate entry point.
 It launches the complete BEAM application supervision tree, with separate runtime

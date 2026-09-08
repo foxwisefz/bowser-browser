@@ -1,5 +1,9 @@
 # Installed backend handoff
 
+> Archived experiment results. The Python prototype and its launch harness were
+> retired after the native Swift runtime replaced them. Current executable-level
+> regression tests live in `tests/`; see the repository README for the command.
+
 `bin/install` now builds a handoff-capable BEAM release. On a managed session,
 `bin/apply-update` publishes an immutable runtime under `~/.bowser/releases/`
 and asks the stable `bin/backend-host` relay to apply it. Existing NSWindows,
@@ -69,25 +73,11 @@ A deferred attempt is retried at most once per minute.
 Run the actual-release tests (all homes and sockets are disposable):
 
 ```sh
+swift build --package-path shell
 (cd beam && MIX_ENV=prod mix release bowser_brain --overwrite --quiet)
 PYTHONDONTWRITEBYTECODE=1 BOWSER_TEST_RELEASE="$PWD/beam/_build/prod/rel/bowser_brain" \
   python3 -m unittest discover -s tests -p test_backend_host.py -v
 ```
-
-Run the integrated installer with the real native video host:
-
-```sh
-BOWSER_EXPERIMENT_DRIVER=experiments/installed-handoff/drive.py \
-  bin/experiment-backend-handoff
-# Or append the X video URL. Open the printed .app through LaunchServices.
-```
-
-The driver uses the shipped `live_update` and `backend-host` code, a complete
-release, and a stateful receipt mod. It checks the receipt sequence and mod
-counter across successful replacement and candidate death after attachment.
-Native assertions check window/page/player identity, playback, fullscreen,
-focus, scroll and frame callbacks. This is stronger than the earlier experiment
-that used a separate prototype relay and an extra observer.
 
 Recorded results: local fullscreen video passed at 14.8 ms with 323 ordered
 receipts. The final live YC X video passed at 15.8 ms with a 312.4 ms

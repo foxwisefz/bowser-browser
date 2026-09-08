@@ -1,16 +1,13 @@
 # Controller replacement with a persistent native host
 
+> Archived experiment results. The Python prototype and its launch harness were
+> retired after the native Swift runtime replaced them. Current executable-level
+> regression tests live in `tests/`; see the repository README for the command.
+
 This experiment retains the real Bowser `EngineView` and `BrainBridge` while
 replacing external controller processes. It uses a disposable app bundle,
 nonpersistent WebKit storage, an isolated socket and a generated local video.
 It does not install anything or connect to the owner's browser/backend.
-
-Build with `bin/experiment-controller-handoff`, then open the app path it prints.
-The app briefly takes foreground focus and tests both native window fullscreen
-and HTML video fullscreen. It exits after writing `result.json`, or `failure.txt`
-if setup fails, in the printed temporary directory. `result.json.passed` is the
-experiment result; building the fixture alone does not run the assertions.
-Requires the installed Swift toolchain, Python 3 and ffmpeg.
 
 ## Observed run — 2026-09-08
 
