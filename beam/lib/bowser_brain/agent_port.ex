@@ -106,7 +106,14 @@ defmodule BowserBrain.AgentPort do
 
   @doc false
   def serve(sock) do
+    # packet: :line otherwise returns fragments once the default driver buffer
+    # fills, even without a newline. Draft source can easily exceed that buffer.
+    :inet.setopts(sock, buffer: 4_000_000, packet_size: 4_000_000)
     case :gen_tcp.recv(sock, 0, 120_000) do
+      {:ok, line} when byte_size(line) >= 4_000_000 ->
+        :gen_tcp.send(sock, JSON.encode!(%{ok: false, error: "Request exceeds 4MB limit"}) <> "\n")
+        :gen_tcp.close(sock)
+
       {:ok, line} ->
         reply =
           case JSON.decode(line) do
