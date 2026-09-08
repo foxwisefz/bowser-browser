@@ -31,6 +31,12 @@ say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
 say "checking icon crash isolation before replacing the installed app"
 "$REPO/bin/check-icon-isolation"
 
+# Native helpers are required even for brain-only builds. Customers never need Python.
+say "runtime: compiling native helpers"
+(cd "$REPO/shell" && swift build --product BowserBackendHost && swift build --product BowserRuntimeTool)
+RUNTIME_TOOL="$REPO/shell/.build/debug/BowserRuntimeTool"
+BACKEND_HOST="$REPO/shell/.build/debug/BowserBackendHost"
+
 # Never replace a running bundle/runtime: older brains still watch mtime.
 DEST_APP_DIR="$APP_DIR"
 DEST_BUNDLE="$BUNDLE"
@@ -43,10 +49,13 @@ BUNDLE="$BUILD_STAGE/bundle"
 BASE_RUNTIME="$DEST_APP_DIR"
 ACTIVE_RUNTIME="${BOWSER_HOME:-$HOME/.bowser}/backend/active.json"
 if [ -f "$ACTIVE_RUNTIME" ]; then
-  BASE_RUNTIME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime"])' "$ACTIVE_RUNTIME")"
+  BASE_RUNTIME="$("$RUNTIME_TOOL" active-runtime "$ACTIVE_RUNTIME")"
 fi
 if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi
 mkdir -p "$APP_DIR/bin"
+# Remove only obsolete helper artifacts from the unpublished copy.
+rm -rf "$APP_DIR/bin/__pycache__"
+rm -f "$APP_DIR/bin/backend-host.before-loop-fix"
 
 # ---------------------------------------------------------------- shell
 if [ "$BRAIN_ONLY" = 0 ]; then
@@ -74,7 +83,13 @@ fi
 
 # ---------------------------------------------------------------- helpers
 say "bin: engine-wrapper, mcp bridge, bowser"
-cp "$REPO/bin/engine-wrapper" "$REPO/bin/bowser-mcp-bridge" "$REPO/bin/bowser" "$REPO/bin/detach" "$REPO/bin/apply-update" "$REPO/bin/backend-host" "$APP_DIR/bin/"
+cp -f "$REPO/bin/engine-wrapper" "$REPO/bin/bowser" "$APP_DIR/bin/"
+cp -f "$BACKEND_HOST" "$APP_DIR/bin/backend-host"
+for helper in detach apply-update bowser-mcp-bridge; do
+  cp -f "$RUNTIME_TOOL" "$APP_DIR/bin/$helper"
+  codesign --force --sign - "$APP_DIR/bin/$helper"
+done
+codesign --force --sign - "$APP_DIR/bin/backend-host"
 WORKER="$REPO/shell/.build/${CONF:-debug}/BowserIconWorker"
 [ -x "$WORKER" ] || { echo "missing icon worker: $WORKER" >&2; exit 1; }
 cp -f "$WORKER" "$APP_DIR/bin/BowserIconWorker.new"
@@ -100,27 +115,17 @@ echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"
 
 # Publish a complete generation only after builds and signatures succeed.
-cp -f "$REPO/bin/apply-update" "$UPDATE_ROOT/apply-update"
-PYTHONDONTWRITEBYTECODE=1 python3 - "$UPDATE_ROOT/pending.json" "$BUILD_STAGE" "$DEST_APP_DIR" "$DEST_BUNDLE" "$SHELL_ONLY" "$BRAIN_ONLY" "$REPO/bin/apply-update" <<'PYCODE'
-import importlib.machinery, sys
-path, stage, runtime, bundle, shell_only, brain_only, helper = sys.argv[1:]
-module = importlib.machinery.SourceFileLoader('bowser_update', helper).load_module()
-module.publish(path, dict(stage=stage, runtime=runtime, bundle=bundle, home=str(__import__("pathlib").Path(path).parent.parent)), shell_only == '1', brain_only == '1')
-PYCODE
+# Atomic replacement: an existing watcher can keep executing its mapped binary.
+cp -f "$RUNTIME_TOOL" "$UPDATE_ROOT/apply-update.new"
+codesign --force --sign - "$UPDATE_ROOT/apply-update.new"
+mv -f "$UPDATE_ROOT/apply-update.new" "$UPDATE_ROOT/apply-update"
+"$RUNTIME_TOOL" publish "$UPDATE_ROOT/pending.json" "$BUILD_STAGE" "$DEST_APP_DIR" "$DEST_BUNDLE" "$SHELL_ONLY" "$BRAIN_ONLY"
 # A dormant login job resumes pending activation even if this session reboots.
 # It runs only while a manifest exists and exits immediately after activation.
 AGENT_DIR="$HOME/Library/LaunchAgents"
 AGENT_LABEL="com.gezim.bowser.pending-update"
 mkdir -p "$AGENT_DIR"
-python3 - "$AGENT_DIR/$AGENT_LABEL.plist" "$UPDATE_ROOT" <<'PYCODE'
-import plistlib, sys
-path, root = sys.argv[1:]
-with open(path, 'wb') as out:
-    plistlib.dump(dict(Label='com.gezim.bowser.pending-update',
-        ProgramArguments=[root+'/apply-update', root+'/pending.json', '--wait'],
-        RunAtLoad=True, KeepAlive={'PathState': {root+'/pending.json': True}},
-        ThrottleInterval=10, StandardOutPath=root+'/install.log', StandardErrorPath=root+'/install.log'), out)
-PYCODE
+"$RUNTIME_TOOL" watcher-plist "$AGENT_DIR/$AGENT_LABEL.plist" "$UPDATE_ROOT"
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json" --refresh-watcher
 if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
   launchctl bootstrap "gui/$(id -u)" "$AGENT_DIR/$AGENT_LABEL.plist" || {

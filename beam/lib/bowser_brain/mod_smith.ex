@@ -671,7 +671,7 @@ defmodule BowserBrain.ModSmith do
       config,
       JSON.encode!(%{
         mcpServers: %{
-          bowser: %{command: "python3", args: [BowserBrain.Paths.mcp_bridge()], env: env}
+          bowser: %{command: BowserBrain.Paths.mcp_bridge(), args: [], env: env}
         }
       })
     )

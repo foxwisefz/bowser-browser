@@ -31,9 +31,11 @@ The brain is the differentiator:
 - **Mods are OTP processes.** A crashing mod restarts alone; it can never
   take the browser down. Edit its `.ex` file and it hot-swaps on the next
   event, state intact.
-- **The brain supervises the browser.** After a crash it respawns the shell
-  and recovers the saved session. Updates stay staged until Bowser and its
-  saved apps quit, preserving live video, fullscreen, and page state.
+- **Native windows outlive backend updates.** The installed app uses a compiled
+  Swift helper to own BEAM processes and relay their connection. Compatible
+  releases transfer their state while existing WKWebViews stay alive. Elixir/OTP
+  still supervises mods and hot-loads their code. Native changes wait until
+  Bowser and its saved apps quit.
 - **No extension store, ever.** You build the exact mod you want, the
   moment you want it (see `brain/decisions/0004`).
 
@@ -78,6 +80,17 @@ quit; installation never restarts them. The app starts its backend automatically
 Bowser running; opening it from the Dock creates a window again. **Quit Bowser**
 (or ⌘Q) saves the session before closing windows and stops the backend and its
 mod processes. Backend startup failures show a retry dialog with the log path.
+
+Installed builds include the BEAM release and native Swift executables for backend
+ownership, update activation, detached launching, and the ModSmith MCP bridge.
+They do not require Python, Elixir, or Xcode on the customer's Mac. Python is
+used only by developer tests and experiment scripts. Run the native-helper tests
+against the built release with:
+
+```sh
+swift build --package-path shell
+BOWSER_TEST_RELEASE="$PWD/beam/_build/prod/rel/bowser_brain" python3 -m unittest discover -s tests
+```
 
 Saved apps support page notifications (`new Notification`) while running, with
 website permission and macOS notification authorization. Notification clicks

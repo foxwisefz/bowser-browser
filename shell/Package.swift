@@ -7,6 +7,9 @@ let package = Package(
     name: "Bowser",
     platforms: [.macOS(.v15)],
     targets: [
+        .target(name: "BackendRuntime", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "BowserBackendHost", dependencies: ["BackendRuntime"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "BowserRuntimeTool", dependencies: ["BackendRuntime"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "IconRendering"),
         .executableTarget(name: "BowserIconWorker", dependencies: ["IconRendering"]),
         .executableTarget(

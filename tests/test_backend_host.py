@@ -1,45 +1,52 @@
-"""Real release integration tests. BOWSER_TEST_RELEASE must name a built release.
-Runs only with disposable homes, local Unix sockets and an ephemeral X port.
+"""Black-box tests of the compiled helper with disposable real BEAM releases.
+Python is a developer test runner only; none of it is installed with Bowser.
 """
 import asyncio
-import importlib.machinery
 import json
 import os
 from pathlib import Path
 import shutil
-import tempfile
+import signal
 import subprocess
-import sys
+import struct
+import tempfile
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-hostmod = importlib.machinery.SourceFileLoader('backend_host', str(ROOT / 'bin/backend-host')).load_module()
-update = importlib.machinery.SourceFileLoader('backend_update', str(ROOT / 'bin/apply-update')).load_module()
+HOST = ROOT / 'shell/.build/debug/BowserBackendHost'
+TOOL = ROOT / 'shell/.build/debug/BowserRuntimeTool'
 
-class ProtocolTests(unittest.TestCase):
-    def test_cli_constructs_host_inside_running_loop(self):
-        # Separate process: the tests' own async loop must not hide CLI startup bugs.
-        script = """
-import asyncio, importlib.machinery, sys
-module = importlib.machinery.SourceFileLoader('host', sys.argv[1]).load_module()
-async def exercise(host):
-    asyncio.get_running_loop().call_soon(host.done.set)
-    await host.done.wait()
-    async with host.update_lock:
-        pass
-module.Host.run = exercise
-sys.argv = ['backend-host', sys.argv[2], sys.argv[2]]
-module.main()
-"""
-        with tempfile.TemporaryDirectory(prefix='host-cli.') as home:
-            result = subprocess.run([sys.executable, '-c', script, str(ROOT / 'bin/backend-host'), home],
-                                    capture_output=True, text=True, timeout=10)
-            self.assertEqual(result.returncode, 0, result.stderr)
+async def receive(reader):
+    size, = struct.unpack('>I', await reader.readexactly(4))
+    return json.loads(await reader.readexactly(size))
 
-    def test_runtime_process_in_generation_blocks_native_activation(self):
-        manifest = dict(home='/tmp/test-home', bundle='/tmp/Bowser.app', runtime='/tmp/app')
-        self.assertTrue(update.busy(manifest, '/tmp/test-home/releases/abc/brain/erts-16/bin/beam.smp'))
+def send(writer, message):
+    data = json.dumps(message).encode()
+    writer.write(struct.pack('>I', len(data)) + data)
+
+async def request(path, message):
+    reader, writer = await asyncio.open_unix_connection(str(path))
+    try:
+        send(writer, message)
+        return await asyncio.wait_for(receive(reader), 30)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+async def until(predicate, timeout=20):
+    async def check():
+        while not predicate(): await asyncio.sleep(.01)
+    await asyncio.wait_for(check(), timeout)
+
+class StartupTests(unittest.TestCase):
+    def test_invalid_release_exits_and_releases_socket(self):
+        with tempfile.TemporaryDirectory(prefix='bs.',dir='/tmp') as directory:
+            root=Path(directory); runtime=root/'app'; runtime.mkdir()
+            (runtime/'HANDOFF.json').write_text('{"protocol":999,"state_schema":3}')
+            result=subprocess.run([str(HOST),str(root),str(runtime)],capture_output=True,text=True,timeout=3,env={**os.environ,'PATH':'/nonexistent'})
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('incompatible',result.stderr)
+            self.assertFalse((root/'backend/host.sock').exists())
 
 @unittest.skipUnless(os.environ.get('BOWSER_TEST_RELEASE'), 'requires an actual built release')
 class ReleaseTests(unittest.IsolatedAsyncioTestCase):
@@ -69,28 +76,30 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         ''')
         self.native_writer = None
         self.commands = []
+        self.connections = 0
         self.server = await asyncio.start_unix_server(self.native, path=str(self.home / 'brain.sock'))
-        self.env = patch.dict(os.environ, {'BOWSER_X_PORT': '0'})
-        self.env.start()
-        self.host = hostmod.Host(self.home, self.runtime)
-        self.running = asyncio.create_task(self.host.run())
-        await hostmod.until(lambda: (self.home / 'agent.sock').exists(), 25)
-        await hostmod.until(lambda: (self.home / 'init-count').exists(), 5)
+        self.log = open(self.home / 'host.log', 'wb')
+        self.process = await asyncio.create_subprocess_exec(str(HOST), str(self.home), str(self.runtime),
+            env={**os.environ, 'BOWSER_X_PORT': '0', 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}, stdout=self.log, stderr=self.log)
+        await until(lambda: (self.home / 'agent.sock').exists() or self.process.returncode is not None)
+        self.assertIsNone(self.process.returncode, (self.home / 'host.log').read_text())
+        await until(lambda: (self.home / 'init-count').exists())
         await asyncio.sleep(.1)
 
     async def native(self, reader, writer):
+        self.connections += 1
         self.native_writer = writer
-        hostmod.send(writer, dict(op='hello', v=1, webviews=[1, 2], active=2,
+        send(writer, dict(op='hello', v=1, webviews=[1, 2], active=2,
             tabs=[dict(id=1, url='https://fixture.invalid/work', profile='work'),
                   dict(id=2, url='https://fixture.invalid/personal', profile='personal')]))
         try:
             while True:
-                msg = await hostmod.receive(reader)
+                msg = await receive(reader)
                 self.commands.append(msg)
                 if msg.get('op') == 'get_cookies':
-                    hostmod.send(writer, dict(op='cookies_result', id=msg['id'], cookies=[]))
+                    send(writer, dict(op='cookies_result', id=msg['id'], cookies=[]))
                 elif msg.get('op') in ('eval_js', 'native_screenshot', 'native_click'):
-                    hostmod.send(writer, dict(op='js_result', id=msg['id'], ok=True,
+                    send(writer, dict(op='js_result', id=msg['id'], ok=True,
                         value={} if msg['op'].startswith('native_') else None))
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
@@ -118,34 +127,46 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(.03)
 
     def event(self):
-        hostmod.send(self.native_writer, dict(op='event', event='counter', id='fixture_button'))
+        send(self.native_writer, dict(op='event', event='counter', id='fixture_button'))
 
     async def asyncTearDown(self):
-        self.assertIsNone(self.host.transaction, "completed updates must release transaction ownership")
-        self.host.done.set()
-        await asyncio.wait_for(self.running, 10)
-        self.server.close()
-        await self.server.wait_closed()
-        self.env.stop()
+        if self.process.returncode is None:
+            try: await self.control('stop')
+            except (OSError, asyncio.IncompleteReadError): self.process.terminate()
+            await asyncio.wait_for(self.process.wait(), 10)
+        self.server.close(); await self.server.wait_closed()
+        self.log.close()
         self.temp.cleanup()
+
+    async def control(self, op, **values):
+        return await request(self.home / 'backend/host.sock', dict(op=op, **values))
+
+    async def generation_status(self):
+        # Only one active control endpoint after each settled operation.
+        endpoints = list((self.home / 'backend').glob('g*/control.sock'))
+        self.assertEqual(len(endpoints), 1)
+        return await request(endpoints[0], dict(op='status'))
+
+    def candidate(self, name='next'):
+        target = self.home / 'releases' / name
+        shutil.copytree(self.runtime, target)
+        return target
 
     async def test_native_verification_replies_survive_relay_id_translation(self):
         for tool, args in [('native_screenshot', {}), ('native_click', {'x': 12, 'y': 20})]:
             reply = await self.tool(tool, webview=2, **args)
             self.assertTrue(reply['ok'], reply)
-            command = next(c for c in reversed(self.commands) if c.get('op') == tool)
-            self.assertIn('id', command)
+            self.assertIn('id', next(c for c in reversed(self.commands) if c.get('op') == tool))
 
     async def test_installer_handoff_preserves_mod_heap_profiles_and_host_connection(self):
         for _ in range(3): self.event()
         await self.count(3)
-        old = self.host.active
-        core_before = (await old.call('status'))['core']
-        native = self.native_writer
+        core_before = (await self.generation_status())['core']
         stage = self.home / 'stage'
         shutil.copytree(self.runtime, stage / 'runtime')
-        manifest = dict(home=str(self.home), stage=str(stage), runtime=str(self.runtime), bundle=str(self.home / 'Bowser.app'))
-        # Emit throughout warmup and the actual freeze/restore boundary.
+        pending = self.home / 'updates/pending.json'
+        pending.parent.mkdir()
+        pending.write_text(json.dumps(dict(home=str(self.home), stage=str(stage), runtime=str(self.runtime), bundle=str(self.home / 'Bowser.app'))))
         sent = 3
         stop = asyncio.Event()
         async def traffic():
@@ -155,20 +176,16 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(.02)
         task = asyncio.create_task(traffic())
         try:
-            passed = await asyncio.to_thread(update.live_update, manifest)
+            process = await asyncio.create_subprocess_exec(str(TOOL), 'apply-update', str(pending), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout, stderr = await process.communicate()
+            self.assertEqual(process.returncode, 0, stderr.decode())
+            self.assertTrue(json.loads(pending.read_text()).get('backend_applied'), stdout.decode())
         finally:
             stop.set(); await task
-        self.assertTrue(passed, manifest.get('deferred_reason'))
         await self.count(sent)
-        self.assertIsNot(old, self.host.active)
-        self.assertIs(native, self.native_writer)
-        self.assertIsNotNone(old.process.returncode)
+        self.assertEqual(self.connections, 1)
         self.assertEqual((self.home / 'init-count').read_text(), 'init\n')
-        self.assertTrue(any(m.get('op') == 'chrome' and m.get('id') == 'fixture_button' for m in self.commands))
-        tabs = await self.tool('list_tabs')
-        self.assertEqual(tabs['active'], 2)
-        self.assertEqual(len(tabs['tabs']), 2)
-        state = await self.host.active.call('status')
+        state = await self.generation_status()
         self.assertEqual(state['profiles'], {'1': 'work', '2': 'personal'})
         self.assertFalse(state['restoring'])
         self.assertEqual(state['core'], core_before)
@@ -176,123 +193,122 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(result['handoff_ms'], 1000)
         forbidden = {'navigate', 'open_tab', 'close_tab', 'activate_tab', 'reload'}
         self.assertFalse([m for m in self.commands if m.get('op') in forbidden])
-        print('REAL RELEASE HANDOFF:', result, 'counter=', sent)
+        print('NATIVE REAL RELEASE HANDOFF:', result, 'counter=', sent)
 
     async def test_core_only_session_updates_and_keeps_deck_and_menu_controls(self):
         (self.home / 'mods/Counter.ex').unlink()
         await asyncio.sleep(.7)
-        old = self.host.active
-        before = (await old.call('status'))['core']
-        releases = self.home / 'releases'
-        releases.mkdir()
-        candidate = releases / 'core-only'
-        shutil.copytree(self.runtime, candidate)
-        result = await self.host.update(candidate)
-        self.assertTrue(result['ok'])
-        self.assertLess(result['handoff_ms'], 1000)
-        after = (await self.host.active.call('status'))['core']
+        before = (await self.generation_status())['core']
+        result = await self.control('update', runtime=str(self.candidate()))
+        self.assertTrue(result['ok'], result)
+        after = (await self.generation_status())['core']
         self.assertEqual(before, after)
         self.assertEqual(after['tab_deck']['order'], [1, 2])
         self.assertEqual(after['tab_deck']['active'], 2)
-        self.assertIn('panel:edge_dock', after['panel_menu']['menu'])
-        hostmod.send(self.native_writer, dict(op='event', event='surface', surface='edge_dock', id='select', value='1'))
-        await hostmod.until(lambda: any(m.get('op') == 'activate_tab' and m.get('webview') == 1 for m in self.commands), 2)
-        hostmod.send(self.native_writer, dict(op='event', event='chrome_click', id='panel:edge_dock'))
+        send(self.native_writer, dict(op='event', event='surface', surface='edge_dock', id='select', value='1'))
+        await until(lambda: any(m.get('op') == 'activate_tab' and m.get('webview') == 1 for m in self.commands), 2)
+        send(self.native_writer, dict(op='event', event='chrome_click', id='panel:edge_dock'))
         await asyncio.sleep(.05)
-        after_toggle = (await self.host.active.call('status'))['core']
-        self.assertFalse(after_toggle['panel_menu']['menu']['panel:edge_dock']['checked'])
-        print('CORE-ONLY HANDOFF:', result)
-
-    async def test_candidate_death_rolls_back_before_authority(self):
-        self.event(); await self.count(1)
-        releases = self.home / 'releases'
-        releases.mkdir()
-        candidate = releases / 'bad'
-        shutil.copytree(self.runtime, candidate)
-        old = self.host.active
-        boot = self.host.boot
-        async def die_after_warmup(runtime):
-            gen = await boot(runtime)
-            gen.process.kill()
-            await gen.process.wait()
-            return gen
-        self.host.boot = die_after_warmup
-        with self.assertRaises(Exception):
-            await self.host.update(candidate)
-        self.assertIs(self.host.active, old)
-        self.event(); await self.count(2)
-        self.assertEqual((self.home / 'init-count').read_text(), 'init\n')
-        self.assertFalse((self.home / 'backend/active.json').exists())
+        self.assertFalse((await self.generation_status())['core']['panel_menu']['menu']['panel:edge_dock']['checked'])
 
     async def test_legacy_mod_defers_before_warming_candidate(self):
         (self.home / 'mods/Legacy.ex').write_text("defmodule LegacyHandoffFixture do\n use BowserBrain.Mod\nend\n")
         await asyncio.sleep(.7)
-        releases = self.home / 'releases'
-        releases.mkdir()
-        candidate = releases / 'legacy'
-        shutil.copytree(self.runtime, candidate)
-        children = len(self.host.children)
-        with self.assertRaisesRegex(RuntimeError, 'safe handoff contract'):
-            await self.host.update(candidate)
-        self.assertEqual(len(self.host.children), children)
-        self.assertFalse(self.host.paused)
+        result = await self.control('update', runtime=str(self.candidate()))
+        self.assertFalse(result['ok'])
+        self.assertIn('safe handoff contract', result['error'])
+        self.assertEqual(len(list((self.home / 'backend').glob('g*'))), 1)
         self.event(); await self.count(1)
 
-    async def test_buffer_disk_failure_resumes_old_backend_without_losing_events(self):
-        import sqlite3
-        self.event(); await self.count(1)
-        releases = self.home / 'releases'
-        releases.mkdir()
-        candidate = releases / 'disk-full'
-        shutil.copytree(self.runtime, candidate)
-        old = self.host.active
-        db = self.host.db
-        class FullDisk:
-            def execute(_, sql, *args):
-                if sql.startswith('insert'):
-                    raise sqlite3.OperationalError('fixture disk full')
-                return db.execute(sql, *args)
-            def commit(_): return db.commit()
-            def close(_): return db.close()
-        self.host.db = FullDisk()
-        boot = self.host.boot
-        async def slow_restore(runtime):
-            gen = await boot(runtime)
-            call = gen.call
-            async def slow(op, **values):
-                if op == 'restore':
-                    self.event()
-                    await asyncio.sleep(.1)
-                return await call(op, **values)
-            gen.call = slow
-            return gen
-        self.host.boot = slow_restore
-        with self.assertRaises(asyncio.CancelledError):
-            await self.host.update(candidate)
-        self.assertIs(self.host.active, old)
-        self.assertFalse(self.host.paused)
-        await self.count(2)
-        self.assertFalse((self.home / 'backend/active.json').exists())
-
-    async def test_quit_releases_all_backends_without_closing_native_server(self):
-        hostmod.send(self.native_writer, {'op': 'app_quit'})
-        await asyncio.wait_for(self.running, 5)
-        self.assertTrue(all(g.process.returncode is not None for g in self.host.children))
+    async def test_quit_releases_backend_without_closing_native_server(self):
+        send(self.native_writer, {'op': 'app_quit'})
+        self.assertEqual(await asyncio.wait_for(self.process.wait(), 10), 0)
         self.assertFalse((self.home / 'backend/host.sock').exists())
+        self.assertFalse(list((self.home / 'backend').glob('g*')))
         self.assertTrue(self.server.is_serving())
 
     async def test_incompatible_release_never_pauses_active_backend(self):
-        releases = self.home / 'releases'
-        releases.mkdir()
-        candidate = releases / 'incompatible'
-        candidate.mkdir()
+        candidate = self.candidate()
         (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":3}')
-        old = self.host.active
-        with self.assertRaisesRegex(RuntimeError, 'incompatible'):
-            await self.host.update(candidate)
-        self.assertFalse(self.host.paused)
-        self.assertIs(old, self.host.active)
+        result = await self.control('update', runtime=str(candidate))
+        self.assertFalse(result['ok']); self.assertIn('incompatible', result['error'])
         self.event(); await self.count(1)
 
-if __name__ == '__main__':
-    unittest.main()
+    async def test_duplicate_host_does_not_steal_socket_or_spawn_brain(self):
+        other = await asyncio.create_subprocess_exec(str(HOST), str(self.home), str(self.runtime))
+        self.assertEqual(await asyncio.wait_for(other.wait(), 3), 0)
+        status = await self.control('status')
+        self.assertEqual(status['pid'], self.process.pid)
+        self.assertEqual(status['implementation'], 'swift')
+        self.assertEqual(self.connections, 1)
+
+    async def test_crashed_beam_is_replaced_without_reconnecting_native(self):
+        rows = subprocess.check_output(['/bin/ps', '-axo', 'pid=,ppid=,comm='], text=True).splitlines()
+        children = [int(parts[0]) for row in rows if len(parts := row.split(None, 2)) == 3 and int(parts[1]) == self.process.pid]
+        self.assertEqual(len(children), 1)
+        os.kill(children[0], signal.SIGKILL)
+        await until(lambda: (self.home / 'init-count').read_text().count('init') == 2)
+        self.assertEqual(self.connections, 1)
+        self.assertEqual((await self.control('status'))['pid'], self.process.pid)
+        self.event(); await self.count(1)
+
+    async def test_installed_launcher_starts_and_stops_native_host(self):
+        await self.control('stop'); await asyncio.wait_for(self.process.wait(), 10)
+        binaries=self.runtime/'bin'; binaries.mkdir()
+        shutil.copy2(ROOT/'bin/bowser',binaries/'bowser')
+        shutil.copy2(HOST,binaries/'backend-host')
+        shutil.copy2(TOOL,binaries/'detach')
+        env={**os.environ,'BOWSER_HOME':str(self.home),'BOWSER_APP_DIR':str(self.runtime),'BOWSER_X_PORT':'0','PATH':'/usr/bin:/bin:/usr/sbin:/sbin'}
+        try:
+            launcher=await asyncio.create_subprocess_exec(str(binaries/'bowser'),'start-brain',env=env,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+            stdout,stderr=await asyncio.wait_for(launcher.communicate(),15)
+            self.assertEqual(launcher.returncode,0,stderr.decode())
+            await until(lambda: (self.home/'init-count').read_text().count('init')==2)
+            self.assertEqual((await self.control('status'))['implementation'],'swift')
+            self.event(); await self.count(1)
+        finally:
+            stop=await asyncio.create_subprocess_exec(str(binaries/'bowser'),'stop-brain',env=env)
+            await asyncio.wait_for(stop.wait(),15)
+        self.assertFalse((self.home/'backend/host.sock').exists())
+        self.assertFalse(list((self.home/'backend').glob('g*')))
+
+    async def test_signal_shutdown_reaps_owned_children(self):
+        self.process.terminate()
+        await asyncio.wait_for(self.process.wait(), 10)
+        self.assertFalse((self.home / 'backend/host.sock').exists())
+        self.assertFalse(list((self.home / 'backend').glob('g*')))
+        self.assertTrue(self.server.is_serving())
+
+    def fake_candidate(self, mode):
+        target = self.home / 'releases' / mode
+        (target / 'brain/bin').mkdir(parents=True)
+        (target / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
+        script = ROOT / 'tests/fixtures/handoff_candidate.py'
+        executable = target / 'brain/bin/bowser_brain'
+        executable.write_text('#!/bin/sh\nexec /usr/bin/python3 "' + str(script) + '" ' + mode + '\n')
+        executable.chmod(0o755)
+        return target
+
+    async def test_candidate_death_rolls_back_before_authority(self):
+        self.event(); await self.count(1)
+        result = await self.control('update', runtime=str(self.fake_candidate('die')))
+        self.assertFalse(result['ok'])
+        self.event(); await self.count(2)
+        self.assertEqual((self.home / 'init-count').read_text(), 'init\n')
+        self.assertFalse((self.home / 'backend/active.json').exists())
+        self.assertTrue((self.home / 'backend/last-rollback.json').exists())
+
+    async def test_journal_failure_resumes_old_backend_without_losing_events(self):
+        self.event(); await self.count(1)
+        task = asyncio.create_task(self.control('update', runtime=str(self.fake_candidate('slow'))))
+        await until(lambda: (self.home / 'restore.marker').exists())
+        journal = self.home / 'backend/handoff.journal'
+        journal.unlink(); journal.mkdir()  # Real filesystem write failure, no mocked host internals.
+        self.event()
+        result = await task
+        self.assertFalse(result['ok'])
+        await self.count(2)
+        self.assertFalse((self.home / 'backend/active.json').exists())
+        self.assertTrue((self.home / 'backend/last-rollback.json').exists())
+
+if __name__ == '__main__': unittest.main()

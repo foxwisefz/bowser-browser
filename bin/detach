@@ -1,15 +1,4 @@
-#!/usr/bin/env python3
-"""Run a command fully detached: new session (own process group), stdin from
-/dev/null, stdout+stderr appended to a log, every other inherited fd closed.
-A brain started from an agent's shell must not die with that shell, nor hold
-its pipe open.   usage: detach <logfile> [VAR=value ...] -- cmd args..."""
-import os, sys, subprocess
-log = sys.argv[1]; rest = sys.argv[2:]
-env = dict(os.environ)
-while rest and rest[0] != "--":
-    k, _, v = rest.pop(0).partition("="); env[k] = v
-if rest and rest[0] == "--": rest.pop(0)
-with open(log, "ab") as out:
-    p = subprocess.Popen(rest, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
-                         start_new_session=True, close_fds=True, env=env)
-print(p.pid)
+#!/bin/sh
+# Development entry point. Installed builds contain the signed native executable.
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec "$ROOT/shell/.build/debug/BowserRuntimeTool" detach "$@"
