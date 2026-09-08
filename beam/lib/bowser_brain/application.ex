@@ -21,18 +21,22 @@ defmodule BowserBrain.Application do
       BowserBrain.UserContent,
       {Task.Supervisor, name: BowserBrain.IconTasks},
       BowserBrain.IconJobs,
-      BowserBrain.Bridge,
-      BowserBrain.AgentPort,
       BowserBrain.Surface,
       BowserBrain.ModLog,
       BowserBrain.XFeed,
-      BowserBrain.XServer,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
+      BowserBrain.Settings,
+      BowserBrain.ModSmith,
+      BowserBrain.TabDeck,
+      BowserBrain.ModControls,
+      BowserBrain.PanelMenu,
+      # Every core event subscriber must exist before the first native hello.
+      BowserBrain.Bridge,
+      BowserBrain.AgentPort,
+      BowserBrain.XServer,
       BowserBrain.Loader,
       BowserBrain.LibReloader,
-      BowserBrain.Settings,
       BowserBrain.SiteMods,
-      BowserBrain.ModSmith,
       BowserBrain.Engine
     ]
 

@@ -1,5 +1,5 @@
-defmodule EdgeDockTabs do
-  use BowserBrain.Mod
+defmodule BowserBrain.TabDeck do
+  use BowserBrain.CoreFeature
 
   import BowserBrain.View
 
@@ -7,8 +7,7 @@ defmodule EdgeDockTabs do
   # Replaces the native tab strip (Chrome.hide_tab_bar). Click an icon to focus
   # that tab.
 
-  def init_mod(_opts) do
-    BowserBrain.Chrome.hide_tab_bar()
+  def initial_state() do
     %{tabs: %{}, order: [], active: nil}
   end
 
@@ -166,8 +165,6 @@ defmodule EdgeDockTabs do
     state
   end
 
-  # Tab activation isn't in the documented API surface; probe the likely
-  # entry points so the mod degrades to a no-op rather than crashing.
   defp focus_tab(wv) do
     BowserBrain.Surface.activate_tab(wv)
   end

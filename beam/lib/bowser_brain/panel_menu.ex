@@ -3,21 +3,20 @@
 # event-driven mods like the dock can't re-show it) or bring it back from
 # the registry's stored view. Replaced the earlier panels-panel ("a panel to
 # manage panels", rightly mocked).
-defmodule PanelsMod do
-  use BowserBrain.Mod
+defmodule BowserBrain.PanelMenu do
+  use BowserBrain.CoreFeature
 
   alias BowserBrain.{Chrome, Surface}
 
-  @sync_ms 2_000
-
-  def init_mod(_opts) do
-    Process.send_after(self(), :sync, @sync_ms)
+  def initial_state() do
     %{menu: %{}}
   end
 
-  # Menu items are shell state and die with the engine; the sync tick
-  # rebuilds them, so hello just resets our bookkeeping.
-  def handle_event(%{"event" => "hello"}, state), do: %{state | menu: %{}}
+  # Only a native reconnection rebuilds menus; backend handoff preserves them.
+  def handle_event(%{"event" => "hello"}, state) do
+    send(self(), :sync)
+    %{state | menu: %{}}
+  end
 
   def handle_event(%{"event" => "chrome_click", "id" => "panel:" <> sid}, state) do
     Surface.toggle(sid)
@@ -28,7 +27,6 @@ defmodule PanelsMod do
 
   def handle_info(:sync, state) do
     state = sync(state)
-    Process.send_after(self(), :sync, @sync_ms)
     {:noreply, state}
   end
 
@@ -39,7 +37,7 @@ defmodule PanelsMod do
   panel id): two mods both calling their panel "Tabs" must not produce two
   identical menu entries. Public for tests.
   """
-  @doc "Panels the View menu toggles: everything except Settings-window sections. Public for tests."
+
   def visible(entries), do: Enum.reject(entries, &(Map.get(&1, :kind) == "settings"))
 
   def menu_titles(entries) do

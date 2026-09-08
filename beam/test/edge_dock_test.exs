@@ -1,14 +1,9 @@
-# Ships as an example_mods file (hot-loaded from ~/.bowser/mods in
-# production); compile it here so its event logic stays tested.
-Code.put_compiler_option(:ignore_module_conflict, true)
-Code.compile_file(Path.expand("../example_mods/edge_dock_tabs.ex", __DIR__))
-
 defmodule EdgeDockTabsTest do
   use ExUnit.Case, async: false
 
   defp base, do: %{tabs: %{}, order: [], active: nil}
 
-  defp ev(state, map), do: EdgeDockTabs.handle_event(map, state)
+  defp ev(state, map), do: BowserBrain.TabDeck.handle_event(map, state)
 
   test "closed tabs leave the dock — no phantom icons (bowser-browser-55l)" do
     state =
@@ -38,7 +33,7 @@ defmodule EdgeDockTabsTest do
 
   test "closing an unknown webview is a no-op" do
     state = base() |> ev(%{"event" => "tab_opened", "webview" => 1})
-    assert ^state = EdgeDockTabs.handle_event(%{"event" => "webview_closed", "webview" => 9}, state)
+    assert ^state = BowserBrain.TabDeck.handle_event(%{"event" => "webview_closed", "webview" => 9}, state)
   end
 
   test "visible_order shows only the active tab's profile; unknown profile = default; no active = all" do
@@ -49,8 +44,8 @@ defmodule EdgeDockTabsTest do
       |> ev(%{"event" => "tab_opened", "webview" => 3})
       |> ev(%{"event" => "tab_opened", "webview" => 4, "profile" => "work"})
 
-    assert EdgeDockTabs.visible_order(state) == [1, 2, 3, 4]
-    assert EdgeDockTabs.visible_order(%{state | active: 2}) == [2, 4]
-    assert EdgeDockTabs.visible_order(%{state | active: 3}) == [1, 3]
+    assert BowserBrain.TabDeck.visible_order(state) == [1, 2, 3, 4]
+    assert BowserBrain.TabDeck.visible_order(%{state | active: 2}) == [2, 4]
+    assert BowserBrain.TabDeck.visible_order(%{state | active: 3}) == [1, 3]
   end
 end

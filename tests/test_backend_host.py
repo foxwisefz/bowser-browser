@@ -28,7 +28,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = self.home / 'app'
         self.runtime.mkdir()
         shutil.copytree(os.environ['BOWSER_TEST_RELEASE'], self.runtime / 'brain')
-        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":1}')
+        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":2}')
         (self.home / 'mods').mkdir()
         (self.home / 'mods/Counter.ex').write_text('''
         defmodule HandoffCounter do
@@ -110,6 +110,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(3): self.event()
         await self.count(3)
         old = self.host.active
+        core_before = (await old.call('status'))['core']
         native = self.native_writer
         stage = self.home / 'stage'
         shutil.copytree(self.runtime, stage / 'runtime')
@@ -140,11 +141,37 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         state = await self.host.active.call('status')
         self.assertEqual(state['profiles'], {'1': 'work', '2': 'personal'})
         self.assertFalse(state['restoring'])
+        self.assertEqual(state['core'], core_before)
         result = json.loads((self.home / 'backend/last-update.json').read_text())
         self.assertLess(result['handoff_ms'], 1000)
         forbidden = {'navigate', 'open_tab', 'close_tab', 'activate_tab', 'reload'}
         self.assertFalse([m for m in self.commands if m.get('op') in forbidden])
         print('REAL RELEASE HANDOFF:', result, 'counter=', sent)
+
+    async def test_core_only_session_updates_and_keeps_deck_and_menu_controls(self):
+        (self.home / 'mods/Counter.ex').unlink()
+        await asyncio.sleep(.7)
+        old = self.host.active
+        before = (await old.call('status'))['core']
+        releases = self.home / 'releases'
+        releases.mkdir()
+        candidate = releases / 'core-only'
+        shutil.copytree(self.runtime, candidate)
+        result = await self.host.update(candidate)
+        self.assertTrue(result['ok'])
+        self.assertLess(result['handoff_ms'], 1000)
+        after = (await self.host.active.call('status'))['core']
+        self.assertEqual(before, after)
+        self.assertEqual(after['tab_deck']['order'], [1, 2])
+        self.assertEqual(after['tab_deck']['active'], 2)
+        self.assertIn('panel:edge_dock', after['panel_menu']['menu'])
+        hostmod.send(self.native_writer, dict(op='event', event='surface', surface='edge_dock', id='select', value='1'))
+        await hostmod.until(lambda: any(m.get('op') == 'activate_tab' and m.get('webview') == 1 for m in self.commands), 2)
+        hostmod.send(self.native_writer, dict(op='event', event='chrome_click', id='panel:edge_dock'))
+        await asyncio.sleep(.05)
+        after_toggle = (await self.host.active.call('status'))['core']
+        self.assertFalse(after_toggle['panel_menu']['menu']['panel:edge_dock']['checked'])
+        print('CORE-ONLY HANDOFF:', result)
 
     async def test_candidate_death_rolls_back_before_authority(self):
         self.event(); await self.count(1)
@@ -229,7 +256,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         releases.mkdir()
         candidate = releases / 'incompatible'
         candidate.mkdir()
-        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":1}')
+        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":2}')
         old = self.host.active
         with self.assertRaisesRegex(RuntimeError, 'incompatible'):
             await self.host.update(candidate)

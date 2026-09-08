@@ -1,11 +1,19 @@
 defmodule BowserBrain.LegacyMods do
   @moduledoc "Legacy sources superseded by built-in features; retained on disk for older installations."
-  @names ["MediaWarmMod"]
+  @names ["MediaWarmMod", "EdgeDockTabs", "ModSwitchMod", "PanelsMod"]
   def superseded?(path) do
     case File.read(path) do
       {:ok, source} ->
-        Regex.scan(~r/defmodule\s+([A-Za-z0-9_.]+)/, source)
-        |> Enum.any?(fn [_, name] -> name in @names end)
+        case Code.string_to_quoted(source) do
+          {:ok, ast} ->
+            {_, found} = Macro.prewalk(ast, false, fn
+              {:defmodule, _, [{:__aliases__, _, parts}, _]} = node, found ->
+                {node, found or Enum.join(parts, ".") in @names}
+              node, found -> {node, found}
+            end)
+            found
+          _ -> false
+        end
       _ -> false
     end
   end

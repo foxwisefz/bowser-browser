@@ -88,6 +88,7 @@ defmodule BowserBrain.Surface do
   @impl true
   def handle_info({:browser_event, %{"event" => "hello"}}, state) do
     panels = Map.new(state.panels, fn {id, e} -> {id, %{e | closed: true}} end)
+    notify_menu()
     {:noreply, %{state | panels: panels}}
   end
 
@@ -115,6 +116,7 @@ defmodule BowserBrain.Surface do
       closed: suppressed?
     }
 
+    notify_menu()
     {:reply, suppressed?, put_in(state.panels[id], entry)}
   end
 
@@ -162,7 +164,12 @@ defmodule BowserBrain.Surface do
     end
   end
 
+  defp notify_menu do
+    if pid = Process.whereis(BowserBrain.PanelMenu), do: send(pid, :sync)
+  end
+
   defp update_entry(state, id, fun) do
+    notify_menu()
     case state.panels do
       %{^id => entry} -> put_in(state.panels[id], fun.(entry))
       _ -> state

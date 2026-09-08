@@ -1,17 +1,18 @@
 defmodule BowserBrain.Handoff do
   @moduledoc """
   Installed release handoff. Candidates boot without listeners, watchers or mods.
-  State crosses VMs only at a quiescent boundary. Schema 1 requires data-only
+  State crosses VMs only at a quiescent boundary. Schema 2 requires data-only
   mod state and an explicit `handoff: true` contract: no untracked timers, tasks,
   ports or external processes. Restored mods skip init_mod and hello.
   Bump the schema when changing migrated core state incompatibly.
   """
   alias BowserBrain.{Bridge, Paths}
-  @schema 1
+  @schema 2
   @core [BowserBrain.Loader, BowserBrain.SiteMods, BowserBrain.LibReloader,
          BowserBrain.Profiles, BowserBrain.Session, BowserBrain.UserContent,
          BowserBrain.Surface, BowserBrain.ModLog, BowserBrain.XFeed,
-         BowserBrain.Settings, BowserBrain.ModSmith, BowserBrain.Store]
+         BowserBrain.Settings, BowserBrain.ModSmith, BowserBrain.Store,
+         BowserBrain.TabDeck, BowserBrain.ModControls, BowserBrain.PanelMenu]
   def schema, do: @schema
 
   # Release eval warms all code/services without acquiring host authority.
@@ -26,6 +27,9 @@ defmodule BowserBrain.Handoff do
     for key <- [:connect_bridge, :spawn_engine, :load_user_mods, :watch_lib, :watch_sites],
       do: Application.put_env(:bowser_brain, key, false)
     {:ok, _} = Application.ensure_all_started(:bowser_brain)
+    # Core views may not render during candidate startup. Load the release's
+    # modules now so their literal atoms exist before safe checkpoint decoding.
+    for module <- Application.spec(:bowser_brain, :modules), do: Code.ensure_loaded!(module)
     Code.put_compiler_option(:ignore_module_conflict, true)
     for path <- Path.wildcard(Path.join(Paths.home(), "mods/*.ex")),
         not BowserBrain.LegacyMods.superseded?(path), do: Code.compile_file(path)
@@ -64,7 +68,12 @@ defmodule BowserBrain.Handoff do
     session = :sys.get_state(BowserBrain.Session, 150)
     {%{ok: true, schema: @schema, pid: System.pid(),
        profiles: session.profiles, active: session.active,
-       restoring: session.restore != nil}, suspended}
+       restoring: session.restore != nil,
+       core: %{
+         tab_deck: :sys.get_state(BowserBrain.TabDeck, 150),
+         panel_menu: :sys.get_state(BowserBrain.PanelMenu, 150),
+         mod_controls_active: :sys.get_state(BowserBrain.ModControls, 150).active
+       }}, suspended}
   end
   defp command(%{"op" => "preflight"}, []) do
     for {_, _, _, [module]} <- DynamicSupervisor.which_children(BowserBrain.ModSupervisor) do

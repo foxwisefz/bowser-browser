@@ -52,6 +52,9 @@ defmodule BowserBrain.Loader do
     gone = vanished(state.mtimes, mtimes)
     for path <- gone, module <- Map.get(modules, path, []), do: stop_module(module, path)
 
+    if changed != [] or gone != [] do
+      if pid = Process.whereis(BowserBrain.ModControls), do: send(pid, :catalog_changed)
+    end
     Process.send_after(self(), :scan, @poll_ms)
     {:noreply, state |> Map.put(:mtimes, mtimes) |> Map.put(:modules, Map.drop(modules, gone))}
   end

@@ -1,19 +1,18 @@
-# Mod visibility + kill switches (bowser-browser-eef): `:mods` (or View →
+# Built-in mod controls: `:mods` (or View →
 # Mods) shows everything running against the CURRENT page — this host's
 # site payloads and the global OTP mods — each row a one-click toggle.
 # Off is the `.off` rename convention: SiteMods stops injecting a renamed
 # payload within a second, and a disabled mod's process is terminated (the
 # Loader restarts it when the file gets its name back). State survives
 # restarts because it IS the filesystem.
-defmodule ModSwitchMod do
-  use BowserBrain.Mod
+defmodule BowserBrain.ModControls do
+  use BowserBrain.CoreFeature
 
   import BowserBrain.View
 
   alias BowserBrain.{Chrome, Surface}
 
-  def init_mod(_opts) do
-    assert_chrome()
+  def initial_state() do
     # info: which rows have their (i) description expanded.
     %{active: 0, urls: %{}, info: MapSet.new()}
   end
@@ -68,9 +67,8 @@ defmodule ModSwitchMod do
         :ok
     end
 
-    # Give SiteMods/Loader a beat to react, then re-render the truth.
-    Process.send_after(self(), :rerender, 800)
-    state
+    # Show the file change immediately; Loader notifies after the process changes.
+    render(state)
   end
 
   # ⓘ click: expand/collapse this row's description (bowser-browser-ft0
@@ -105,7 +103,7 @@ defmodule ModSwitchMod do
 
   def handle_event(_event, state), do: state
 
-  def handle_info(:rerender, state) do
+  def handle_info(:catalog_changed, state) do
     {:noreply, render(state)}
   end
 
@@ -145,7 +143,7 @@ defmodule ModSwitchMod do
     end)
   end
 
-  @doc "The host: a mod declared in `use BowserBrain.Mod, host: ...`, or nil."
+  @doc "The host: a mod declared in `use BowserBrain.CoreFeature, host: ...`, or nil."
   def host_of_source(source) do
     case Regex.run(~r/use\s+BowserBrain\.Mod\s*,\s*host:\s*"([^"]+)"/, source) do
       [_, host] -> host
@@ -177,7 +175,11 @@ defmodule ModSwitchMod do
     end
   end
 
-  def parse_toggle("mod|" <> name), do: {:mod, name}
+  def parse_toggle("mod|" <> name) do
+    path = Path.join(BowserBrain.Paths.home(), "mods/" <> name)
+    if Path.basename(name) == name and not BowserBrain.LegacyMods.superseded?(path),
+      do: {:mod, name}, else: :error
+  end
   def parse_toggle(_), do: :error
 
   @doc "Catalog path ModSmith should modify for a row payload (.off stripped); nil if not a row."
@@ -191,7 +193,7 @@ defmodule ModSwitchMod do
 
   # -- rendering --------------------------------------------------------------
 
-  # No add_menu_item here: the panels mod already gives every surface a
+  # No add_menu_item here: PanelMenu already gives every surface a
   # View-menu toggle ("panel:mods"), so a second "Mods" entry was a duplicate.
   defp assert_chrome do
     Chrome.register_command("mods", "What's modding this page — toggle on/off")
@@ -231,7 +233,8 @@ defmodule ModSwitchMod do
         {:ok, names} ->
           for name <- Enum.sort(names),
               String.ends_with?(name, ".ex") or String.ends_with?(name, ".ex.off"),
-              not String.starts_with?(name, "zz_") do
+              not String.starts_with?(name, "zz_"),
+              not BowserBrain.LegacyMods.superseded?(Path.join(mods_dir, name)) do
             source = File.read!(Path.join(mods_dir, name))
             scope = host_of_source(source)
 

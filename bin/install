@@ -94,7 +94,7 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 
 if [ "$SHELL_ONLY" = 0 ]; then
-  printf '{"protocol":1,"state_schema":1}\n' > "$APP_DIR/HANDOFF.json"
+  printf '{"protocol":1,"state_schema":2}\n' > "$APP_DIR/HANDOFF.json"
 fi
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"
