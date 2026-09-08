@@ -109,3 +109,37 @@ an active ModSmith run and is unavailable for saved apps.
 See `beam/example_mods/aol_skin.ex` for a blue and silver AOL-inspired skin.
 Copy it into the **desired profile's** `mods/` directory to apply it live;
 rename it to `.ex.off` or remove it to restore the previous appearance.
+
+## Native edge toolbars and window borders
+
+`Chrome.put_toolbar(id, view, edge: :bottom, size: 32, style: %{...})`
+adds or updates a process-owned bar in every browser window. The view uses
+normal `BowserBrain.View` controls and layout. `edge` can be `:top`, `:bottom`,
+`:left`, or `:right`; `size` is 16–200 points (height for top/bottom, width
+for left/right). Style accepts `background`, `foreground`, and `border` as
+`#rrggbb` colors. View DSL spacing controls the gaps between controls.
+
+Bars reserve native webpage space, including when switching or warming tabs
+and resizing windows. Horizontal bars span the width inside the window border;
+side bars fill the middle. Bars sort by id within each edge. When the window
+is too small, bar thickness scales down to retain page space. Up to 16 bars
+are allowed across owners.
+
+Controls emit normal `surface` events with `surface: "toolbar:<id>"` and
+`webview` identifying the clicked window's active tab. Use that id for page
+actions. Bar definitions are shared across windows, not independent per-tab
+models. `Chrome.remove_toolbar(id)` only removes the caller's bar. Equal ids
+from other owners are shadowed and restored when the winner goes away.
+
+Call `put_toolbar` in `init_mod` and on `mod_reloaded`. Removal, Disable and
+Undo clear ownership; engine reconnects and new windows inherit active bars.
+`Chrome.toolbars()` and the `toolbars` MCP tool report the effective definitions.
+
+`Chrome.set_theme` also accepts `window_border` (`#rrggbb`),
+`window_border_width` (0–12 points), and `window_border_style` (`"flat"` or
+`"beveled"`). This draws an inner outline on all four edges and reserves
+its space. It preserves the macOS window shape, shadow, resizing, and traffic
+lights. It follows normal theme ownership and reset behavior.
+
+See `beam/example_mods/status_bar.ex` for a bottom status bar with a clickable
+Home control and a full-window beveled outline. No Window Style editor is required.

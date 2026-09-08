@@ -241,8 +241,7 @@ final class SurfaceManager {
     ) -> AnyView {
         AnyView(
             ZStack(alignment: edge == "right" ? .leading : .trailing) {
-                SurfaceTreeView(surfaceId: surfaceId, node: tree)
-                    .environmentObject(cursor)
+                SurfaceTreeView(surfaceId: surfaceId, node: tree, cursor: cursor)
                 if surfaceId != "edge_dock" {
                     Capsule()
                         .fill(Color.secondary.opacity(0.6))
@@ -671,9 +670,15 @@ struct SurfaceRootView: View {
 struct SurfaceTreeView: View {
     let surfaceId: String
     let node: [String: Any]
+    /// Edge panels supply their AppKit tracker. All other surface roots
+    /// still need a cursor environment for magnify_strip (including Settings).
+    var cursor: CursorModel? = nil
+    var eventWebview: UInt64? = nil
+    @StateObject private var localCursor = CursorModel()
 
     var body: some View {
         render(node)
+            .environmentObject(cursor ?? localCursor)
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -686,6 +691,7 @@ struct SurfaceTreeView: View {
             "surface": surfaceId, "id": eventId,
         ]
         if let value { message["value"] = value }
+        if let eventWebview { message["webview"] = eventWebview }
         BrainBridge.shared.send(message)
     }
 
@@ -801,7 +807,8 @@ struct SurfaceTreeView: View {
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
         case "magnify_strip":
-            return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit))
+            return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit,
+                                           tracksLocally: cursor == nil))
         case "particles":
             return AnyView(ParticlesNodeView(
                 chars: node["chars"] as? [String] ?? ["♪", "♫", "♩", "♬"],
@@ -938,6 +945,7 @@ struct MagnifyStripView: View {
     let surfaceId: String
     let node: [String: Any]
     let emit: (String, Any?) -> Void
+    var tracksLocally = false
 
     @EnvironmentObject var cursor: CursorModel
     @Environment(\.colorScheme) private var colorScheme
@@ -1044,6 +1052,15 @@ struct MagnifyStripView: View {
                 }
             }
             .environment(\.colorScheme, surfaceId == "edge_dock" ? .dark : colorScheme)
+        }
+        .onContinuousHover { phase in
+            // Edge panels keep their reliable AppKit mouse tracking. Other
+            // panels track in the strip's own coordinates, even when nested.
+            guard tracksLocally else { return }
+            switch phase {
+            case .active(let point): cursor.point = point
+            case .ended: cursor.point = nil
+            }
         }
     }
 

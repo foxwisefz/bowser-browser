@@ -99,6 +99,7 @@ defmodule BowserBrain.Loader do
             # An edit/Undo may remove theme code entirely. Drop the old
             # ownership before the new code reasserts its appearance.
             BowserBrain.ShellTheme.release(pid)
+            BowserBrain.Toolbars.release(pid)
             # Let the mod re-assert injected content/chrome with its NEW code.
             send(pid, {:browser_event, %{"event" => "mod_reloaded"}})
 

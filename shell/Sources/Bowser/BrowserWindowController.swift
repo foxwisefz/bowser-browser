@@ -26,7 +26,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var activeTab: EngineView!
 
     /// The mount point. The active tab fills it; the chrome band rides on top.
-    private let container = NSView()
+    private let container = ToolbarContainerView()
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
@@ -265,7 +265,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     ) -> EngineView {
         // Born at the mount size so a background tab lays out for the real
         // viewport instead of loading into a 0×0 window.
-        let view = EngineView(frame: container.bounds, configuration: configuration, profile: profile)
+        let view = EngineView(frame: container.pageArea.bounds, configuration: configuration, profile: profile)
         view.autoresizingMask = [.width, .height]
         wire(view)
         tabs.append(view)
@@ -289,9 +289,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard tabs.contains(where: { $0 === view }) else { return }
         if activeTab !== view {
             activeTab?.removeFromSuperview()
-            view.frame = container.bounds
-            container.addSubview(view, positioned: .below, relativeTo: band)
+            view.frame = container.pageArea.bounds
+            container.pageArea.addSubview(view)
             activeTab = view
+            container.webview = view.webviewId
             // The old first responder just left the hierarchy — hand the
             // keyboard to the page that's actually on screen.
             window?.makeFirstResponder(view.webView)
@@ -322,11 +323,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let view = tabs.first(where: { $0.webviewId == id }),
               view !== activeTab, view.superview == nil
         else { return }
-        view.frame = container.bounds
-        if let active = activeTab, active.superview === container {
-            container.addSubview(view, positioned: .below, relativeTo: active)
+        view.frame = container.pageArea.bounds
+        if let active = activeTab, active.superview === container.pageArea {
+            container.pageArea.addSubview(view, positioned: .below, relativeTo: active)
         } else {
-            container.addSubview(view, positioned: .below, relativeTo: band)
+            container.pageArea.addSubview(view)
         }
         let duration = Self.warmDuration(ms)
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(duration)) {
@@ -490,9 +491,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         clusterHosting?.rootView = AnyView(clusterView())
     }
 
+    func syncToolbars() { container.setBars(ChromeSurface.toolbars) }
+
     func syncShellTheme() {
         let theme = ChromeSurface.theme
         band?.theme = theme
+        container.theme = theme
         titleLabel.textColor = theme.color("foreground") ?? .secondaryLabelColor
         titleLabel.font = .systemFont(ofSize: theme.titleSize,
                                      weight: theme.buttonStyle == "beveled" ? .bold : .medium)

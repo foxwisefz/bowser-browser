@@ -15,6 +15,11 @@ SOCK = os.path.join(os.path.expanduser(os.environ.get("BOWSER_HOME", "~/.bowser"
 
 TOOLS = [
     {
+        "name": "toolbars",
+        "description": "Read effective native edge toolbar definitions recorded by the brain. Confirms state, not rendered pixels.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "put_mod",
         "description": "Install or update an Elixir mod draft during an active ModSmith run, recording Undo history. Loader compiles asynchronously (about 500ms); verify runtime behavior after writing. Use shell_theme for native theme state. Not available for saved apps. Include the same file in the final envelope.",
         "inputSchema": {

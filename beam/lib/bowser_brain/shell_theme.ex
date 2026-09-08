@@ -27,7 +27,7 @@ defmodule BowserBrain.ShellTheme do
     end
   end
 
-  @colors ~w(background foreground button_background button_foreground accent border)
+  @colors ~w(background foreground button_background button_foreground accent border window_border)
   @doc "Validate the complete theme before replacing a mod's previous theme."
   def validate(theme) when is_map(theme) do
     if Enum.all?(Map.keys(theme), &(is_atom(&1) or is_binary(&1))) do
@@ -46,6 +46,9 @@ defmodule BowserBrain.ShellTheme do
 
          {"button_style", value} ->
            value in ["flat", "beveled"]
+
+         {"window_border_style", value} -> value in ["flat", "beveled"]
+         {"window_border_width", value} -> is_number(value) and value >= 0 and value <= 12
 
          {"show_navigation", value} ->
            is_boolean(value)

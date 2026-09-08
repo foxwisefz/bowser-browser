@@ -18,7 +18,7 @@ defmodule BowserBrain.ModWorkshop do
           tool == "list_tabs" ->
             %{ok: true, active: run.webview, tabs: [%{webview: run.webview, url: run.url}]}
 
-          tool == "shell_theme" and run.app == nil ->
+          tool in ["shell_theme", "toolbars"] and run.app == nil ->
             BowserBrain.AgentPort.dispatch(%{"tool" => tool})
 
           tool in ["page_eval", "page_html", "list_mods", "read_mod", "store_get", "store_put"] ->

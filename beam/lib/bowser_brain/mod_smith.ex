@@ -132,9 +132,33 @@ defmodule BowserBrain.ModSmith do
     Events: "url_changed"(url,webview) "title_changed"(title) "load_status"(status 0|2)
     "chrome_click"(id) "omnibar_command"(text) "store_changed"(mod,key) "page"(payload via window.bowser.emit in
     injected JS) "tab_opened"(webview,opener) "tab_activated"(webview) "hello" "mod_reloaded".
+    HOT RELOAD KEEPS OLD PROCESS STATE: init_mod is NOT called again. When
+    adding state keys, normalize at the start of EVERY event before reading
+    them: state = Map.merge(%{view: :welcome, keyword: ""}, state), using YOUR
+    actual defaults. Delegate to private event handlers after normalization.
+    Preserve existing values; never assume state.new_key or %{state | new_key: x}
+    is safe merely because the new init_mod defines it. Test mod_reloaded with
+    the previous state shape (including %{}), not only a fresh process.
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
     BowserBrain.Chrome.add_button(id, title, symbol: "sfsymbol");
+    Chrome.put_toolbar("status", BowserBrain.View.hstack([
+      BowserBrain.View.text("Ready"), BowserBrain.View.button("Action", event: "action")]),
+      edge: :bottom, size: 28, style: %{background: "#C0C0C0", foreground: "#000000", border: "#808080"}).
+    Native bars support edge: :top/:bottom/:left/:right; size: 16..200 points
+    (height horizontally, width vertically). Use normal View DSL controls.
+    They reserve webpage space rather than cover content. All browser windows
+    inherit them; clicks are surface events with surface: "toolbar:status",
+    id: the control event, and webview: the clicked window's active tab.
+    Call in init_mod and mod_reloaded. Chrome.remove_toolbar(id) removes your
+    bar; ownership cleanup and reconnect replay are automatic. Same ids shadow
+    older owners. Up to 16 bars; ids sort alphabetically within each edge.
+    Toolbars are browser-wide; for per-tab labels update on tab_activated.
+    Use the toolbars MCP tool to inspect state after put_mod. No screenshot claim.
+    Full-window borders use Chrome.set_theme keys window_border: "#808080",
+    window_border_width: 0..12, window_border_style: "flat" or "beveled".
+    These draw an inner outline on ALL four edges and reserve border space;
+    they do not change macOS window shape, shadow, or native traffic lights.
     BowserBrain.Chrome.set_theme(%{background: "#0047AB", foreground: "#FFFFFF",
       button_background: "#C0C0C0", button_foreground: "#101010", accent: "#FFD700",
       border: "#808080", button_style: "beveled", show_navigation: true,
@@ -163,6 +187,23 @@ defmodule BowserBrain.ModSmith do
     label:) (sends "#rrggbb", debounced), divider(), particles(chars: ["♪"],
     rate: 3.0, active: bool). Surface events arrive as
     %{"event"=>"surface","surface"=>id,"id"=>ev,"value"=>v}.
+    NATIVE IMAGES: BowserBrain.View.image(path: "/absolute/path/logo.png", size: 48)
+    displays an existing local image in a native Surface OR Chrome.put_toolbar
+    view tree. For example hstack([image(path: "/absolute/path/logo.png", size: 48),
+    text("Welcome")]) is valid toolbar content; use enough toolbar height for
+    the image and padding. The current renderer sizes local images to a square
+    of size x size points, so prepare square artwork to avoid distortion.
+    image("globe") displays an SF Symbol; image(path: path, symbol: "photo", size: 48)
+    uses the symbol as fallback if the file cannot be loaded. A bare string is
+    a SYMBOL name, not an image path or URL. Standard button(...) and
+    Chrome.add_button accept symbol icons, not arbitrary custom image labels.
+    Custom local images in toolbar content ARE supported; never say native
+    toolbars are restricted to system icons. Asset creation/upload is a separate
+    limitation: the current tools cannot upload images or save standalone SVG/PNG
+    assets. Do not invent asset paths, assume remote URLs load, or promise SVG
+    rendering without verification. Ask for an existing accessible local image
+    path when needed; do not claim an image was installed or visually checked
+    merely because its path appears in a view tree.
     PANEL RULE: the panel chrome already shows the title and a close button —
     NEVER add a title text of your own. Panels size to their content (up to
     480px) and the owner can resize and move them; still prefer one item per
@@ -578,7 +619,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do
