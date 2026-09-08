@@ -99,7 +99,8 @@ defmodule BowserBrain.ModWorkshopTest do
     assert %{ok: true, installed: "mods/draft_skin.ex"} =
       ModWorkshop.tool(token, "put_mod", %{"name" => "draft_skin.ex", "content" => content})
     assert ModRevision.read("mods/draft_skin.ex") == content
-    state = complete(pid, [%{"path" => "mods/draft_skin.ex", "content" => content}])
+    state = complete(pid, [%{"path" => "mods/draft_skin.ex"}], %{"notes" => "Use the toolbar."})
+    assert hd(state.data["projects"])["status"] == "active"
     [project] = state.data["projects"]
     assert hd(project["revisions"])["files"]["mods/draft_skin.ex"]["before"] == nil
     assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "late.ex", "content" => content})
@@ -180,7 +181,7 @@ defmodule BowserBrain.ModWorkshopTest do
     assert_receive {:runner, pid, _, _, _, _}, 1000
 
     state =
-      complete(pid, [file("working")], %{"notes" => "Mobile layout is unfinished", "checks" => []})
+      complete(pid, [file("working")], %{"status" => "partial", "notes" => "Mobile layout is unfinished", "checks" => []})
 
     [p] = state.data["projects"]
     assert p["status"] == "partial"

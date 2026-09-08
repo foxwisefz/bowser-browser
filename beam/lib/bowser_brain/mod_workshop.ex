@@ -526,14 +526,14 @@ defmodule BowserBrain.ModWorkshop do
       #{if p["app"], do: "Only CSS/JS for this saved app. Use sites/#{host}/ paths; these are redirected to this app.", else: ""}
       Existing owned files: #{Enum.join(paths(p), ", ")}. #{if p["existing_path"], do: "Modify #{p["existing_path"]} in place.", else: ""}
       You are refining the SAME mod when there is prior conversation. Read the current files before editing: the owner may have undone a revision since your last reply.
-      Give the mod a short human-readable "name" in the JSON envelope. Include "notes" for ALL caveats and unfinished parts.
+      Give the mod a short human-readable "name" in the JSON envelope. Set "status" to "active" when the requested work is delivered, or "partial" for specific unfinished requirements. Usage tips and unperformed optional checks do not by themselves mean partial. Keep "notes" brief and distinguish usage from limitations.
       Add "checks": ["what you actually checked and observed"]. Do not claim checks you did not perform. Use an empty list if none.
       No shell or direct filesystem tools: CSS/JS draft writes go through put_payload;
       Elixir drafts go through put_mod(name: "my_mod.ex", content: full_source), so the owner can undo them.
       For a native shell theme, use put_mod BEFORE checking shell_theme. The loader scans
       every 500ms: repeat the read if the first result is still the old theme. Compare the
       returned map to the intended settings. This verifies runtime theme state, not pixels.
-      Include the same mod path and content in the final files envelope. Do not claim the
+      For drafts already installed in this run, return files as [{"path":"mods/example.ex"}] without repeating content. Only unchanged drafts from this run can be referenced. New or changed files still require content. Do not claim the
       installer cannot accept Elixir mods. Saved apps still support only CSS/JS.
       Previous visible conversation: #{JSON.encode!(Enum.take(p["turns"], -12))}
       """
@@ -638,6 +638,21 @@ defmodule BowserBrain.ModWorkshop do
     error -> {:error, Exception.message(error), state}
   end
 
+  # References may only name an unchanged draft captured by THIS run.
+  defp resolve_drafts(state, files) when is_list(files) do
+    [revision | _] = project(state, state.run.project)["revisions"]
+    Enum.map(files, fn
+      %{"path" => path} = file when not is_map_key(file, "content") ->
+        case revision["files"][path] do
+          %{"after" => content} when is_binary(content) ->
+            if ModRevision.read(path) == content, do: Map.put(file, "content", content), else: file
+          _ -> file
+        end
+      file -> file
+    end)
+  end
+  defp resolve_drafts(_, files), do: files
+
   defp finish(state, session, result) do
     Process.demonitor(state.run.ref, [:flush])
 
@@ -647,6 +662,7 @@ defmodule BowserBrain.ModWorkshop do
           case ModSmith.extract_json(output) do
             {:ok, envelope} when is_map(envelope) ->
               files = envelope["files"] || []
+              files = resolve_drafts(state, files)
               notes = string(envelope["notes"])
               summary = string(envelope["summary"])
 
@@ -665,7 +681,7 @@ defmodule BowserBrain.ModWorkshop do
                 true ->
                   case write_files(state, files) do
                     {:ok, state} ->
-                      {state, if(notes == "", do: "active", else: "partial"), summary, notes,
+                      {state, if(envelope["status"] == "partial", do: "partial", else: "active"), summary, notes,
                        checks, envelope["name"]}
 
                     {:error, reason, state} ->
