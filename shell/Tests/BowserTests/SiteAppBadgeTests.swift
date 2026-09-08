@@ -14,6 +14,15 @@ final class SiteAppBadgeTests: XCTestCase {
         }
     }
 
+    func testSlackUnreadSuffixFromVisibleWindow() {
+        let url = URL(string: "https://app.slack.com/client/workspace/channel")!
+        XCTAssertEqual(SiteAppBadge.titleBadge("Conversation - workspace - 2 new items - Slack", url: url), "2")
+        XCTAssertEqual(SiteAppBadge.titleBadge("Conversation - workspace - 1 new item - Slack", url: url), "1")
+        XCTAssertEqual(SiteAppBadge.titleBadge("Conversation - workspace - Slack", url: url), "")
+        XCTAssertEqual(SiteAppBadge.titleBadge("Conversation - workspace - 0 new items - Slack", url: url), "")
+        XCTAssertEqual(SiteAppBadge.titleBadge("Conversation - workspace - 2 new items - Slack", url: URL(string: "https://example.com")), "")
+    }
+
     func testSavedAppOriginScope() {
         let config = SiteAppConfiguration(url: URL(string: "https://slack.com/signin")!, profile: "work",
             identifier: "com.gezim.bowser.site.fixture", mainApp: URL(fileURLWithPath: "/tmp/Bowser.app"))

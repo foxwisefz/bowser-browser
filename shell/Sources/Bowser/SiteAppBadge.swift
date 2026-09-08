@@ -14,9 +14,12 @@ final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
         return host == saved || host.hasSuffix("." + saved)
     }
 
-    static func titleBadge(_ title: String) -> String {
+    static func titleBadge(_ title: String, url: URL? = nil) -> String {
         // Only a leading unread marker; dates and numbers in normal titles aren't counts.
-        guard let match = title.range(of: #"^\s*[\(\[]([0-9]{1,9}\+?)[\)\]]\s*"#, options: .regularExpression) else { return "" }
+        let host = url?.host?.lowercased() ?? ""
+        let slack = host == "slack.com" || host.hasSuffix(".slack.com")
+        let slackCount = slack ? title.range(of: #" - [0-9]{1,9}\+? new items? - Slack$"#, options: .regularExpression) : nil
+        guard let match = slackCount ?? title.range(of: #"^\s*[\(\[]([0-9]{1,9}\+?)[\)\]]\s*"#, options: .regularExpression) else { return "" }
         let value = String(title[match]).filter { $0.isNumber || $0 == "+" }
         guard let number = Int(value.replacingOccurrences(of: "+", with: "")), number > 0 else { return "" }
         return number > 999 ? "999+" : value
@@ -24,7 +27,7 @@ final class SiteAppBadge: NSObject, WKScriptMessageHandlerWithReply {
 
     func updateTitle(_ title: String, id: UInt64, url: URL?) {
         guard SiteAppConfiguration.current != nil else { return }
-        titles[id] = Self.allows(url, configuration: SiteAppConfiguration.current) ? Self.titleBadge(title) : ""
+        titles[id] = Self.allows(url, configuration: SiteAppConfiguration.current) ? Self.titleBadge(title, url: url) : ""
         publish()
     }
 
