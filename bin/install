@@ -55,7 +55,7 @@ if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi
 mkdir -p "$APP_DIR/bin"
 # Remove only obsolete helper artifacts from the unpublished copy.
 rm -rf "$APP_DIR/bin/__pycache__"
-rm -f "$APP_DIR/bin/backend-host.before-loop-fix"
+rm -f "$APP_DIR/bin/backend-host.before-loop-fix" "$APP_DIR/bin/install"
 
 # ---------------------------------------------------------------- shell
 if [ "$BRAIN_ONLY" = 0 ]; then
