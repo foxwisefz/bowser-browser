@@ -49,6 +49,21 @@ defmodule BowserBrain.AgentPortTest do
     assert line =~ "unknown tool: nope"
   end
 
+  test "large fragmented JSON is decoded once and the next request remains aligned", %{listener: l, path: path} do
+    AgentPort.handle_info(:ensure_acceptor, %{listener: l})
+    {:ok, sock} = :gen_tcp.connect({:local, String.to_charlist(path)}, 0, [:binary, packet: :line, active: false])
+    request = JSON.encode!(%{tool: "nope", args: %{content: String.duplicate("x", 100_000)}}) <> "\n"
+    for chunk <- for(<<chunk::binary-size(1000) <- request>>, do: chunk), do: :gen_tcp.send(sock, chunk)
+    remainder = rem(byte_size(request), 1000)
+    :gen_tcp.send(sock, binary_part(request, byte_size(request) - remainder, remainder))
+    assert {:ok, reply} = :gen_tcp.recv(sock, 0, 2_000)
+    assert JSON.decode!(reply)["error"] == "unknown tool: nope"
+    :gen_tcp.send(sock, ~s({"tool":"next"}\n))
+    assert {:ok, reply} = :gen_tcp.recv(sock, 0, 2_000)
+    assert JSON.decode!(reply)["error"] == "unknown tool: next"
+    :gen_tcp.close(sock)
+  end
+
   test "an unrelated DOWN is ignored", %{listener: l} do
     state = %{listener: l, acceptor: nil}
     assert {:noreply, ^state} = AgentPort.handle_info({:DOWN, make_ref(), :process, self(), :normal}, state)

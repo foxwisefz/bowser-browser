@@ -226,6 +226,32 @@ final class BrainBridge {
         case "reload":
             resolve(requested)?.webView.reload()
 
+        case "native_screenshot", "native_click":
+            guard let id = message["id"] as? Int else { return }
+            guard requested != 0, let controller = BrowserWindowController.host(of: requested),
+                  controller.activeTab?.webviewId == requested, let window = controller.window else {
+                send(["op": "js_result", "id": id, "ok": false, "value": "Target tab must be visible in a browser window"])
+                return
+            }
+            Task { @MainActor in
+                do {
+                    let value: [String: Any]
+                    if op == "native_screenshot" {
+                        value = try await NativeVerification.screenshot(window)
+                    } else {
+                        guard let x = message["x"] as? Double, let y = message["y"] as? Double,
+                              message["window"] as? Int == window.windowNumber else {
+                            throw NSError(domain: "Bowser", code: 6, userInfo: [NSLocalizedDescriptionKey: "Use coordinates and window id from the latest screenshot"])
+                        }
+                        try NativeVerification.click(window, x: x, y: y)
+                        value = ["dispatched": true]
+                    }
+                    send(["op": "js_result", "id": id, "ok": true, "value": value])
+                } catch {
+                    send(["op": "js_result", "id": id, "ok": false, "value": error.localizedDescription])
+                }
+            }
+
         case "eval_js":
             guard let id = message["id"] as? Int, let code = message["code"] as? String else { return }
             guard let view = resolve(requested) else {
@@ -289,6 +315,13 @@ final class BrainBridge {
         case "site_eval", "site_status":
             guard SiteAppConfiguration.current == nil else { return }
             SiteAppHub.shared.route(message)
+
+        case "modsmith_state":
+            if SiteAppConfiguration.current == nil, message["app"] is String {
+                SiteAppHub.shared.route(message)
+            } else {
+                ModSmithWindow.shared.receive(message)
+            }
 
         case "site_mod_status":
             SiteAppCommands.shared.updateStatus(message["text"] as? String ?? "")

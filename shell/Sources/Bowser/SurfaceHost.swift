@@ -102,6 +102,17 @@ final class SurfaceManager {
         }
     }
 
+    func dismiss(id: String) {
+        handle(["surface": "close", "id": id])
+        ChromeSurface.emit(["op": "event", "event": "surface_dismiss", "surface": id])
+    }
+
+    static func fittedHeight(surfaceId: String, title: String, node: [String: Any], width: CGFloat) -> CGFloat {
+        let content = SurfaceRootView(surfaceId: surfaceId, title: title, node: node).panelContent
+            .frame(width: width).fixedSize(horizontal: false, vertical: true)
+        return max(60, NSHostingView(rootView: content).fittingSize.height.rounded(.up))
+    }
+
     // MARK: - Toolbar overlay: a click-through child window riding the main
     // window's toolbar region. Effects (particles etc.) render here, over
     // the real chrome.
@@ -245,8 +256,7 @@ final class SurfaceManager {
     ) -> AnyView {
         AnyView(
             ZStack(alignment: edge == "right" ? .leading : .trailing) {
-                SurfaceTreeView(surfaceId: surfaceId, node: tree)
-                    .environmentObject(cursor)
+                SurfaceTreeView(surfaceId: surfaceId, node: tree, cursor: cursor)
                 if surfaceId != "edge_dock" {
                     Capsule()
                         .fill(Color.secondary.opacity(0.6))
@@ -351,7 +361,7 @@ final class SurfaceManager {
             let natural = hosting.fittingSize
             let w = Self.preferredWidth(requested: width, natural: natural.width,
                                         remembered: userSized.contains(id) ? panel.frame.width : nil)
-            let h = max(natural.height, userSized.contains(id) ? panel.frame.height : 0)
+            let h = max(Self.fittedHeight(surfaceId: id, title: title, node: tree, width: w), userSized.contains(id) ? panel.frame.height : 0)
             panel.setContentSize(NSSize(width: w, height: h))
             panel.invalidateShadow()
             return
@@ -362,7 +372,7 @@ final class SurfaceManager {
         let remembered = Self.rememberedFrame(id)
         if remembered != nil { userSized.insert(id) }
         let fitted = Self.preferredWidth(requested: width, natural: natural.width, remembered: remembered?.width)
-        let height = max(60, natural.height, remembered?.height ?? 0)
+        let height = max(Self.fittedHeight(surfaceId: id, title: title, node: tree, width: fitted), remembered?.height ?? 0)
 
         // .resizable on a borderless panel = edge-drag resizing, no title bar.
         let panel = SurfacePanel(
@@ -411,7 +421,7 @@ final class SurfaceManager {
         panel.contentView = effect
 
         if let remembered, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(remembered) }) {
-            panel.setFrame(remembered, display: false)
+            panel.setFrameOrigin(remembered.origin)
         } else {
             position(panel, anchor: anchor)
         }
@@ -629,13 +639,14 @@ struct SurfaceRootView: View {
     let title: String
     let node: [String: Any]
 
-    /// The ✕ sends exactly what the View-menu entry sends: the panels mod
-    /// then suppresses + closes it, so it STAYS closed (event-driven mods
-    /// can't re-show it) and the menu checkmark follows. A local close
-    /// alone would be undone by the owner's next Surface.show.
-    nonisolated static func closeClickId(for surfaceId: String) -> String { "panel:\(surfaceId)" }
-
     var body: some View {
+        panelContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5))
+    }
+
+    var panelContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
                 Text(title.uppercased())
@@ -644,10 +655,7 @@ struct SurfaceRootView: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Button(action: {
-                    ChromeSurface.emit([
-                        "op": "event", "event": "chrome_click",
-                        "id": Self.closeClickId(for: surfaceId),
-                    ])
+                    SurfaceManager.shared.dismiss(id: surfaceId)
                 }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .bold))
@@ -662,11 +670,7 @@ struct SurfaceRootView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Hairline drawn here (the old layer border was square-cornered).
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 0.5)
-        )
+
     }
 }
 
@@ -675,11 +679,17 @@ struct SurfaceRootView: View {
 struct SurfaceTreeView: View {
     let surfaceId: String
     let node: [String: Any]
+    /// Edge panels supply their AppKit tracker. All other surface roots
+    /// still need a cursor environment for magnify_strip (including Settings).
+    var cursor: CursorModel? = nil
+    var eventWebview: UInt64? = nil
+    @StateObject private var localCursor = CursorModel()
 
     var body: some View {
         render(node)
             .disabled(node["disabled"] as? Bool ?? false)
             .modifier(SurfaceNodeStyle(node: node))
+            .environmentObject(cursor ?? localCursor)
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -692,6 +702,7 @@ struct SurfaceTreeView: View {
             "surface": surfaceId, "id": eventId,
         ]
         if let value { message["value"] = value }
+        if let eventWebview { message["webview"] = eventWebview }
         BrainBridge.shared.send(message)
     }
 
@@ -827,7 +838,8 @@ struct SurfaceTreeView: View {
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
         case "magnify_strip":
-            return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit))
+            return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit,
+                                           tracksLocally: cursor == nil))
         case "particles":
             return AnyView(ParticlesNodeView(
                 chars: node["chars"] as? [String] ?? ["♪", "♫", "♩", "♬"],
@@ -899,11 +911,7 @@ private struct PaletteRowStyle: ButtonStyle {
             .background {
                 if active {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(LinearGradient(
-                            colors: [Color.accentColor, Color.accentColor.opacity(0.72)],
-                            startPoint: .top, endPoint: .bottom
-                        ))
-                        .shadow(color: Color.accentColor.opacity(0.35), radius: 4, y: 1)
+                        .fill(Color.accentColor)
                 } else if configuration.isPressed {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.primary.opacity(0.12))
@@ -916,12 +924,17 @@ private struct PaletteRowStyle: ButtonStyle {
 
 @MainActor
 enum ImageCache {
-    private static var cache: [String: NSImage] = [:]
+    private static var cache: [String: (Date, NSImage)] = [:]
 
     static func load(_ path: String) -> NSImage? {
-        if let cached = cache[path] { return cached }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let modified = attributes[.modificationDate] as? Date else {
+            cache.removeValue(forKey: path)
+            return nil
+        }
+        if let cached = cache[path], cached.0 == modified { return cached.1 }
         guard let image = NSImage(contentsOfFile: path) else { return nil }
-        cache[path] = image
+        cache[path] = (modified, image)
         return image
     }
 }
@@ -964,6 +977,7 @@ struct MagnifyStripView: View {
     let surfaceId: String
     let node: [String: Any]
     let emit: (String, Any?) -> Void
+    var tracksLocally = false
 
     @EnvironmentObject var cursor: CursorModel
     @Environment(\.colorScheme) private var colorScheme
@@ -1070,6 +1084,15 @@ struct MagnifyStripView: View {
                 }
             }
             .environment(\.colorScheme, surfaceId == "edge_dock" ? .dark : colorScheme)
+        }
+        .onContinuousHover { phase in
+            // Edge panels keep their reliable AppKit mouse tracking. Other
+            // panels track in the strip's own coordinates, even when nested.
+            guard tracksLocally else { return }
+            switch phase {
+            case .active(let point): cursor.point = point
+            case .ended: cursor.point = nil
+            }
         }
     }
 

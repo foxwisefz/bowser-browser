@@ -120,7 +120,14 @@ defmodule BowserBrain.AgentPort do
 
   @doc false
   def serve(sock) do
+    # packet: :line otherwise returns fragments once the default driver buffer
+    # fills, even without a newline. Draft source can easily exceed that buffer.
+    :inet.setopts(sock, buffer: 4_000_000, packet_size: 4_000_000)
     case :gen_tcp.recv(sock, 0, 120_000) do
+      {:ok, line} when byte_size(line) >= 4_000_000 ->
+        :gen_tcp.send(sock, JSON.encode!(%{ok: false, error: "Request exceeds 4MB limit"}) <> "\n")
+        :gen_tcp.close(sock)
+
       {:ok, line} ->
         reply =
           case JSON.decode(line) do
@@ -146,6 +153,10 @@ defmodule BowserBrain.AgentPort do
   end
 
   @doc "Tool dispatch. Public for tests; every arm returns a JSON-able map."
+  def dispatch(%{"run" => run} = request) when is_binary(run) and run != "" do
+    BowserBrain.ModWorkshop.tool(run, request["tool"], request["args"] || %{})
+  end
+
   def dispatch(%{"tool" => tool, "args" => %{"site_app" => id} = args}) do
     BowserBrain.AppMods.dispatch(tool, args, id)
   end
@@ -154,6 +165,23 @@ defmodule BowserBrain.AgentPort do
     session = :sys.get_state(BowserBrain.Session)
     tabs = session.tabs |> Enum.sort() |> Enum.map(fn {wv, url} -> %{webview: wv, url: url} end)
     %{ok: true, tabs: tabs, active: session.active}
+  end
+
+  def dispatch(%{"tool" => "shell_theme"}) do
+    %{ok: true, theme: BowserBrain.Chrome.theme()}
+  end
+
+  def dispatch(%{"tool" => "toolbars"}), do: %{ok: true, toolbars: BowserBrain.Chrome.toolbars()}
+
+  def dispatch(%{"tool" => tool} = request) when tool in ["native_screenshot", "native_click"] do
+    try do
+      case GenServer.call(Bridge, {:native_verify, tool, Map.get(request, "args", %{})}, 15_000) do
+        {:ok, result} -> Map.put(result, "ok", true)
+        {:error, reason} -> %{ok: false, error: inspect(reason)}
+      end
+    catch
+      :exit, _ -> %{ok: false, error: "Native verification timed out; check shell version and screen capture permission"}
+    end
   end
 
   def dispatch(%{"tool" => "page_eval"} = request) do

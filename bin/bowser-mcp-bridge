@@ -15,6 +15,40 @@ SOCK = os.path.join(os.path.expanduser(os.environ.get("BOWSER_HOME", "~/.bowser"
 
 TOOLS = [
     {
+        "name": "native_screenshot",
+        "description": "Capture the selected visible browser window including native toolbars. Returns an image and window id; coordinates are points from top-left. Requires macOS screen capture permission; errors are not visual verification.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "native_click",
+        "description": "Click a native browser control using coordinates and window id from the latest screenshot. Website content is excluded. Screenshot again to verify the result; dispatch alone does not prove success.",
+        "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "integer"}}, "required": ["x", "y", "window"]},
+    },
+    {
+        "name": "put_asset",
+        "description": "Save self-contained SVG source in this mod's owned assets with Undo history. Returns image_path for View.image(path: image_path, size: 48). No external references or scripts; max 200KB. Reference installed relative path in final files.",
+        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]},
+    },
+    {
+        "name": "toolbars",
+        "description": "Read effective native edge toolbar definitions recorded by the brain. Confirms state, not rendered pixels.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "put_mod",
+        "description": "Install or update an Elixir mod draft during an active ModSmith run, recording Undo history. Returns compilation and startup/reload results; fix errors, then verify runtime behavior. Use shell_theme for native theme state. Not available for saved apps. Reference the installed file by path in the final envelope; omit unchanged content.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Filename only, e.g. og_aol.ex"}, "content": {"type": "string"}},
+            "required": ["name", "content"],
+        },
+    },
+    {
+        "name": "shell_theme",
+        "description": "Read the effective native browser theme recorded by the brain. Empty means native defaults. This confirms theme state, not visual rendering.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "list_tabs",
         "description": "List open tabs (webview id + url) and which is active.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -109,7 +143,7 @@ def call_brain(tool, args):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(30)
             s.connect(SOCK)
-            s.sendall((json.dumps({"tool": tool, "args": args}) + "\n").encode())
+            s.sendall((json.dumps({"tool": tool, "args": args, "run": os.environ.get("BOWSER_MODSMITH_RUN", "")}) + "\n").encode())
             buf = b""
             while not buf.endswith(b"\n"):
                 chunk = s.recv(65536)
@@ -148,8 +182,12 @@ def main():
         elif method == "tools/call":
             params = msg.get("params", {})
             result = call_brain(params.get("name"), params.get("arguments", {}))
+            image_data = result.pop("image", None)
+            content = [{"type": "text", "text": json.dumps(result)}]
+            if image_data and result.get("ok"):
+                content.append({"type": "image", "data": image_data, "mimeType": result.get("mimeType", "image/png")})
             reply(msg_id, {
-                "content": [{"type": "text", "text": json.dumps(result)}],
+                "content": content,
                 "isError": not result.get("ok", False),
             })
         elif msg_id is not None:

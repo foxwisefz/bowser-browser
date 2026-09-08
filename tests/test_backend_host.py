@@ -28,7 +28,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = self.home / 'app'
         self.runtime.mkdir()
         shutil.copytree(os.environ['BOWSER_TEST_RELEASE'], self.runtime / 'brain')
-        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":2}')
+        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
         (self.home / 'mods').mkdir()
         (self.home / 'mods/Counter.ex').write_text('''
         defmodule HandoffCounter do
@@ -68,8 +68,9 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
                 self.commands.append(msg)
                 if msg.get('op') == 'get_cookies':
                     hostmod.send(writer, dict(op='cookies_result', id=msg['id'], cookies=[]))
-                elif msg.get('op') == 'eval_js':
-                    hostmod.send(writer, dict(op='js_result', id=msg['id'], ok=True, value=None))
+                elif msg.get('op') in ('eval_js', 'native_screenshot', 'native_click'):
+                    hostmod.send(writer, dict(op='js_result', id=msg['id'], ok=True,
+                        value={} if msg['op'].startswith('native_') else None))
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
         finally:
@@ -105,6 +106,13 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         await self.server.wait_closed()
         self.env.stop()
         self.temp.cleanup()
+
+    async def test_native_verification_replies_survive_relay_id_translation(self):
+        for tool, args in [('native_screenshot', {}), ('native_click', {'x': 12, 'y': 20})]:
+            reply = await self.tool(tool, webview=2, **args)
+            self.assertTrue(reply['ok'], reply)
+            command = next(c for c in reversed(self.commands) if c.get('op') == tool)
+            self.assertIn('id', command)
 
     async def test_installer_handoff_preserves_mod_heap_profiles_and_host_connection(self):
         for _ in range(3): self.event()
@@ -256,7 +264,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         releases.mkdir()
         candidate = releases / 'incompatible'
         candidate.mkdir()
-        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":2}')
+        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":3}')
         old = self.host.active
         with self.assertRaisesRegex(RuntimeError, 'incompatible'):
             await self.host.update(candidate)

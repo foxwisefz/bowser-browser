@@ -81,6 +81,14 @@ website permission and macOS notification authorization. Notification clicks
 return to that app. Background Web Push and service-worker notifications are
 not implemented; Safari’s support does not imply public WKWebView support.
 
+For a development browser with no mods or site tweaks loaded, run
+`bin/dev start --temp` after building the shell. Each start uses a fresh
+temporary `BOWSER_HOME`, with separate sockets and session data, and skips
+copying your personal mods, sites, profiles and settings. Stop an existing
+dev brain with `bin/dev stop` first. The launcher prints the directory and
+log command; the directory stays available after stopping and can then be
+deleted. Plain `bin/dev start` keeps the usual seeded `~/.bowser-dev` profile.
+
 ### Your first mod
 
 ```sh
@@ -107,6 +115,19 @@ needed.
 mod-API cheatsheet to the [claude CLI](https://claude.com/claude-code),
 which writes and installs the mod — inspecting the real page over an MCP
 bridge as it works. `:do+ <refinement>` iterates on the last one.
+
+ModSmith also has a native workspace under **View → ModSmith…**. Choose
+**This site** or **Across Bowser**, describe a change, and continue refining
+that same mod. The workspace keeps the conversation, reported checks and
+caveats together. Saved apps use the same workspace with app-only scope.
+
+**Undo last change** restores the mod files captured before draft generation,
+including drafts left by a failed run. It does not reverse website actions or
+stored mod data. **Disable** pauses the whole mod. Existing conversations are
+imported; their older changes do not gain retroactive undo history.
+
+See [ModSmith workflow](doc/modsmith.md) for the protocol, persistence and
+isolated development setup.
 
 Auth is either of (details in `beam/README.md`):
 

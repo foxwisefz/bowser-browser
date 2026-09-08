@@ -60,7 +60,7 @@ playing media from a different native runtime. Live backend handoff needs no
 warming or playback restoration. Personal experiment mods are outside this
 shipping audit, per the owner’s narrowed scope.
 
-Core state uses schema 2. An incompatible core state or host protocol change
+Core state uses schema 3. An incompatible core state or host protocol change
 must bump `HANDOFF.json` and the matching backend schema before shipping.
 A deferred attempt is retried at most once per minute.
 
@@ -123,3 +123,8 @@ disk-full rollback and complete backend cleanup on quit.
   replacement. Bounded warmup and checkpoint checks keep old pages playing.
 - Media tests are muted, so audible continuity/DRM are not measured. The X test
   is a permalink, not a nonzero bookmarks-feed scroll restoration test.
+
+The ModSmith merge uses schema 3: ModWorkshop replaces the old ModSmith server,
+and ShellTheme/Toolbars join the checkpoint. An active ModSmith run or a theme/bar
+with live process ownership defers handoff rather than dropping that state. Native
+screenshot/click request IDs are translated by the relay like JavaScript requests.

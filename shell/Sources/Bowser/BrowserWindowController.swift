@@ -26,7 +26,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private(set) var activeTab: EngineView!
 
     /// The mount point. The active tab fills it; the chrome band rides on top.
-    private let container = NSView()
+    private let container = ToolbarContainerView()
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
@@ -246,7 +246,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     ) -> EngineView {
         // Born at the mount size so a background tab lays out for the real
         // viewport instead of loading into a 0×0 window.
-        let view = EngineView(frame: container.bounds, configuration: configuration, profile: profile)
+        let view = EngineView(frame: container.pageArea.bounds, configuration: configuration, profile: profile)
         view.autoresizingMask = [.width, .height]
         wire(view)
         tabs.append(view)
@@ -270,9 +270,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard tabs.contains(where: { $0 === view }) else { return }
         if activeTab !== view {
             activeTab?.removeFromSuperview()
-            view.frame = container.bounds
-            container.addSubview(view, positioned: .below, relativeTo: band)
+            view.frame = container.pageArea.bounds
+            container.pageArea.addSubview(view)
             activeTab = view
+            container.webview = view.webviewId
             // The old first responder just left the hierarchy — hand the
             // keyboard to the page that's actually on screen.
             window?.makeFirstResponder(view.webView)
@@ -303,11 +304,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let view = tabs.first(where: { $0.webviewId == id }),
               view !== activeTab, view.superview == nil
         else { return }
-        view.frame = container.bounds
-        if let active = activeTab, active.superview === container {
-            container.addSubview(view, positioned: .below, relativeTo: active)
+        view.frame = container.pageArea.bounds
+        if let active = activeTab, active.superview === container.pageArea {
+            container.pageArea.addSubview(view, positioned: .below, relativeTo: active)
         } else {
-            container.addSubview(view, positioned: .below, relativeTo: band)
+            container.pageArea.addSubview(view)
         }
         let duration = Self.warmDuration(ms)
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(duration)) {
@@ -425,7 +426,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         // The band shows the PAGE's theme color through its scrim — the
         // profile tint lives on the ⌘K keycap only (owner's call).
-        let color = pageColor
+        let color = ChromeSurface.theme.color("background") ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
@@ -471,6 +472,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Mod buttons render inside the hover cluster now; rebuild it.
     func syncModButtons() {
         clusterHosting?.rootView = AnyView(clusterView())
+    }
+
+    func syncToolbars() { container.setBars(ChromeSurface.toolbars) }
+
+    func syncShellTheme() {
+        let theme = ChromeSurface.theme
+        band?.theme = theme
+        container.theme = theme
+        titleLabel.textColor = theme.color("foreground") ?? .secondaryLabelColor
+        titleLabel.font = .systemFont(ofSize: theme.titleSize,
+                                     weight: theme.buttonStyle == "beveled" ? .bold : .medium)
+        applyThemeColor(activeTab?.themeColor)
+        syncModButtons()
     }
 
     // Bare words search; things that look like URLs get https://.
@@ -544,7 +558,8 @@ final class ChromeReveal: ObservableObject {
     @Published var lights = false
 }
 
-private struct CmdCluster: View {
+struct CmdCluster: View {
+    private var theme: ShellTheme { ChromeSurface.theme }
     @ObservedObject var reveal: ChromeReveal
     /// The window's profile tint — painted on the ⌘K keycap only (the
     /// owner's call: not the whole bar, not the command palette).
@@ -564,17 +579,20 @@ private struct CmdCluster: View {
                 Text("⌘+K")
                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                     .kerning(0.8)
-                    .foregroundStyle(tint == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.95)))
+                    .foregroundStyle(theme.color("button_foreground").map { AnyShapeStyle(Color(nsColor: $0)) }
+                        ?? (tint == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.95))))
                     .padding(.horizontal, 8)
                     .frame(height: 22)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(tint ?? Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
+                            .fill(theme.color("button_background").map { Color(nsColor: $0) }
+                                  ?? tint ?? Color(nsColor: .controlBackgroundColor))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
                             .strokeBorder(
-                                Color(red: 0.83, green: 0.65, blue: 0.13).opacity(0.95),
+                                theme.color("accent").map { Color(nsColor: $0) }
+                                    ?? Color(red: 0.83, green: 0.65, blue: 0.13).opacity(0.95),
                                 lineWidth: 1.2
                             )
                     )
@@ -583,7 +601,7 @@ private struct CmdCluster: View {
             .buttonStyle(.plain)
             .help("Command bar (⌘K)")
             // Revealed together with the window lights, same grace/fade.
-            if reveal.lights {
+            if reveal.lights || theme.showNavigation {
                 clusterButton("chevron.left", action: goBack)
                 clusterButton("chevron.right", action: goForward)
                 clusterButton("arrow.clockwise", action: reload)
@@ -608,8 +626,20 @@ private struct CmdCluster: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
+                .foregroundStyle(theme.color("button_foreground").map { Color(nsColor: $0) } ?? .secondary)
+                .frame(width: theme.buttonStyle == "beveled" ? 28 : 20,
+                       height: theme.buttonStyle == "beveled" ? 22 : 20)
+                .background {
+                    RoundedRectangle(cornerRadius: theme.cornerRadius)
+                        .fill(theme.color("button_background").map { Color(nsColor: $0) } ?? .clear)
+                }
+                .overlay {
+                    if theme.buttonStyle == "beveled" {
+                        RoundedRectangle(cornerRadius: theme.cornerRadius)
+                            .strokeBorder(LinearGradient(colors: [.white, Color(nsColor: theme.color("border") ?? .darkGray)],
+                                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -619,6 +649,7 @@ private struct CmdCluster: View {
 /// Translucent adaptive wash over the page top; fully click-through so the
 /// page under it stays interactive. Alpha is the transparency dial.
 final class BandScrimView: NSView {
+    var theme: ShellTheme = .native { didSet { needsDisplay = true } }
     override var wantsUpdateLayer: Bool { true }
 
 
@@ -632,7 +663,9 @@ final class BandScrimView: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor =
-            NSColor.windowBackgroundColor.withAlphaComponent(0.42).cgColor
+            (theme.color("background") ?? NSColor.windowBackgroundColor.withAlphaComponent(0.42)).cgColor
+        layer?.borderColor = theme.color("border")?.cgColor
+        layer?.borderWidth = theme.color("border") == nil ? 0 : 1
     }
 
     // Page content is transform-shifted below the band, so nothing

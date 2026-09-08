@@ -19,7 +19,7 @@ async def main():
     runtime = HOME / 'app'
     runtime.mkdir()
     shutil.copytree(REPO / 'beam/_build/prod/rel/bowser_brain', runtime / 'brain')
-    (runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":2}')
+    (runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
     (HOME / 'mods').mkdir()
     (HOME / 'mods/Receipt.ex').write_text('''
     defmodule InstalledReceipt do

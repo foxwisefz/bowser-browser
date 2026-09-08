@@ -109,7 +109,7 @@ class Host:
 
     async def boot(self, runtime):
         meta = json.loads((Path(runtime) / 'HANDOFF.json').read_text())
-        if meta != {'protocol': PROTOCOL, 'state_schema': 2}:
+        if meta != {'protocol': PROTOCOL, 'state_schema': 3}:
             raise RuntimeError('incompatible release; waiting for native restart')
         directory = Path(tempfile.mkdtemp(prefix='g', dir=self.root))
         generation = Generation(runtime, directory)
@@ -127,7 +127,7 @@ class Host:
                     env=env, stdout=log, stderr=log)
             await until(lambda: (directory / 'control.sock').exists() or generation.process.returncode is not None, 20)
             info = await generation.call('status')
-            if info['schema'] != 2:
+            if info['schema'] != 3:
                 raise RuntimeError('incompatible state schema')
             return generation
         except BaseException:
@@ -155,7 +155,7 @@ class Host:
                     continue
                 if generation is not self.active or generation.writer is not writer:
                     continue
-                if op in ('eval_js', 'site_eval', 'get_cookies', 'site_app_info') and 'id' in message:
+                if op in ('eval_js', 'site_eval', 'get_cookies', 'site_app_info', 'native_screenshot', 'native_click') and 'id' in message:
                     self.serial += 1
                     self.requests[self.serial] = (generation, message['id'])
                     message['id'] = self.serial

@@ -158,6 +158,14 @@ defmodule BowserBrain.Bridge do
     end
   end
 
+  def handle_call({:native_verify, op, args}, from, state) do
+    id = state.next_id
+    case send_frame(state.sock, Map.merge(args, %{"op" => op, "id" => id})) do
+      :ok -> {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
+      :error -> {:reply, {:error, :not_connected}, state}
+    end
+  end
+
   def handle_call({:eval_site_js, app, code}, from, state) do
     id = state.next_id
 

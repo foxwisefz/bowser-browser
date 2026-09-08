@@ -1,435 +1,11 @@
 defmodule BowserBrain.ModSmith do
-  @moduledoc """
-  The omnibox LLM (bowser-browser-2hc): type `:do make this dark mode from
-  now on` and ModSmith gathers page context, asks Claude (headless CLI),
-  validates the returned envelope, and installs the files — site payloads
-  under ~/.bowser/sites/<host>/ (applied by SiteMods, forever) or full mods
-  under ~/.bowser/mods/ (hot-loaded by the Loader).
-
-  The mod API is the DSL; the envelope is the contract:
-  {"tier":"payload"|"mod","summary":"...","files":[{"path":"...","content":"..."}],"notes":"..."}
-  """
-  use GenServer
+  @moduledoc "Claude runner and mod generation contract. ModWorkshop owns the native creation flow and revision lifecycle."
   require Logger
-
-  import BowserBrain.View
-  alias BowserBrain.{Page, SiteMods, Surface}
-
-  # 180s proved too short: a rate-limited router makes the CLI retry 502s
-  # for minutes, and the whole request died as "claude timed out"
-  # (bowser-browser-3l4). Tune live with `:set modsmith_timeout_ms`.
-  # 600s killed the follow-tracker run mid-envelope (bowser-browser-XXX):
-  # compositions with live verification need longer, and a timeout now
-  # salvages via resume instead of discarding.
+  alias BowserBrain.Page
   @default_timeout_ms 900_000
 
-  def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+  def modify(path), do: BowserBrain.ModWorkshop.modify(path)
 
-  @impl true
-  def init(nil) do
-    {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
-    # sessions: numbered refinement history, newest first, persisted to disk —
-    # the claude CLI keeps its transcripts on disk, so --resume stays valid
-    # across brain AND engine restarts (bowser-browser-lv4).
-    {:ok,
-     %{
-       active: 0,
-       urls: %{},
-       busy: nil,
-       sessions: load_sessions(),
-       last_status: "Ready.",
-       progress: []
-     }}
-  end
-
-  @impl true
-  def handle_info({:browser_event, %{"event" => "hello"}}, state) do
-    BowserBrain.Chrome.register_command("do", "ModSmith — new request")
-    BowserBrain.Chrome.register_command("do+", "ModSmith — refine (do+N picks a session)")
-    declare_settings()
-    # IRON RULE: the panel is shell state and died with the engine — re-show.
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_info(
-        {:browser_event, %{"event" => "site_mod_request", "request" => request, "app" => app}},
-        state
-      ) do
-    cond do
-      not BowserBrain.AppMods.valid_id?(app["id"]) ->
-        {:noreply, state}
-
-      state.busy != nil ->
-        BowserBrain.Bridge.cast_msg(%{
-          op: "site_status",
-          app: app["id"],
-          text: "Busy with another request. Try again shortly."
-        })
-
-        {:noreply, state}
-
-      String.trim(request) == "" ->
-        {:noreply, state}
-
-      true ->
-        {:noreply, start_request(String.trim(request), state, app: app)}
-    end
-  end
-
-  def handle_info({:browser_event, %{"event" => "tab_activated", "webview" => wv}}, state) do
-    {:noreply, %{state | active: wv}}
-  end
-
-  def handle_info(
-        {:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}},
-        state
-      ) do
-    {:noreply, %{state | urls: Map.put(state.urls, wv, url)}}
-  end
-
-  # -- the panel is interactive (bowser-browser-y7g follow-up): type a request,
-  # click a session to refine it, ✕ to go back to a fresh request.
-  def handle_info(
-        {:browser_event,
-         %{"event" => "surface", "surface" => "modsmith", "id" => "request", "value" => text}},
-        state
-      ) do
-    text = text |> to_string() |> String.trim()
-
-    cond do
-      state.busy != nil ->
-        render(state, "Busy with: #{state.busy}")
-        {:noreply, state}
-
-      text == "" ->
-        {:noreply, state}
-
-      true ->
-        case request_for(Map.get(state, :target), state.sessions, text) do
-          {:error, reason} ->
-            render(state, reason)
-            {:noreply, state}
-
-          {request, opts} ->
-            {:noreply, start_request(request, Map.put(state, :target, nil), opts)}
-        end
-    end
-  end
-
-  def handle_info(
-        {:browser_event,
-         %{"event" => "surface", "surface" => "modsmith", "id" => "pick", "value" => n}},
-        state
-      ) do
-    n = to_int(n)
-    target = if fetch_session(state.sessions, n), do: %{kind: :refine, n: n}, else: nil
-    state = Map.put(state, :target, target)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_info(
-        {:browser_event, %{"event" => "surface", "surface" => "modsmith", "id" => "new"}},
-        state
-      ) do
-    state = Map.put(state, :target, nil)
-    render(state)
-    {:noreply, state}
-  end
-
-  def handle_info(
-        {:browser_event, %{"event" => "omnibar_command", "text" => "do+" <> rest}},
-        state
-      ) do
-    {target, request} = parse_followup(rest)
-
-    cond do
-      state.busy != nil ->
-        render(state, "Busy with: #{state.busy}")
-        {:noreply, state}
-
-      state.sessions == [] ->
-        render(state, "No sessions yet — :do to start one")
-        {:noreply, state}
-
-      true ->
-        case fetch_session(state.sessions, target) do
-          nil ->
-            render(state, "No session ##{target} — panel lists what exists")
-            {:noreply, state}
-
-          _session when request == "" and is_integer(target) ->
-            # `:do+N` alone: peek at what that number refers to.
-            {n, s} = {target, Enum.at(state.sessions, target - 1)}
-            render(state, "##{n}: #{s.request} → #{s.summary}")
-            {:noreply, state}
-
-          _session when request == "" ->
-            {:noreply, state}
-
-          session ->
-            {:noreply, start_request(request, state, resume: session.id)}
-        end
-    end
-  end
-
-  def handle_info(
-        {:browser_event, %{"event" => "omnibar_command", "text" => "do " <> request}},
-        state
-      ) do
-    request = String.trim(request)
-
-    cond do
-      state.busy != nil ->
-        render(state, "Busy with: #{state.busy}")
-        {:noreply, state}
-
-      request == "" ->
-        {:noreply, state}
-
-      true ->
-        {:noreply, start_request(request, state, [])}
-    end
-  end
-
-  # Live narration while the agent works (bowser-browser-y7g): what it is
-  # reading, probing, installing — so "Working on…" is no longer a black box.
-  def handle_info({:smith_progress, line}, %{busy: busy} = state) when busy != nil do
-    progress = Enum.take([line | Map.get(state, :progress, [])], 8)
-    BowserBrain.ModLog.log("modsmith", line)
-    state = Map.put(state, :progress, progress)
-    notify_app(state, line)
-    render(state, "Working on: #{busy}")
-    {:noreply, state}
-  end
-
-  def handle_info({:smith_progress, _line}, state), do: {:noreply, state}
-
-  def handle_info({:smith_done, request, session, resumed, host, result}, state) do
-    state = Map.put(state, :progress, [])
-
-    case result do
-      {:ok, summary, installed} ->
-        Logger.info("modsmith: #{summary} — installed #{Enum.join(installed, ", ")}")
-
-        sessions =
-          if session do
-            # A --resume produces a NEW session id continuing the old
-            # lineage: the refined entry is replaced, not duplicated.
-            remember_session(state.sessions, %{
-              id: session,
-              request: request,
-              summary: summary,
-              host: host,
-              at: System.system_time(:millisecond),
-              app: Map.get(state, :app_target),
-              refined: resumed
-            })
-          else
-            state.sessions
-          end
-
-        persist_sessions(sessions)
-        state = %{state | busy: nil, sessions: sessions, last_status: "Done: #{summary}"}
-        notify_app(state, state.last_status)
-        render(state)
-        {:noreply, state}
-
-      {:handoff, summary} ->
-        # ModSmith deliberately declined a too-big task (SIZE RULE). Not a
-        # failure — a handoff the owner can hand to the resident agent.
-        Logger.info("modsmith: handoff — #{summary}")
-        state = %{state | busy: nil, last_status: "↗ #{String.slice(summary, 0, 160)}"}
-        notify_app(state, state.last_status)
-        render(state)
-        {:noreply, state}
-
-      {:error, reason} ->
-        Logger.error("modsmith: #{request} failed: #{reason}")
-
-        # A failed run with a known session is still resumable — keep it in
-        # the list so :do+N / a click can pick it up and finish.
-        sessions =
-          if session do
-            remember_session(state.sessions, %{
-              id: session,
-              request: request,
-              summary: "⏱ #{String.slice(reason, 0, 56)}",
-              host: host,
-              at: System.system_time(:millisecond),
-              app: Map.get(state, :app_target),
-              refined: resumed
-            })
-          else
-            state.sessions
-          end
-
-        if session, do: persist_sessions(sessions)
-
-        state = %{
-          state
-          | busy: nil,
-            sessions: sessions,
-            last_status: "Failed: #{String.slice(reason, 0, 120)}"
-        }
-
-        notify_app(state, state.last_status)
-        render(state)
-        {:noreply, state}
-    end
-  end
-
-  def handle_info(_other, state), do: {:noreply, state}
-
-  @doc "Prefill the panel to modify one existing file — the ✎ in the Mods window."
-  def modify(path), do: GenServer.cast(__MODULE__, {:modify, path})
-
-  @impl true
-  def handle_cast({:modify, path}, state) do
-    state = Map.put(state, :target, %{kind: :modify, path: path})
-    ensure_visible()
-    render(state)
-    {:noreply, state}
-  end
-
-  # ---------------------------------------------------------------------
-
-  defp start_request(request, state, opts) do
-    resume = Keyword.get(opts, :resume)
-
-    app =
-      Keyword.get(opts, :app) ||
-        (resume &&
-           Enum.find_value(state.sessions, fn s -> if s.id == resume, do: Map.get(s, :app) end))
-
-    state = Map.put(state, :app_target, app)
-    Logger.info("modsmith: request received#{if resume, do: " (follow-up)"}: #{request}")
-
-    url =
-      if app,
-        do: app["url"],
-        else: state.urls[state.active] || state.urls |> Map.values() |> List.first() || ""
-
-    host = URI.parse(url).host || "unknown"
-
-    prompt =
-      if resume do
-        # The session already holds the contract, cheatsheet, and its own
-        # prior envelope — just refresh the volatile context.
-        """
-        FOLLOW-UP on your previous work (same envelope contract — reply with
-        ONLY the JSON envelope; return full updated file contents for any
-        file you change).
-        Current URL: #{url}
-        Settings now: #{BowserBrain.Settings.summary()}
-        REFINEMENT REQUEST: #{request}
-        """
-      else
-        build_prompt(
-          request,
-          url,
-          host,
-          page_digest(state.active, app),
-          if(app, do: BowserBrain.AppMods.payloads(app["id"]), else: SiteMods.payloads_for(host)),
-          if(app,
-            do: "Only payload files for this saved app are available.",
-            else: BowserBrain.ModCatalog.summary()
-          )
-        )
-      end
-
-    prompt =
-      if app,
-        do:
-          prompt <>
-            "\nSAVED APP SCOPE: #{app["id"]}. Use tier payload only, CSS/JS files under sites/#{host}/. The toolbox and final installer redirect these to this app only. Do not create BEAM modules or global browser changes. Webview 0 is this app.\n",
-        else: prompt
-
-    notify_app(state, "Working on: #{request}")
-    render(%{state | busy: request}, "Working on: #{request}")
-    parent = self()
-
-    Task.start(fn ->
-      on_progress = fn line -> send(parent, {:smith_progress, line}) end
-
-      {session, result} =
-        try do
-          {session, result} = run_claude(prompt, resume, on_progress, app)
-
-          installed =
-            if app,
-              do: BowserBrain.AppMods.install_result(result, app),
-              else: install(result, host)
-
-          {session, installed}
-        rescue
-          error -> {resume, {:error, Exception.message(error)}}
-        catch
-          :exit, reason -> {resume, {:error, inspect(reason)}}
-        end
-
-      send(parent, {:smith_done, request, session, resume, host, result})
-    end)
-
-    %{state | busy: request}
-  end
-
-  @doc """
-  What a panel submission means given the picked target: a fresh request, a
-  refinement of session N (resumed), or a change to one existing file — the
-  MODIFY rule + read_mod then make the agent edit that file in place.
-  Public for tests.
-  """
-  def request_for(nil, _sessions, text), do: {text, []}
-
-  def request_for(%{kind: :modify, path: path}, _sessions, text) do
-    {"Modify the existing file #{path} — read_mod it first and return the SAME path " <>
-       "with the complete updated content. Change: #{text}", []}
-  end
-
-  def request_for(%{kind: :refine, n: n}, sessions, text) do
-    case fetch_session(sessions, n) do
-      nil -> {:error, "Session ##{n} is gone — pick another"}
-      session -> {text, [resume: session.id]}
-    end
-  end
-
-  @doc "Textfield hint for the current target. Public for tests."
-  def placeholder_for(nil), do: "What should this page do? ⏎"
-  def placeholder_for(%{kind: :modify, path: path}), do: "Change #{Path.basename(path)} how? ⏎"
-  def placeholder_for(%{kind: :refine, n: n}), do: "Refine ##{n} how? ⏎"
-
-  defp to_int(v) when is_integer(v), do: v
-
-  defp to_int(v) do
-    case Integer.parse(to_string(v)) do
-      {n, _} -> n
-      _ -> 0
-    end
-  end
-
-  # A panel toggled off in the View menu swallows shows; un-suppress it so
-  # a ✎ click from the Mods window actually brings ModSmith up.
-  defp notify_app(state, text) do
-    if app = Map.get(state, :app_target) do
-      BowserBrain.Bridge.cast_msg(%{op: "site_status", app: app["id"], text: text})
-    end
-  end
-
-  defp ensure_visible do
-    case Enum.find(Surface.list(), &(&1.id == "modsmith")) do
-      %{closed: true} -> Surface.toggle(:modsmith)
-      _ -> :ok
-    end
-  end
-
-  @doc """
-  Parse the text after `:do+`. A digit GLUED to the plus selects a session
-  (`do+2 tighter cards` → `{2, "tighter cards"}`); with a space it's just a
-  request that happens to start with a number (`do+ 2x faster` → latest).
-  `do+N` alone peeks. Public for tests.
-  """
   def parse_followup(rest) do
     case Integer.parse(rest) do
       {n, remainder} when n > 0 and (remainder == "" or binary_part(remainder, 0, 1) == " ") ->
@@ -440,52 +16,7 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  @doc """
-  Add a finished run to the history: replaces its own id and the id it
-  refined (lineage), newest first, capped at 8. Public for tests.
-  """
-  def remember_session(sessions, entry) do
-    lineage = Map.get(entry, :refined)
-    entry = Map.delete(entry, :refined)
-
-    sessions
-    |> Enum.reject(fn s -> s.id == entry.id or (lineage != nil and s.id == lineage) end)
-    |> then(&[entry | &1])
-    |> Enum.take(8)
-  end
-
-  defp fetch_session(sessions, :latest), do: List.first(sessions)
-  defp fetch_session(sessions, n) when is_integer(n), do: Enum.at(sessions, n - 1)
-
-  defp sessions_path do
-    Application.get_env(
-      :bowser_brain,
-      :modsmith_sessions_path,
-      Path.join(BowserBrain.Paths.home(), "modsmith-sessions.json")
-    )
-  end
-
-  defp load_sessions do
-    with {:ok, raw} <- File.read(sessions_path()),
-         {:ok, list} when is_list(list) <- JSON.decode(raw) do
-      for %{"id" => id} = s <- list do
-        %{
-          id: id,
-          request: Map.get(s, "request", "?"),
-          summary: Map.get(s, "summary", "?"),
-          host: Map.get(s, "host", "?"),
-          app: Map.get(s, "app"),
-          at: Map.get(s, "at", 0)
-        }
-      end
-    else
-      _ -> []
-    end
-  end
-
-  defp persist_sessions(sessions), do: File.write(sessions_path(), JSON.encode!(sessions))
-
-  defp page_digest(webview, app) do
+  def page_digest(webview, app) do
     probe = """
     JSON.stringify({
       host: location.hostname, path: location.pathname, title: document.title,
@@ -515,7 +46,7 @@ defmodule BowserBrain.ModSmith do
     end
   end
 
-  defp build_prompt(request, url, host, digest, existing, catalog) do
+  def build_prompt(request, url, host, digest, existing, catalog) do
     existing_block =
       case existing do
         [] ->
@@ -601,9 +132,50 @@ defmodule BowserBrain.ModSmith do
     Events: "url_changed"(url,webview) "title_changed"(title) "load_status"(status 0|2)
     "chrome_click"(id) "omnibar_command"(text) "store_changed"(mod,key) "page"(payload via window.bowser.emit in
     injected JS) "tab_opened"(webview,opener) "tab_activated"(webview) "hello" "mod_reloaded".
+    HOT RELOAD KEEPS OLD PROCESS STATE: init_mod is NOT called again. When
+    adding state keys, normalize at the start of EVERY event before reading
+    them: state = Map.merge(%{view: :welcome, keyword: ""}, state), using YOUR
+    actual defaults. Delegate to private event handlers after normalization.
+    Preserve existing values; never assume state.new_key or %{state | new_key: x}
+    is safe merely because the new init_mod defines it. Test mod_reloaded with
+    the previous state shape (including %{}), not only a fresh process.
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
     BowserBrain.Chrome.add_button(id, title, symbol: "sfsymbol");
+    Chrome.put_toolbar("status", BowserBrain.View.hstack([
+      BowserBrain.View.text("Ready"), BowserBrain.View.button("Action", event: "action")]),
+      edge: :bottom, size: 28, style: %{background: "#C0C0C0", foreground: "#000000", border: "#808080"}).
+    Native bars support edge: :top/:bottom/:left/:right; size: 16..200 points
+    (height horizontally, width vertically). Use normal View DSL controls.
+    They reserve webpage space rather than cover content. All browser windows
+    inherit them; clicks are surface events with surface: "toolbar:status",
+    id: the control event, and webview: the clicked window's active tab.
+    Call in init_mod and mod_reloaded. Chrome.remove_toolbar(id) removes your
+    bar; ownership cleanup and reconnect replay are automatic. Same ids shadow
+    older owners. Up to 16 bars; ids sort alphabetically within each edge.
+    Toolbars are browser-wide; for per-tab labels update on tab_activated.
+    Use the toolbars MCP tool to inspect state after put_mod. No screenshot claim.
+    Full-window borders use Chrome.set_theme keys window_border: "#808080",
+    window_border_width: 0..12, window_border_style: "flat" or "beveled".
+    These draw an inner outline on ALL four edges and reserve border space;
+    they do not change macOS window shape, shadow, or native traffic lights.
+    BowserBrain.Chrome.set_theme(%{background: "#0047AB", foreground: "#FFFFFF",
+      button_background: "#C0C0C0", button_foreground: "#101010", accent: "#FFD700",
+      border: "#808080", button_style: "beveled", show_navigation: true,
+      title_size: 13, corner_radius: 2}) -> :ok | {:error, :invalid_theme}.
+    THIS STYLES THE NATIVE BROWSER SHELL, not websites. Browser skins (including
+    classic AOL colors and silver beveled navigation buttons) ARE in scope:
+    create a browser-wide tier-mod and call set_theme in init_mod and on
+    mod_reloaded. Keys are optional; colors MUST be #rrggbb; button_style is
+    "flat" or "beveled"; title_size 9..16; corner_radius 0..12; show_navigation
+    is boolean. No arbitrary native CSS or layout changes. There is no native
+    tab strip: tab UI is a separate mod Surface. Do not claim to have styled
+    tabs with set_theme. Chrome.theme() reads the effective map;
+    Chrome.reset_theme() removes only the caller's theme. Themes replay on
+    reconnect and are automatically removed when their owning mod stops, so
+    Disable and file Undo restore the previous skin. Do not persist them in settings.
+    The shell_theme MCP tool reads the brain's effective theme; this is state
+    verification, not a screenshot. Never report visual checks you did not perform.
     BowserBrain.Chrome.add_menu_item(id, title, key: "e"?) — item in the native View
     menu (key: optional single-char ⌘-equivalent); clicks arrive as "chrome_click"(id)
     exactly like buttons; Chrome.remove_menu_item(id). The View menu already has
@@ -637,7 +209,35 @@ defmodule BowserBrain.ModSmith do
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
     editable record. Legacy button() is a panel row, not a native form action.
-    PANEL RULE: the panel chrome already shows the title and a close button —
+    NATIVE VERIFICATION: native_screenshot captures the selected visible browser
+    window, including native toolbar pixels, and returns an image and window id.
+    Use native_click(x:, y:, window:) on controls visible in that screenshot;
+    coordinates are window points from top-left. Screenshot again after clicking.
+    These tools target the browser window, not separate floating panels or websites.
+    A capture permission error is a verification limitation; do not claim success.
+    NATIVE IMAGES: BowserBrain.View.image(path: "/absolute/path/logo.png", size: 48)
+    displays an existing local image in a native Surface OR Chrome.put_toolbar
+    view tree. For example hstack([image(path: "/absolute/path/logo.png", size: 48),
+    text("Welcome")]) is valid toolbar content; use enough toolbar height for
+    the image and padding. The current renderer sizes local images to a square
+    of size x size points, so prepare square artwork to avoid distortion.
+    image("globe") displays an SF Symbol; image(path: path, symbol: "photo", size: 48)
+    uses the symbol as fallback if the file cannot be loaded. A bare string is
+    a SYMBOL name, not an image path or URL. Standard button(...) and
+    Chrome.add_button accept symbol icons, not arbitrary custom image labels.
+    Custom local images in toolbar content ARE supported; never say native
+    toolbars are restricted to system icons. Create original vector artwork using
+    put_asset(name: "logo.svg", content: self-contained_svg_source), then use its
+    returned image_path with View.image(path: image_path, size: 48). SVG is supported
+    by the native image loader. Keep artwork self-contained (no scripts, external
+    resources, or entities); use shapes, paths and inline colors. The tool records
+    Undo history. Reference the installed relative asset path in final files.
+    Raster uploads are not available here; existing accessible local PNG paths work.
+    Never claim visual verification merely because an asset path is in a view tree.
+    PANEL RULE: panel close is core behavior and suppresses automatic re-shows.
+    The owner can reopen it through View > <title>; Surface.reshow(id)
+    also explicitly restores it. No Panels mod is required.
+    The panel chrome already shows the title and a close button —
     NEVER add a title text of your own. Panels size to their content (up to
     480px) and the owner can resize and move them; still prefer one item per
     row (vstack) over crowded hstacks, keep labels short, and put counts in a
@@ -697,7 +297,7 @@ defmodule BowserBrain.ModSmith do
   end
 
   @finish_ms 240_000
-  defp run_claude(prompt, resume, on_progress, app) do
+  def run_claude(prompt, resume, on_progress, app) do
     settings = BowserBrain.Settings.all()
 
     case {System.find_executable("claude"), auth_route(settings)} do
@@ -739,11 +339,11 @@ defmodule BowserBrain.ModSmith do
               _ -> {nil, {:output, Enum.join(raw, "\n")}}
             end
 
-          {:done, code, events, raw, _session} ->
-            {_session, text} = stream_result(events)
+          {:done, code, events, raw, known_session} ->
+            {result_session, text} = stream_result(events)
             detail = text || Enum.join(raw, " ")
 
-            {nil,
+            {result_session || known_session || resume,
              {:error,
               "claude exited #{code}: #{String.slice(detail, 0, 300)} | #{auth_hint(route)}"}}
 
@@ -795,8 +395,8 @@ defmodule BowserBrain.ModSmith do
   def finish_prompt do
     """
     TIME BUDGET EXCEEDED — stop working now. Reply with ONLY the JSON envelope
-    (same contract) for whatever is complete and working, with FULL file
-    contents, and describe what is unfinished in "notes". If nothing is usable
+    (same contract) for whatever is complete and working. Reference unchanged
+    installed drafts by path; include contents only for new or changed files, and describe what is unfinished in "notes". If nothing is usable
     yet, reply with a zero-file envelope whose summary starts
     "NEEDS THE RESIDENT AGENT:" and say what was blocking.
     """
@@ -965,7 +565,7 @@ defmodule BowserBrain.ModSmith do
   # (bowser-browser-bzy). Auth is either of:
   #   - nothing set: your own claude CLI login (`claude` once in a terminal)
   #   - both dodorouter_* keys: requests route through that endpoint
-  defp declare_settings do
+  def declare_settings do
     BowserBrain.Budget.declare_setting()
     alias BowserBrain.Settings
 
@@ -1052,7 +652,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__native_screenshot,mcp__bowser__native_click,mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do
@@ -1062,7 +662,10 @@ defmodule BowserBrain.ModSmith do
     env =
       if app,
         do: %{"BOWSER_SITE_APP_ID" => app["id"], "BOWSER_HOME" => BowserBrain.Paths.home()},
-        else: %{}
+        else: %{"BOWSER_HOME" => BowserBrain.Paths.home()}
+
+    env = Map.put(env, "BOWSER_MODSMITH_RUN", Process.get(:modsmith_run, ""))
+    File.mkdir_p!(Path.dirname(config))
 
     File.write!(
       config,
@@ -1074,7 +677,15 @@ defmodule BowserBrain.ModSmith do
     )
 
     ["--mcp-config", config, "--allowedTools", @mcp_tools] ++
-      if(app, do: ["--tools", "", "--strict-mcp-config", "--disable-slash-commands"], else: [])
+      ["--tools", "", "--strict-mcp-config", "--disable-slash-commands"] ++ isolation_args()
+  end
+
+  @doc "Keep embedded ModSmith runs independent of developer project customizations, preserving OAuth."
+  def isolation_args do
+    ["--setting-sources", "", "--settings",
+      JSON.encode!(%{disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ["**"]}),
+      "--system-prompt",
+      "You are ModSmith, Bowser's browser customization agent. Follow the supplied workspace contract and API guide. Use only the provided browser tools. Return the requested JSON result and report observed failures precisely."]
   end
 
   # Routers serve their own model ids; the CLI's default may not exist there.
@@ -1083,37 +694,6 @@ defmodule BowserBrain.ModSmith do
     case BowserBrain.Settings.get("modsmith_model") do
       model when is_binary(model) and model != "" -> ["--model", model]
       _ -> []
-    end
-  end
-
-  defp install({:error, _} = error, _host), do: error
-
-  defp install({:output, output}, _host) do
-    case extract_json(output) do
-      {:ok, envelope} ->
-        files = Map.get(envelope, "files", [])
-        summary = Map.get(envelope, "summary", "")
-
-        cond do
-          # A zero-file reply is usually the SIZE RULE handoff ("NEEDS THE
-          # RESIDENT AGENT: …") — surface that summary so the owner sees WHY
-          # and can bring the task to the resident agent, not a bare
-          # "envelope had no files".
-          files == [] and summary =~ ~r/resident agent/i ->
-            {:handoff, summary}
-
-          files == [] ->
-            {:error, if(summary == "", do: "envelope had no files", else: summary)}
-
-          true ->
-            case validate(files) do
-              :ok -> {:ok, (summary == "" && "done") || summary, Enum.map(files, &write_file/1)}
-              {:error, reason} -> {:error, reason}
-            end
-        end
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -1164,129 +744,5 @@ defmodule BowserBrain.ModSmith do
           {:cont, :ok}
       end
     end)
-  end
-
-  defp write_file(%{"path" => path, "content" => content}) do
-    target = Path.join(BowserBrain.Paths.home(), path)
-    File.mkdir_p!(Path.dirname(target))
-    File.write!(target, content)
-    path
-  end
-
-  @doc """
-  Status glyph/label/detail from the live headline or the last outcome:
-  `{"●","Working",request}`, `{"✓","Done",summary}`, `{"✗","Failed",reason}`,
-  `{"↗","Handed off",why}`, `{"○","Ready",nil}`. Public for tests.
-  """
-  def status_line(headline, last_status) do
-    line = headline || last_status || "Ready."
-
-    {glyph, label, detail} =
-      cond do
-        String.starts_with?(line, "Working on: ") ->
-          {"●", "Working", String.replace_prefix(line, "Working on: ", "")}
-
-        String.starts_with?(line, "Busy with: ") ->
-          {"●", "Busy", String.replace_prefix(line, "Busy with: ", "")}
-
-        String.starts_with?(line, "Done: ") ->
-          {"✓", "Done", String.replace_prefix(line, "Done: ", "")}
-
-        String.starts_with?(line, "Failed: ") ->
-          {"✗", "Failed", String.replace_prefix(line, "Failed: ", "")}
-
-        String.starts_with?(line, "↗ ") ->
-          {"↗", "Handed off", String.replace_prefix(line, "↗ ", "")}
-
-        line == "Ready." ->
-          {"○", "Ready", nil}
-
-        true ->
-          {"·", line, nil}
-      end
-
-    {glyph, label, detail && String.slice(detail, 0, 110)}
-  end
-
-  @doc """
-  The panel: request field, (target line), status + short mono log, then
-  compact click-to-refine sessions. No inner title (the panel chrome has
-  one), no hint footer (the placeholder says ⏎). Public for tests.
-  """
-  def tree(state, headline \\ nil) do
-    target = Map.get(state, :target)
-    {glyph, label, detail} = status_line(headline, state.last_status)
-
-    mode =
-      case target do
-        nil ->
-          []
-
-        %{kind: :refine, n: n} ->
-          s = fetch_session(state.sessions, n)
-          summary = String.slice((s && s.summary) || "", 0, 34)
-
-          [
-            hstack([
-              text("Refining ##{n} · #{summary}", style: :caption),
-              spacer(),
-              button("✕", event: "new", compact: true)
-            ])
-          ]
-
-        %{kind: :modify, path: path} ->
-          [
-            hstack([
-              text("Modifying #{Path.basename(path)}", style: :caption),
-              spacer(),
-              button("✕", event: "new", compact: true)
-            ])
-          ]
-      end
-
-    log =
-      state
-      |> Map.get(:progress, [])
-      |> Enum.take(6)
-      |> Enum.reverse()
-      |> Enum.map(&text(&1, style: :mono))
-
-    sessions =
-      case state.sessions do
-        [] ->
-          [text("No sessions yet — type a request above.", style: :caption)]
-
-        list ->
-          list
-          |> Enum.with_index(1)
-          |> Enum.map(fn {s, i} ->
-            picked = match?(%{kind: :refine, n: ^i}, target)
-
-            row(s.summary,
-              subtitle: "##{i} · #{s.host}" <> if(picked, do: " · refining", else: ""),
-              symbol: if(picked, do: "checkmark.circle.fill", else: "clock"),
-              event: "pick",
-              payload: i
-            )
-          end)
-      end
-
-    vstack(
-      [textfield("request", placeholder: placeholder_for(target))] ++
-        mode ++
-        [spacer(min: 2), text("#{glyph} #{label}", style: :title)] ++
-        if(detail, do: [text(detail, style: :caption)], else: []) ++
-        log ++
-        [section("Sessions · click to refine")] ++
-        sessions
-    )
-  end
-
-  defp render(state, headline \\ nil) do
-    Surface.show(:modsmith, tree(state, headline),
-      title: "ModSmith",
-      anchor: :right_of_main,
-      width: 320
-    )
   end
 end

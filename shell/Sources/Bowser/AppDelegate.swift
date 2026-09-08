@@ -431,6 +431,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let viewMenuItem = NSMenuItem()
         let view = NSMenu(title: "View")
+        let modsmith = NSMenuItem(title: "ModSmith…", action: #selector(ModSmithWindow.open(_:)), keyEquivalent: "")
+        modsmith.target = ModSmithWindow.shared
+        view.addItem(modsmith)
+        view.addItem(.separator())
         view.addItem(withTitle: "Reload Page", action: #selector(reloadPage(_:)), keyEquivalent: "r")
         view.addItem(.separator())
         view.addItem(withTitle: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0")

@@ -1,17 +1,18 @@
 defmodule BowserBrain.Handoff do
   @moduledoc """
   Installed release handoff. Candidates boot without listeners, watchers or mods.
-  State crosses VMs only at a quiescent boundary. Schema 2 requires data-only
+  State crosses VMs only at a quiescent boundary. Schema 3 requires data-only
   mod state and an explicit `handoff: true` contract: no untracked timers, tasks,
   ports or external processes. Restored mods skip init_mod and hello.
   Bump the schema when changing migrated core state incompatibly.
   """
   alias BowserBrain.{Bridge, Paths}
-  @schema 2
+  @schema 3
   @core [BowserBrain.Loader, BowserBrain.SiteMods, BowserBrain.LibReloader,
          BowserBrain.Profiles, BowserBrain.Session, BowserBrain.UserContent,
          BowserBrain.Surface, BowserBrain.ModLog, BowserBrain.XFeed,
-         BowserBrain.Settings, BowserBrain.ModSmith, BowserBrain.Store,
+         BowserBrain.Settings, BowserBrain.ModWorkshop,
+         BowserBrain.ShellTheme, BowserBrain.Toolbars, BowserBrain.Store,
          BowserBrain.TabDeck, BowserBrain.ModControls, BowserBrain.PanelMenu]
   def schema, do: @schema
 
@@ -113,7 +114,7 @@ defmodule BowserBrain.Handoff do
       end)
       session = states[BowserBrain.Session]
       unless session.restore == nil and not Map.get(session, :quitting, false), do: raise("session transition in progress")
-      unless states[BowserBrain.ModSmith].busy == nil and not states[BowserBrain.XFeed].busy and not states[BowserBrain.XFeed].awaiting, do: raise("background request in progress")
+      unless states[BowserBrain.ModWorkshop].run == nil and not states[BowserBrain.XFeed].busy and not states[BowserBrain.XFeed].awaiting, do: raise("background request in progress")
       snapshot = %{schema: @schema, states: states, mods: Enum.map(mods, &elem(&1, 0)), mod_hashes: Map.new(mods, fn {m, _} -> {m, m.module_info(:md5)} end), icon_latest: icon.latest}
       bytes = :erlang.term_to_binary(snapshot, [:compressed])
       if byte_size(bytes) > 8_000_000, do: raise("checkpoint exceeds 8 MB")

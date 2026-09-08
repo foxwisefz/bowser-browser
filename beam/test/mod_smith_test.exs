@@ -3,6 +3,13 @@ defmodule BowserBrain.ModSmithTest do
 
   alias BowserBrain.ModSmith
 
+  test "embedded CLI isolates context without disabling OAuth" do
+    args = ModSmith.isolation_args()
+    assert ["--setting-sources", "", "--settings", settings, "--system-prompt", _] = args
+    assert JSON.decode!(settings) == %{"disableAllHooks" => true, "autoMemoryEnabled" => false, "claudeMdExcludes" => ["**"]}
+    refute "--bare" in args
+  end
+
   describe "extract_json/1" do
     test "parses a clean envelope" do
       out = ~s({"tier":"payload","summary":"x","files":[]})
@@ -79,31 +86,10 @@ defmodule BowserBrain.ModSmithTest do
     end
   end
 
-  describe "remember_session/2" do
-    defp entry(id, at \\ 0), do: %{id: id, request: "r", summary: "s", host: "h", at: at}
-
-    test "a new session is prepended" do
-      assert [%{id: "b"}, %{id: "a"}] =
-               ModSmith.remember_session([entry("a")], entry("b"))
-    end
-
-    test "a refinement replaces its lineage entry and moves it to the front" do
-      sessions = [entry("a"), entry("b"), entry("c")]
-      updated = %{id: "b2", request: "r2", summary: "s2", host: "h", at: 1, refined: "b"}
-      assert [%{id: "b2"}, %{id: "a"}, %{id: "c"}] =
-               ModSmith.remember_session(sessions, updated)
-    end
-
-    test "history is capped at 8" do
-      sessions = for i <- 1..8, do: entry("s#{i}")
-      assert length(ModSmith.remember_session(sessions, entry("new"))) == 8
-      assert [%{id: "new"} | _] = ModSmith.remember_session(sessions, entry("new"))
-    end
-  end
-
   describe "auth_route/1" do
     test "no router settings -> the user's own claude CLI login" do
       assert ModSmith.auth_route(%{}) == :cli
+
       assert ModSmith.auth_route(%{"dodorouter_endpoint" => "", "dodorouter_api_key" => " "}) ==
                :cli
     end
@@ -167,7 +153,13 @@ defmodule BowserBrain.ModSmithTest do
 
   describe "progress_lines/1 (stream-json narration)" do
     test "assistant prose is trimmed and collapsed" do
-      ev = %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "  Reading the\n  dock mod first. "}]}}
+      ev = %{
+        "type" => "assistant",
+        "message" => %{
+          "content" => [%{"type" => "text", "text" => "  Reading the\n  dock mod first. "}]
+        }
+      }
+
       assert ModSmith.progress_lines(ev) == ["Reading the dock mod first."]
     end
 
@@ -176,9 +168,17 @@ defmodule BowserBrain.ModSmithTest do
         "type" => "assistant",
         "message" => %{
           "content" => [
-            %{"type" => "tool_use", "name" => "mcp__bowser__read_mod", "input" => %{"path" => "mods/edge_dock_tabs.ex"}},
+            %{
+              "type" => "tool_use",
+              "name" => "mcp__bowser__read_mod",
+              "input" => %{"path" => "mods/edge_dock_tabs.ex"}
+            },
             %{"type" => "tool_use", "name" => "mcp__bowser__list_mods", "input" => %{}},
-            %{"type" => "tool_use", "name" => "mcp__bowser__page_eval", "input" => %{"js" => "document.title"}}
+            %{
+              "type" => "tool_use",
+              "name" => "mcp__bowser__page_eval",
+              "input" => %{"js" => "document.title"}
+            }
           ]
         }
       }
@@ -191,7 +191,11 @@ defmodule BowserBrain.ModSmithTest do
     end
 
     test "empty text, system, user and result events narrate nothing" do
-      blank = %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "  \n"}]}}
+      blank = %{
+        "type" => "assistant",
+        "message" => %{"content" => [%{"type" => "text", "text" => "  \n"}]}
+      }
+
       assert ModSmith.progress_lines(blank) == []
       assert ModSmith.progress_lines(%{"type" => "system", "subtype" => "init"}) == []
       assert ModSmith.progress_lines(%{"type" => "result", "result" => "{}"}) == []
@@ -202,7 +206,10 @@ defmodule BowserBrain.ModSmithTest do
     test "takes text and session id from the result event" do
       events = [
         %{"type" => "system"},
-        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "thinking"}]}},
+        %{
+          "type" => "assistant",
+          "message" => %{"content" => [%{"type" => "text", "text" => "thinking"}]}
+        },
         %{"type" => "result", "result" => ~s({"tier":"mod"}), "session_id" => "sess-1"}
       ]
 
@@ -211,8 +218,14 @@ defmodule BowserBrain.ModSmithTest do
 
     test "falls back to assistant prose when no result event arrived" do
       events = [
-        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "part one"}]}},
-        %{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "part two"}]}}
+        %{
+          "type" => "assistant",
+          "message" => %{"content" => [%{"type" => "text", "text" => "part one"}]}
+        },
+        %{
+          "type" => "assistant",
+          "message" => %{"content" => [%{"type" => "text", "text" => "part two"}]}
+        }
       ]
 
       assert ModSmith.stream_result(events) == {nil, "part one\npart two"}
@@ -220,86 +233,35 @@ defmodule BowserBrain.ModSmithTest do
     end
   end
 
-  describe "panel targets" do
-    test "no target is a fresh request" do
-      assert ModSmith.request_for(nil, [], "dark mode") == {"dark mode", []}
-    end
-
-    test "modify target wraps the change with the file and the MODIFY contract" do
-      {req, opts} = ModSmith.request_for(%{kind: :modify, path: "mods/dock.ex"}, [], "bigger icons")
-      assert req =~ "Modify the existing file mods/dock.ex"
-      assert req =~ "read_mod"
-      assert req =~ "Change: bigger icons"
-      assert opts == []
-    end
-
-    test "refine target resumes that session; a gone session is an error" do
-      sessions = [%{id: "s-1", summary: "a", host: "x.com"}, %{id: "s-2", summary: "b", host: "y.com"}]
-      assert ModSmith.request_for(%{kind: :refine, n: 2}, sessions, "tighter") == {"tighter", [resume: "s-2"]}
-      assert {:error, msg} = ModSmith.request_for(%{kind: :refine, n: 5}, sessions, "x")
-      assert msg =~ "#5"
-    end
-
-    test "placeholders name the target" do
-      assert ModSmith.placeholder_for(nil) =~ "What should this page do"
-      assert ModSmith.placeholder_for(%{kind: :modify, path: "sites/x.com/tweet-font.css"}) =~ "tweet-font.css"
-      assert ModSmith.placeholder_for(%{kind: :refine, n: 3}) =~ "#3"
-    end
-  end
-
-  describe "panel tree" do
-    defp base, do: %{sessions: [], last_status: "Ready.", progress: [], busy: nil}
-
-    test "status_line maps every outcome to glyph/label/detail" do
-      assert ModSmith.status_line("Working on: dark mode", "Ready.") == {"●", "Working", "dark mode"}
-      assert ModSmith.status_line(nil, "Done: added a tag") == {"✓", "Done", "added a tag"}
-      assert ModSmith.status_line(nil, "Failed: claude exited 1") == {"✗", "Failed", "claude exited 1"}
-      assert ModSmith.status_line(nil, "↗ NEEDS THE RESIDENT AGENT: big") == {"↗", "Handed off", "NEEDS THE RESIDENT AGENT: big"}
-      assert ModSmith.status_line(nil, "Ready.") == {"○", "Ready", nil}
-    end
-
-    test "request field first, no inner title, no footer, no mode row when untargeted" do
-      %{children: [first | rest]} = ModSmith.tree(base())
-      assert first.t == "textfield"
-      refute Enum.any?(rest, &(&1.t == "text" and &1.value in ["ModSmith", "Forge 9811"]))
-      refute Enum.any?(rest, &(&1.t == "text" and String.contains?(&1.value, "Enter sends")))
-      refute Enum.any?(rest, &(&1.t == "hstack"))
-      assert Enum.any?(rest, &(&1.t == "text" and &1.value == "○ Ready"))
-    end
-
-    test "log lines are mono, oldest first, capped at 6" do
-      progress = for i <- 1..9, do: "line #{i}"
-      %{children: kids} = ModSmith.tree(Map.put(base(), :progress, progress))
-      mono = for %{t: "text", style: :mono, value: v} <- kids, do: v
-      assert mono == ["line 6", "line 5", "line 4", "line 3", "line 2", "line 1"]
-    end
-
-    test "sessions are compact buttons; the picked one is active; target shows a mode row" do
-      state =
-        base()
-        |> Map.put(:sessions, [%{id: "a", summary: "one", host: "x.com"}, %{id: "b", summary: "two", host: "y.com"}])
-        |> Map.put(:target, %{kind: :refine, n: 2})
-
-      %{children: kids} = ModSmith.tree(state)
-      rows = for %{t: "row", event: "pick"} = r <- kids, do: r
-      assert Enum.map(rows, & &1.title) == ["one", "two"]
-      assert Enum.map(rows, & &1.symbol) == ["clock", "checkmark.circle.fill"]
-      assert Enum.any?(kids, &(&1.t == "hstack"))
-    end
-  end
-
   describe "run salvage" do
-    defp acc, do: %{events: [], raw: [], partial: "", session: nil, started: System.monotonic_time(:millisecond)}
+    defp acc,
+      do: %{
+        events: [],
+        raw: [],
+        partial: "",
+        session: nil,
+        started: System.monotonic_time(:millisecond)
+      }
 
     test "session_of reads the id from init and result events only" do
-      assert ModSmith.session_of(%{"type" => "system", "subtype" => "init", "session_id" => "s1"}) == "s1"
+      assert ModSmith.session_of(%{"type" => "system", "subtype" => "init", "session_id" => "s1"}) ==
+               "s1"
+
       assert ModSmith.session_of(%{"type" => "result", "session_id" => "s2"}) == "s2"
       assert ModSmith.session_of(%{"type" => "assistant", "session_id" => "s3"}) == nil
     end
 
     test "stream_loop keeps the session id and reports it on timeout" do
       fake = make_ref()
-      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-9"})}}})
+
+      send(
+        self(),
+        {fake,
+         {:data,
+          {:eol,
+           JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-9"})}}}
+      )
+
       deadline = System.monotonic_time(:millisecond) + 60
       assert {:timeout, "sess-9"} = ModSmith.stream_loop(fake, deadline, fn _ -> :ok end, acc())
     end
@@ -307,12 +269,34 @@ defmodule BowserBrain.ModSmithTest do
     test "stream_loop returns events, raw lines and session on exit" do
       fake = make_ref()
       me = self()
-      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-1"})}}})
+
+      send(
+        self(),
+        {fake,
+         {:data,
+          {:eol,
+           JSON.encode!(%{"type" => "system", "subtype" => "init", "session_id" => "sess-1"})}}}
+      )
+
       send(self(), {fake, {:data, {:eol, "not json"}}})
-      send(self(), {fake, {:data, {:eol, JSON.encode!(%{"type" => "assistant", "message" => %{"content" => [%{"type" => "text", "text" => "hi"}]}})}}})
+
+      send(
+        self(),
+        {fake,
+         {:data,
+          {:eol,
+           JSON.encode!(%{
+             "type" => "assistant",
+             "message" => %{"content" => [%{"type" => "text", "text" => "hi"}]}
+           })}}}
+      )
+
       send(self(), {fake, {:exit_status, 0}})
       deadline = System.monotonic_time(:millisecond) + 5_000
-      assert {:done, 0, events, ["not json"], "sess-1"} = ModSmith.stream_loop(fake, deadline, &send(me, {:p, &1}), acc())
+
+      assert {:done, 0, events, ["not json"], "sess-1"} =
+               ModSmith.stream_loop(fake, deadline, &send(me, {:p, &1}), acc())
+
       assert length(events) == 2
       assert_received {:p, "hi"}
     end

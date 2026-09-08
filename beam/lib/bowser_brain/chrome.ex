@@ -13,6 +13,39 @@ defmodule BowserBrain.Chrome do
 
   alias BowserBrain.Bridge
 
+  @doc """
+  Add/update a native bar, reserving webpage space on edge: :top/:bottom/:left/:right.
+  size: 16..200 points (height for horizontal bars, width for vertical bars).
+  view is a View DSL tree; style accepts background/foreground/border #rrggbb.
+  Events arrive as surface events with surface: "toolbar:<id>" and webview.
+  Call in init_mod and mod_reloaded. Bars die with the calling mod, replay on
+  reconnect, and appear in new browser windows. Same ids shadow older owners.
+  """
+  def put_toolbar(id, view, opts \\ []), do: BowserBrain.Toolbars.put(to_string(id), view, opts)
+  def remove_toolbar(id), do: BowserBrain.Toolbars.remove(to_string(id))
+  def toolbars, do: BowserBrain.Toolbars.list()
+
+  @doc """
+  Apply a native browser skin owned by the calling mod process. Accepts a map
+  with hex #rrggbb colors: background, foreground, button_background,
+  button_foreground, accent, border; button_style: "flat" or "beveled";
+  show_navigation: boolean; title_size: 9..16; corner_radius: 0..12.
+  Full-window inner outline: window_border: #rrggbb, window_border_width:
+  0..12 points, window_border_style: "flat" or "beveled". Does not alter
+  macOS window shape or shadow.
+  Atom or string keys are accepted. Omitted properties use native defaults.
+  Call in init_mod and on mod_reloaded; reconnects replay automatically.
+  Disabling/deleting the mod restores the previous theme, or native defaults.
+  Returns :ok or {:error, :invalid_theme}; invalid themes leave state intact.
+  """
+  def set_theme(theme), do: BowserBrain.ShellTheme.set(theme)
+
+  @doc "Remove only the calling process's theme, restoring the previous skin."
+  def reset_theme, do: BowserBrain.ShellTheme.reset()
+
+  @doc "Current effective native shell theme (string-keyed map)."
+  def theme, do: BowserBrain.ShellTheme.current()
+
   @doc "Add (or replace) a toolbar button. `symbol:` is an SF Symbol name."
   def add_button(id, title, opts \\ []) do
     Bridge.cast_msg(%{
@@ -67,7 +100,13 @@ defmodule BowserBrain.Chrome do
   user is looking at doesn't move. Switch later with `Surface.activate_tab/1`.
   """
   def open_tab(url \\ nil, opts \\ []) do
-    msg = %{op: "chrome", chrome: "open_tab", url: url, activate: Keyword.get(opts, :activate, false)}
+    msg = %{
+      op: "chrome",
+      chrome: "open_tab",
+      url: url,
+      activate: Keyword.get(opts, :activate, false)
+    }
+
     # profile: the tab goes to (or creates) a window of that profile; tabs
     # never cross profiles.
     msg = if p = Keyword.get(opts, :profile), do: Map.put(msg, :profile, p), else: msg
