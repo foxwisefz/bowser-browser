@@ -125,3 +125,11 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## ModSmith API documentation
+
+When changing APIs exposed to mods, audit the ModSmith guide and MCP schemas
+against the implementation, including existing primitives, valid arities,
+examples, and asset/rendering limits. Update them in the same change. Use
+behavioral tests for API contracts; do not assert prose wording to enforce
+this documentation workflow.

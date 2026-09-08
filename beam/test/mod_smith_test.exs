@@ -3,14 +3,11 @@ defmodule BowserBrain.ModSmithTest do
 
   alias BowserBrain.ModSmith
 
-  test "generation guide exposes native local images and distinguishes asset limits" do
-    prompt = ModSmith.build_prompt("Add a toolbar logo", "https://example.com", "example.com", "", [], "")
-    assert prompt =~ ~s|BowserBrain.View.image(path: "/absolute/path/logo.png", size: 48)|
-    assert prompt =~ "native Surface OR Chrome.put_toolbar"
-    assert prompt =~ ~s|image("globe")|
-    assert prompt =~ "a SYMBOL name, not an image path or URL"
-    assert prompt =~ "cannot upload images or save standalone SVG/PNG"
-    assert prompt =~ "not arbitrary custom image labels"
+  test "embedded CLI isolates context without disabling OAuth" do
+    args = ModSmith.isolation_args()
+    assert ["--setting-sources", "", "--settings", settings, "--system-prompt", _] = args
+    assert JSON.decode!(settings) == %{"disableAllHooks" => true, "autoMemoryEnabled" => false, "claudeMdExcludes" => ["**"]}
+    refute "--bare" in args
   end
 
   describe "extract_json/1" do

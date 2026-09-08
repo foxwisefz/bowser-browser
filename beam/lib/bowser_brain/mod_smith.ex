@@ -362,8 +362,8 @@ defmodule BowserBrain.ModSmith do
   def finish_prompt do
     """
     TIME BUDGET EXCEEDED — stop working now. Reply with ONLY the JSON envelope
-    (same contract) for whatever is complete and working, with FULL file
-    contents, and describe what is unfinished in "notes". If nothing is usable
+    (same contract) for whatever is complete and working. Reference unchanged
+    installed drafts by path; include contents only for new or changed files, and describe what is unfinished in "notes". If nothing is usable
     yet, reply with a zero-file envelope whose summary starts
     "NEEDS THE RESIDENT AGENT:" and say what was blocking.
     """
@@ -644,7 +644,15 @@ defmodule BowserBrain.ModSmith do
     )
 
     ["--mcp-config", config, "--allowedTools", @mcp_tools] ++
-      ["--tools", "", "--strict-mcp-config", "--disable-slash-commands"]
+      ["--tools", "", "--strict-mcp-config", "--disable-slash-commands"] ++ isolation_args()
+  end
+
+  @doc "Keep embedded ModSmith runs independent of developer project customizations, preserving OAuth."
+  def isolation_args do
+    ["--setting-sources", "", "--settings",
+      JSON.encode!(%{disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ["**"]}),
+      "--system-prompt",
+      "You are ModSmith, Bowser's browser customization agent. Follow the supplied workspace contract and API guide. Use only the provided browser tools. Return the requested JSON result and report observed failures precisely."]
   end
 
   # Routers serve their own model ids; the CLI's default may not exist there.
