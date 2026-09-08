@@ -328,42 +328,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     })();
     """
 
-    // Media position survives engine death: snapshot currentTime/paused into
-    // localStorage (WebKit persists it); on load, if the snapshot is FRESH
-    // (a restart, not a revisit), seek and resume. Feels like a hiccup, not
-    // a loss.
     static let mediaResumeWindowSeconds = 120
-    static let mediaHook = """
-    (function () {
-      if (window.top !== window) return;
-      var KEY = "bowser-media:" + location.host + location.pathname;
-      var restored = false;
-      function media() { return document.querySelector("video, audio"); }
-      setInterval(function () {
-        var m = media();
-        if (!m || !m.duration) return;
-        if (!restored) {
-          restored = true;
-          try {
-            var d = JSON.parse(localStorage.getItem(KEY) || "null");
-            if (d && Date.now() - d.at < \(mediaResumeWindowSeconds) * 1000) {
-              m.currentTime = d.t;
-              if (!d.paused) m.play().catch(function () {});
-            }
-          } catch (e) {}
-        }
-        // Gated on restored: during player cold-start the element reads
-        // paused=false at t=0, and writing then would clobber the very
-        // resume point the restore branch is about to use.
-        if (restored && (!m.paused || m.currentTime > 0)) {
-          try {
-            localStorage.setItem(KEY, JSON.stringify(
-              { t: m.currentTime, paused: m.paused, at: Date.now() }));
-          } catch (e) {}
-        }
-      }, 500);
-    })();
-    """
+    static let mediaHook = MediaRecovery.script
 
     private func rebuildUserScripts() {
         let controller = webView.configuration.userContentController

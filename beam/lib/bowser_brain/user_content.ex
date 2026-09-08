@@ -83,6 +83,8 @@ defmodule BowserBrain.UserContent do
       window.addEventListener("keydown", cancel, { once: true });
       (function attempt() {
         if (cancelled || Date.now() > deadline) return;
+        // Semantic media recovery owns the scroll anchor for a saved X tweet.
+        if (window.__bowserMediaRestoring) return;
         var se = document.scrollingElement || document.documentElement;
         if (se.scrollHeight !== lastH) { lastH = se.scrollHeight; lastGrowthAt = Date.now(); }
         var maxY = se.scrollHeight - window.innerHeight;

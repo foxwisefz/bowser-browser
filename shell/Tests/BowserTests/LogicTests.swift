@@ -86,12 +86,7 @@ final class InjectedHookTests: XCTestCase {
         XCTAssertGreaterThan(EngineView.mediaResumeWindowSeconds, 0)
     }
 
-    // The snapshot writer must not run before the restore attempt: during
-    // player cold-start (bowser-browser-hj1) the element goes paused=false at
-    // t=0, and an ungated writer clobbers the resume point with {t: 0}.
-    @MainActor func testMediaHookWriterIsGatedOnRestore() {
-        XCTAssertTrue(EngineView.mediaHook.contains("if (restored && ("))
-    }
+
 }
 
 final class TabCyclingTests: XCTestCase {

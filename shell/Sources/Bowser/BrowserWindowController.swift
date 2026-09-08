@@ -513,12 +513,26 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { persistWindowState() }
     func windowDidEndLiveResize(_ notification: Notification) { persistWindowState() }
 
+    static func fullscreenKey(for profile: Profile) -> String { frameKey(for: profile) + ".fullscreen" }
+
+    func restoreFullscreen() {
+        let key = Self.fullscreenKey(for: profile)
+        let saved = UserDefaults.standard.object(forKey: key) as? Bool
+            ?? (profile.id == "default" && UserDefaults.standard.bool(forKey: "BowserWasFullscreen"))
+        guard saved else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.window, !window.styleMask.contains(.fullScreen) else { return }
+            window.toggleFullScreen(nil)
+        }
+    }
+
     func windowDidEnterFullScreen(_ notification: Notification) {
-        UserDefaults.standard.set(true, forKey: "BowserWasFullscreen")
+        UserDefaults.standard.set(true, forKey: Self.fullscreenKey(for: profile))
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
-        UserDefaults.standard.set(false, forKey: "BowserWasFullscreen")
+        guard (NSApp.delegate as? AppDelegate)?.isTerminating != true else { return }
+        UserDefaults.standard.set(false, forKey: Self.fullscreenKey(for: profile))
     }
 }
 

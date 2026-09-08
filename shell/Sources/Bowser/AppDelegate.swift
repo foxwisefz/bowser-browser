@@ -5,6 +5,7 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var siteTerminationObserver: NSObjectProtocol?
     private var didFinishLaunching = false
+    private(set) var isTerminating = false
     private var pendingExternalURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let controller = BrowserWindowController(profile: Profile.find(configuration.profile))
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
+            controller.restoreFullscreen()
             SiteAppRuntime.shared.start(configuration, controller: controller)
         } else if pendingExternalURLs.isEmpty {
             openWindow()
@@ -110,7 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        BackendLifecycle.shared.quit()
+        isTerminating = true
+        return BackendLifecycle.shared.quit()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -163,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     func openWindow(profile requested: Profile? = nil) -> BrowserWindowController {
         let profile = SiteAppConfiguration.current.map { Profile.find($0.profile) } ?? requested ?? Profile.main
-        let isFirstWindow = BrowserWindowController.all.isEmpty
+        let isFirstWindowForProfile = !BrowserWindowController.all.contains { $0.profile.id == profile.id }
         // The controller brings its own first tab and emits tab_opened.
         let controller = BrowserWindowController(profile: profile)
         controller.showWindow(nil)
@@ -173,12 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the palette popping over the freeze-frame breaks the illusion
         // (bowser-browser-xl8).
         if !controller.isResurrecting { controller.focusOmnibar() }
-        // Restore fullscreen for the primary window after a respawn.
-        if isFirstWindow, UserDefaults.standard.bool(forKey: "BowserWasFullscreen") {
-            DispatchQueue.main.async { [weak controller] in
-                controller?.window?.toggleFullScreen(nil)
-            }
-        }
+        if isFirstWindowForProfile { controller.restoreFullscreen() }
         return controller
     }
 
