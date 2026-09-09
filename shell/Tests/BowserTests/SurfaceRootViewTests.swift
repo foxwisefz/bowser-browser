@@ -88,14 +88,12 @@ final class SurfaceRootViewTests: XCTestCase {
         let model = ProfileSettingsModel.shared
         let previous = model.profiles
         defer { model.replaceProfiles(previous) }
-        let work = Profile(id: "work", name: "Work projects", tint: "#3e63dd", icon: nil, uuid: nil, character: "luigi")
+        let work = Profile(id: "work", name: "Work", tint: "#3e63dd", icon: nil, uuid: nil, character: "luigi")
         model.replaceProfiles([.defaultProfile, work])
         for profile in [Profile.defaultProfile, work] {
             let cursor = CursorModel()
             let items: [[String: Any]] = (1...6).map { ["id": String($0), "symbol": "globe", "active": $0 == 2, "title": "Tab \($0)"] }
-            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 40.0, "header": ["t": "vstack", "alignment": "center", "spacing": 0.0, "children": [
-                ["t": "profile_avatar", "profile_id": profile.id, "size": 20.0]
-            ]]]
+            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 0.0, "header": ["t": "profile_curve", "profile_id": profile.id]]
             let hosting = NSHostingView(rootView: SurfaceTreeView(surfaceId: "edge_dock", node: tree, cursor: cursor))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
             window.backgroundColor = .clear; window.isOpaque = false
@@ -110,6 +108,11 @@ final class SurfaceRootViewTests: XCTestCase {
             XCTAssertFalse(png.isEmpty)
             if let directory = ProcessInfo.processInfo.environment["BOWSER_SURFACE_RENDER"] {
                 try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-\(profile.id).png"))
+                let renderer = ImageRenderer(content: CurvedProfileLabel(profileID: profile.id))
+                renderer.scale = 2
+                let curve = try XCTUnwrap(renderer.cgImage)
+                let data = try XCTUnwrap(NSBitmapImageRep(cgImage: curve).representation(using: .png, properties: [:]))
+                try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("curve-\(profile.id).png"))
             }
         }
     }

@@ -9,7 +9,7 @@ defmodule BowserBrain.ViewTest do
     tree = View.magnify_strip([], header: header, footer: footer, header_height: 48,
       footer_height: 32, chrome: "notch", background: "#112233")
     decoded = tree |> JSON.encode!() |> JSON.decode!()
-    assert decoded["header"]["children"] |> Enum.map(& &1["t"]) == ["profile_avatar"]
+    assert decoded["header"] == %{"t" => "profile_curve", "profile_id" => "work"}
     assert decoded["footer"]["event"] == "new"
     assert decoded["header_height"] == 48
     assert decoded["background"] == "#112233"

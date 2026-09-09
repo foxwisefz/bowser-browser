@@ -839,6 +839,8 @@ struct SurfaceTreeView: View {
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
         case "profile_avatar", "profile_name":
             return AnyView(SurfaceProfileValue(node: node))
+        case "profile_curve":
+            return AnyView(CurvedProfileLabel(profileID: node["profile_id"] as? String ?? "default"))
         case "magnify_strip":
             return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit,
                                            tracksLocally: cursor == nil))
@@ -1139,6 +1141,67 @@ struct MagnifyStripView: View {
             }
         }
     }
+}
+
+/// Small profile name following the outside of the 48pt notch's upper shoulder.
+struct CurvedProfileLabel: View {
+    let profileID: String
+    @ObservedObject private var profiles = ProfileSettingsModel.shared
+    private var name: String {
+        if profileID == "default" { return "Default" }
+        return profiles.profiles.first { $0.id == profileID }?.name ?? profileID
+    }
+
+    var body: some View {
+        Canvas { context, _ in
+            let letters = Array(name.count > 8 ? String(name.prefix(7)) + "…" : name)
+            let font = Font.system(size: 9, weight: .regular)
+            let glyphs = letters.map { context.resolve(Text(String($0)).font(font).foregroundStyle(Color.white.opacity(0.8))) }
+            let widths = glyphs.map { $0.measure(in: CGSize(width: 100, height: 20)).width + 0.25 }
+            let points = Self.shoulder
+            var distances: [CGFloat] = [0]
+            for i in 1..<points.count {
+                distances.append(distances.last! + hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y))
+            }
+            let total = widths.reduce(0, +)
+            let scale = min(1, (distances.last! - 4) / max(total, 1))
+            var advance = (distances.last! - total * scale) / 2
+            for i in glyphs.indices {
+                let distance = advance + widths[i] * scale / 2
+                let j = max(1, distances.firstIndex(where: { $0 >= distance }) ?? (points.count - 1))
+                let a = points[j-1], b = points[j]
+                let angle = atan2(b.y - a.y, b.x - a.x)
+                let fraction = (distance - distances[j-1]) / max(0.001, distances[j] - distances[j-1])
+                var glyphContext = context
+                glyphContext.addFilter(.shadow(color: .black.opacity(0.85), radius: 1, y: 0.5))
+                glyphContext.translateBy(x: 8 + a.x + (b.x-a.x)*fraction + sin(angle)*7,
+                                         y: a.y + (b.y-a.y)*fraction - cos(angle)*7)
+                glyphContext.rotate(by: .radians(angle))
+                glyphContext.scaleBy(x: scale, y: scale)
+                glyphContext.draw(glyphs[i], at: .zero, anchor: .center)
+                advance += widths[i] * scale
+            }
+        }
+        .frame(width: 64, height: 64)
+        .accessibilityLabel("Profile: \(name)")
+        .help("Profile: \(name)")
+    }
+
+    // Same 16pt concave shoulder and 22pt outer corner as DockNotchShape
+    // at the tab deck's 48pt width. Start after the steep screen-edge turn.
+    private static let shoulder: [CGPoint] = {
+        var points: [CGPoint] = []
+        for i in 0...30 {
+            let a = Double.pi * (0.75 - Double(i)/120)
+            points.append(CGPoint(x: 16 + 16*cos(a), y: 16*sin(a)))
+        }
+        for i in 1...20 { points.append(CGPoint(x: 16 + Double(i)/2, y: 16)) }
+        for i in 1...24 {
+            let a = -Double.pi/2 + Double(i)/60 * Double.pi/2
+            points.append(CGPoint(x: 26 + 22*cos(a), y: 38 + 22*sin(a)))
+        }
+        return points
+    }()
 }
 
 /// Profile data bindings, composable with the same stacks/actions as other UI.
