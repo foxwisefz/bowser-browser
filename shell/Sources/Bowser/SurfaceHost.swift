@@ -837,6 +837,8 @@ struct SurfaceTreeView: View {
             )
         case "spacer":
             return AnyView(Spacer(minLength: node["min"] as? Double ?? 0))
+        case "profile_avatar", "profile_name":
+            return AnyView(SurfaceProfileValue(node: node))
         case "magnify_strip":
             return AnyView(MagnifyStripView(surfaceId: surfaceId, node: node, emit: emit,
                                            tracksLocally: cursor == nil))
@@ -987,13 +989,12 @@ struct MagnifyStripView: View {
     // trigger; inactive items are guarded to zero offset so losing
     // activation never twitches.
     @State private var bounceStamp = 0
-    @ObservedObject private var profileSettings = ProfileSettingsModel.shared
-
-    private var deckProfile: Profile? {
-        guard surfaceId == "edge_dock", let id = node["profile_id"] as? String else { return nil }
-        return profileSettings.profiles.first { $0.id == id }
-    }
-    private var profileHeight: CGFloat { deckProfile == nil ? 0 : 48 }
+    // Slots are ordinary live surface trees; the strip only reserves geometry.
+    private var header: [String: Any]? { node["header"] as? [String: Any] }
+    private var footer: [String: Any]? { node["footer"] as? [String: Any] }
+    private var headerHeight: CGFloat { header == nil ? 0 : min(240, max(0, node["header_height"] as? Double ?? 48)) }
+    private var footerHeight: CGFloat { footer == nil ? 0 : min(240, max(0, node["footer_height"] as? Double ?? 48)) }
+    private var notch: Bool { (node["chrome"] as? String ?? (surfaceId == "edge_dock" ? "notch" : "none")) == "notch" }
 
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
 
@@ -1013,10 +1014,10 @@ struct MagnifyStripView: View {
     /// The SAME value feeds layout and the magnification row centers so
     /// hover targets stay aligned.
     static func centeredTop(
-        viewHeight: CGFloat, count: Int, size: CGFloat, spacing: CGFloat, minPad: CGFloat, headerHeight: CGFloat = 0
+        viewHeight: CGFloat, count: Int, size: CGFloat, spacing: CGFloat, minPad: CGFloat, headerHeight: CGFloat = 0, footerHeight: CGFloat = 0
     ) -> CGFloat {
         let content = max(0, CGFloat(count) * (size + spacing) - spacing)
-        return max(minPad, (viewHeight - content - headerHeight) / 2) + headerHeight
+        return max(minPad, (viewHeight - content - headerHeight - footerHeight) / 2) + headerHeight
     }
 
     private func scale(forRow index: Int, top: CGFloat) -> CGFloat {
@@ -1033,23 +1034,28 @@ struct MagnifyStripView: View {
         GeometryReader { geo in
             let top = Self.centeredTop(
                 viewHeight: geo.size.height, count: items.count,
-                size: baseSize, spacing: spacing, minPad: topPad, headerHeight: profileHeight
+                size: baseSize, spacing: spacing, minPad: topPad, headerHeight: headerHeight, footerHeight: footerHeight
             )
             let contentHeight = items.indices.reduce(CGFloat.zero) {
                 $0 + baseSize * scale(forRow: $1, top: top)
             } + CGFloat(max(0, items.count - 1)) * spacing
             ZStack(alignment: .topLeading) {
-                if surfaceId == "edge_dock", !items.isEmpty {
+                if notch, !items.isEmpty {
                     DockNotchShape()
-                        .fill(.black)
-                        .frame(width: geo.size.width, height: contentHeight + profileHeight + 64)
-                        .offset(y: top - profileHeight - 32)
+                        .fill(Profile.color(hex: node["background"] as? String).map { Color(nsColor: $0) } ?? .black)
+                        .frame(width: geo.size.width, height: contentHeight + headerHeight + footerHeight + 64)
+                        .offset(y: top - headerHeight - 32)
                         .allowsHitTesting(false)
                 }
-                if let profile = deckProfile, !items.isEmpty {
-                    DockProfileHeader(profile: profile)
-                        .frame(width: geo.size.width, height: profileHeight)
-                        .offset(y: top - profileHeight)
+                if let header, !items.isEmpty {
+                    SurfaceTreeView(surfaceId: surfaceId, node: header)
+                        .frame(width: geo.size.width, height: headerHeight)
+                        .offset(y: top - headerHeight)
+                }
+                if let footer, !items.isEmpty {
+                    SurfaceTreeView(surfaceId: surfaceId, node: footer)
+                        .frame(width: geo.size.width, height: footerHeight)
+                        .offset(y: top + contentHeight)
                 }
                 VStack(spacing: spacing) {
                     ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -1135,36 +1141,31 @@ struct MagnifyStripView: View {
     }
 }
 
-/// A quiet identity header, outside the deck's tab hit targets and magnification.
-struct DockProfileHeader: View {
-    let profile: Profile
-
+/// Profile data bindings, composable with the same stacks/actions as other UI.
+struct SurfaceProfileValue: View {
+    let node: [String: Any]
+    @ObservedObject private var profiles = ProfileSettingsModel.shared
+    private var profile: Profile? { profiles.profiles.first { $0.id == node["profile_id"] as? String } }
+    private var size: CGFloat { min(128, max(8, node["size"] as? Double ?? 22)) }
     var body: some View {
-        VStack(spacing: 3) {
+        if let profile {
             Group {
-                if let avatar = profile.avatar {
-                    ProfileCharacterPortrait(character: avatar, size: 22)
+                if node["t"] as? String == "profile_name" {
+                    Text(profile.name).font(.system(size: size, weight: .medium))
+                        .lineLimit(1).truncationMode(.tail)
+                } else if let avatar = profile.avatar {
+                    ProfileCharacterPortrait(character: avatar, size: size)
                 } else if let icon = profile.icon {
-                    Text(icon).font(.system(size: 19))
+                    Text(icon).font(.system(size: size * 0.85)).frame(width: size, height: size)
                 } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 21))
-                        .foregroundStyle(profile.color.map { Color(nsColor: $0) } ?? .white.opacity(0.8))
+                    Image(systemName: "person.crop.circle.fill").font(.system(size: size))
                 }
             }
-            .frame(width: 22, height: 22)
-            Text(profile.name)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.8))
-                .lineLimit(1).truncationMode(.tail)
-                .padding(.horizontal, 3)
-            Rectangle().fill(.white.opacity(0.18)).frame(width: 20, height: 1)
-                .padding(.top, 2)
+            .foregroundStyle(Profile.color(hex: node["color"] as? String).map { Color(nsColor: $0) } ?? .primary)
+            .help("Profile: \(profile.name)")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Profile: \(profile.name)")
         }
-        .frame(maxWidth: .infinity)
-        .help("Profile: \(profile.name)")
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Profile: \(profile.name)")
     }
 }
 

@@ -103,3 +103,21 @@ Cancel explicitly discards the draft and closes the presentation.
 
 The optional example keeps saved values in memory and is not installed
 automatically into your live mods directory.
+
+## Live tab-deck chrome
+
+`magnify_strip` accepts ordinary trees in `header:` and `footer:`, with
+`header_height:` / `footer_height:` (default 48, clamped to 0–240 points).
+`chrome: "notch"` enables the rounded backing; `background: "#112233"` sets its
+color. The slots participate in centering and magnification geometry.
+
+For example, `header: vstack([profile_avatar(profile_id, size: 22),
+profile_name(profile_id, size: 9)], spacing: 1)` follows the profile's current
+identity, including renames. These primitives also work outside the deck.
+Ordinary actions, dividers, stacks, and text can be composed in either slot.
+
+Re-showing an existing surface ID replaces its tree in the same hosting view and
+panel. It does not recreate browser windows or WebKit pages. After the native
+renderer containing these primitives has been activated once, changing slot
+content, layout, colors, and controls requires only a live surface update.
+Adding a new native primitive still requires native capability activation.

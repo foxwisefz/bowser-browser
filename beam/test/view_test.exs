@@ -3,6 +3,18 @@ defmodule BowserBrain.ViewTest do
 
   alias BowserBrain.View
 
+  test "strip chrome is a composable JSON tree, including profile bindings and actions" do
+    header = BowserBrain.TabDeck.profile_header("work")
+    footer = View.action("New tab", event: "new", symbol: "plus")
+    tree = View.magnify_strip([], header: header, footer: footer, header_height: 48,
+      footer_height: 32, chrome: "notch", background: "#112233")
+    decoded = tree |> JSON.encode!() |> JSON.decode!()
+    assert decoded["header"]["children"] |> Enum.map(& &1["t"]) == ["profile_avatar", "profile_name", "divider"]
+    assert decoded["footer"]["event"] == "new"
+    assert decoded["header_height"] == 48
+    assert decoded["background"] == "#112233"
+  end
+
   test "colorpicker node carries event, current hex and label" do
     assert View.colorpicker("pick|work", value: "#3e63dd", label: "Tint") ==
              %{t: "colorpicker", event: "pick|work", value: "#3e63dd", label: "Tint"}

@@ -43,6 +43,46 @@ final class SurfaceRootViewTests: XCTestCase {
         // A surface render must not replace/reset the edge's supplied tracker.
         XCTAssertEqual(cursor.point, CGPoint(x: 30, y: 120))
     }
+    @MainActor func testLiveStripTreeUpdateRetainsPanelAndWebPage() async throws {
+        _ = NSApplication.shared
+        let engine = EngineView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        defer { engine.tearDown() }
+        let browser = NSWindow(contentRect: engine.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        let controller = BrowserWindowController(window: browser)
+        defer { withExtendedLifetime(controller) {} }
+        browser.contentView = engine; browser.makeKeyAndOrderFront(nil); browser.makeMain()
+        defer { browser.orderOut(nil) }
+        engine.webView.loadHTMLString("<script>window.liveToken='unchanged';window.counter=0;setInterval(()=>counter++,10)</script>", baseURL: nil)
+        for _ in 0..<100 {
+            if (try? await engine.webView.evaluateJavaScript("window.liveToken")) as? String == "unchanged" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let before = try await engine.webView.evaluateJavaScript("window.counter") as? Int ?? -1
+        XCTAssertGreaterThanOrEqual(before, 0)
+        let id = "live-strip-" + UUID().uuidString
+        let existing = Set(NSApp.windows.map(\.windowNumber))
+        var tree: [String: Any] = ["t": "magnify_strip", "chrome": "notch", "items": [["id": "1", "symbol": "globe"]],
+            "header": ["t": "text", "value": "Before"], "header_height": 40.0]
+        func show() { SurfaceManager.shared.handle(["surface": "show", "id": id, "kind": "edge", "edge": "left", "attach": "screen", "width": 80.0, "view": tree]) }
+        show()
+        defer { SurfaceManager.shared.handle(["surface": "close", "id": id]) }
+        let panel = try XCTUnwrap(NSApp.windows.first { !existing.contains($0.windowNumber) && $0 is NSPanel })
+        let content = panel.contentView
+        for index in 0..<10 {
+            tree["header"] = ["t": "vstack", "children": [["t": "text", "value": "Version \(index)"], ["t": "divider"]]]
+            tree["footer"] = ["t": "action", "label": "New", "event": "new"]
+            tree["footer_height"] = 32.0
+            tree["background"] = index.isMultiple(of: 2) ? "#112233" : "#221133"
+            show()
+            try await Task.sleep(for: .milliseconds(15))
+            XCTAssertTrue(panel.contentView === content)
+            XCTAssertTrue(NSApp.windows.contains { $0 === panel })
+        }
+        let token = try await engine.webView.evaluateJavaScript("window.liveToken") as? String
+        let after = try await engine.webView.evaluateJavaScript("window.counter") as? Int ?? -1
+        XCTAssertEqual(token, "unchanged"); XCTAssertGreaterThan(after, before)
+    }
+
     @MainActor func testNotchProfileIdentityAtDeckWidth() throws {
         _ = NSApplication.shared
         let model = ProfileSettingsModel.shared
@@ -53,7 +93,11 @@ final class SurfaceRootViewTests: XCTestCase {
         for profile in [Profile.defaultProfile, work] {
             let cursor = CursorModel()
             let items: [[String: Any]] = (1...6).map { ["id": String($0), "symbol": "globe", "active": $0 == 2, "title": "Tab \($0)"] }
-            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "profile_id": profile.id]
+            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 48.0, "header": ["t": "vstack", "alignment": "center", "spacing": 1.0, "children": [
+                ["t": "profile_avatar", "profile_id": profile.id, "size": 22.0],
+                ["t": "profile_name", "profile_id": profile.id, "size": 9.0, "color": "#cccccc", "max_width": 42.0],
+                ["t": "divider", "width": 20.0]
+            ]]]
             let hosting = NSHostingView(rootView: SurfaceTreeView(surfaceId: "edge_dock", node: tree, cursor: cursor))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
             window.backgroundColor = .clear; window.isOpaque = false

@@ -167,6 +167,17 @@ defmodule BowserBrain.View do
       spacing: Keyword.get(opts, :spacing, 8),
       event: to_string(Keyword.get(opts, :event, :select))
     }
+    |> Map.merge(Map.new(Keyword.take(opts, [:header, :footer, :header_height, :footer_height, :chrome, :background])))
+  end
+
+  @doc "Live profile avatar binding. Compose separately from the name; size is in points."
+  def profile_avatar(id, opts \\ []) do
+    ui(%{t: "profile_avatar", profile_id: id, size: Keyword.get(opts, :size, 22)}, opts)
+  end
+
+  @doc "Live profile name binding; updates on profile edits without rebuilding the tree."
+  def profile_name(id, opts \\ []) do
+    ui(%{t: "profile_name", profile_id: id, size: Keyword.get(opts, :size, 11), color: Keyword.get(opts, :color)}, opts)
   end
 
   @doc "Stable identity and shared layout/control options. Keys must be unique among siblings."
