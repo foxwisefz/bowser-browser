@@ -99,11 +99,13 @@ defmodule BowserBrain.TabDeck do
   active tab yet, everything shows. Public for tests.
   """
   def visible_order(state) do
-    case state.active && profile_of(state, state.active) do
+    case active_profile(state) do
       nil -> state.order
       active_profile -> Enum.filter(state.order, &(profile_of(state, &1) == active_profile))
     end
   end
+
+  def active_profile(state), do: state.active && profile_of(state, state.active)
 
   defp profile_of(state, wv), do: Map.get(Map.get(state.tabs, wv, %{}), :profile) || "default"
 
@@ -153,7 +155,8 @@ defmodule BowserBrain.TabDeck do
 
     BowserBrain.Surface.show(
       :edge_dock,
-      magnify_strip(items, size: 32, spacing: 8, magnify: 1.4, event: "select"),
+      magnify_strip(items, size: 32, spacing: 8, magnify: 1.4, event: "select")
+      |> Map.put(:profile_id, active_profile(state)),
       title: "Tabs",
       kind: :edge,
       edge: :left,

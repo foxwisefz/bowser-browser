@@ -251,6 +251,9 @@ final class StripCenteringTests: XCTestCase {
         // Content taller than the view: fall back to top-aligned.
         let overflow = MagnifyStripView.centeredTop(viewHeight: 200, count: 20, size: 28, spacing: 8, minPad: 12)
         XCTAssertEqual(overflow, 12)
+        let withProfile = MagnifyStripView.centeredTop(viewHeight: 800, count: 4, size: 28, spacing: 8, minPad: 12, headerHeight: 48)
+        XCTAssertEqual(withProfile, (800 - 136 - 48) / 2 + 48, accuracy: 0.01)
+        XCTAssertEqual(MagnifyStripView.centeredTop(viewHeight: 200, count: 20, size: 28, spacing: 8, minPad: 12, headerHeight: 48), 60)
         // No items: harmless.
         XCTAssertEqual(MagnifyStripView.centeredTop(viewHeight: 800, count: 0, size: 28, spacing: 8, minPad: 12), 400)
     }

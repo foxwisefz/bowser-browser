@@ -44,6 +44,9 @@ defmodule EdgeDockTabsTest do
       |> ev(%{"event" => "tab_opened", "webview" => 3})
       |> ev(%{"event" => "tab_opened", "webview" => 4, "profile" => "work"})
 
+    assert BowserBrain.TabDeck.active_profile(state) == nil
+    assert BowserBrain.TabDeck.active_profile(%{state | active: 2}) == "work"
+    assert BowserBrain.TabDeck.active_profile(%{state | active: 3}) == "default"
     assert BowserBrain.TabDeck.visible_order(state) == [1, 2, 3, 4]
     assert BowserBrain.TabDeck.visible_order(%{state | active: 2}) == [2, 4]
     assert BowserBrain.TabDeck.visible_order(%{state | active: 3}) == [1, 3]

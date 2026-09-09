@@ -987,6 +987,13 @@ struct MagnifyStripView: View {
     // trigger; inactive items are guarded to zero offset so losing
     // activation never twitches.
     @State private var bounceStamp = 0
+    @ObservedObject private var profileSettings = ProfileSettingsModel.shared
+
+    private var deckProfile: Profile? {
+        guard surfaceId == "edge_dock", let id = node["profile_id"] as? String else { return nil }
+        return profileSettings.profiles.first { $0.id == id }
+    }
+    private var profileHeight: CGFloat { deckProfile == nil ? 0 : 48 }
 
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
 
@@ -1006,10 +1013,10 @@ struct MagnifyStripView: View {
     /// The SAME value feeds layout and the magnification row centers so
     /// hover targets stay aligned.
     static func centeredTop(
-        viewHeight: CGFloat, count: Int, size: CGFloat, spacing: CGFloat, minPad: CGFloat
+        viewHeight: CGFloat, count: Int, size: CGFloat, spacing: CGFloat, minPad: CGFloat, headerHeight: CGFloat = 0
     ) -> CGFloat {
         let content = max(0, CGFloat(count) * (size + spacing) - spacing)
-        return max(minPad, (viewHeight - content) / 2)
+        return max(minPad, (viewHeight - content - headerHeight) / 2) + headerHeight
     }
 
     private func scale(forRow index: Int, top: CGFloat) -> CGFloat {
@@ -1026,7 +1033,7 @@ struct MagnifyStripView: View {
         GeometryReader { geo in
             let top = Self.centeredTop(
                 viewHeight: geo.size.height, count: items.count,
-                size: baseSize, spacing: spacing, minPad: topPad
+                size: baseSize, spacing: spacing, minPad: topPad, headerHeight: profileHeight
             )
             let contentHeight = items.indices.reduce(CGFloat.zero) {
                 $0 + baseSize * scale(forRow: $1, top: top)
@@ -1035,9 +1042,14 @@ struct MagnifyStripView: View {
                 if surfaceId == "edge_dock", !items.isEmpty {
                     DockNotchShape()
                         .fill(.black)
-                        .frame(width: geo.size.width, height: contentHeight + 64)
-                        .offset(y: top - 32)
+                        .frame(width: geo.size.width, height: contentHeight + profileHeight + 64)
+                        .offset(y: top - profileHeight - 32)
                         .allowsHitTesting(false)
+                }
+                if let profile = deckProfile, !items.isEmpty {
+                    DockProfileHeader(profile: profile)
+                        .frame(width: geo.size.width, height: profileHeight)
+                        .offset(y: top - profileHeight)
                 }
                 VStack(spacing: spacing) {
                     ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -1120,6 +1132,39 @@ struct MagnifyStripView: View {
                     .padding(2)
             }
         }
+    }
+}
+
+/// A quiet identity header, outside the deck's tab hit targets and magnification.
+struct DockProfileHeader: View {
+    let profile: Profile
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Group {
+                if let avatar = profile.avatar {
+                    ProfileCharacterPortrait(character: avatar, size: 22)
+                } else if let icon = profile.icon {
+                    Text(icon).font(.system(size: 19))
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 21))
+                        .foregroundStyle(profile.color.map { Color(nsColor: $0) } ?? .white.opacity(0.8))
+                }
+            }
+            .frame(width: 22, height: 22)
+            Text(profile.name)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1).truncationMode(.tail)
+                .padding(.horizontal, 3)
+            Rectangle().fill(.white.opacity(0.18)).frame(width: 20, height: 1)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity)
+        .help("Profile: \(profile.name)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Profile: \(profile.name)")
     }
 }
 

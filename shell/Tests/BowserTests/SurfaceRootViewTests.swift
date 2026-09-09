@@ -43,6 +43,35 @@ final class SurfaceRootViewTests: XCTestCase {
         // A surface render must not replace/reset the edge's supplied tracker.
         XCTAssertEqual(cursor.point, CGPoint(x: 30, y: 120))
     }
+    @MainActor func testNotchProfileIdentityAtDeckWidth() throws {
+        _ = NSApplication.shared
+        let model = ProfileSettingsModel.shared
+        let previous = model.profiles
+        defer { model.replaceProfiles(previous) }
+        let work = Profile(id: "work", name: "Work projects", tint: "#3e63dd", icon: nil, uuid: nil, character: "luigi")
+        model.replaceProfiles([.defaultProfile, work])
+        for profile in [Profile.defaultProfile, work] {
+            let cursor = CursorModel()
+            let items: [[String: Any]] = (1...6).map { ["id": String($0), "symbol": "globe", "active": $0 == 2, "title": "Tab \($0)"] }
+            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "profile_id": profile.id]
+            let hosting = NSHostingView(rootView: SurfaceTreeView(surfaceId: "edge_dock", node: tree, cursor: cursor))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.backgroundColor = .clear; window.isOpaque = false
+            window.contentView = hosting; hosting.frame = NSRect(x: 0, y: 0, width: 48, height: 420)
+            window.orderFront(nil)
+            defer { window.orderOut(nil) }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+            hosting.layoutSubtreeIfNeeded(); window.displayIfNeeded()
+            let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            XCTAssertFalse(png.isEmpty)
+            if let directory = ProcessInfo.processInfo.environment["BOWSER_SURFACE_RENDER"] {
+                try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-\(profile.id).png"))
+            }
+        }
+    }
+
     @MainActor func testFloatingPanelCloseWorksWithoutBrainOrPanelsMod() async throws {
         _ = NSApplication.shared
         let id = "panel-close-test-" + UUID().uuidString
