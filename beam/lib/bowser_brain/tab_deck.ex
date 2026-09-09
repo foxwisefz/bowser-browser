@@ -123,11 +123,9 @@ defmodule BowserBrain.TabDeck do
   end
 
   defp render(state) do
-    # Grouped by profile (default first, then the profiles list order), each
-    # icon ringed in its profile's tint — which "you" a tab belongs to.
+    # The header identifies the active profile; tab artwork needs no repeated badge.
     profiles = BowserBrain.Profiles.list()
     rank = profiles |> Enum.map(& &1["id"]) |> Enum.with_index() |> Map.new()
-    tints = Map.new(profiles, &{&1["id"], &1["tint"]})
 
     grouped =
       Enum.sort_by(visible_order(state), fn wv ->
@@ -137,7 +135,6 @@ defmodule BowserBrain.TabDeck do
     items =
       Enum.map(grouped, fn wv ->
         tab = Map.get(state.tabs, wv, %{favicon: nil, title: nil})
-        tint = Map.get(tints, Map.get(tab, :profile) || "default")
 
         base = %{
           id: to_string(wv),
@@ -145,7 +142,6 @@ defmodule BowserBrain.TabDeck do
           title: tab.title || "Tab #{wv}"
         }
 
-        base = if tint, do: Map.put(base, :tint, tint), else: base
 
         case tab.favicon do
           nil -> Map.put(base, :symbol, "globe")
@@ -156,7 +152,7 @@ defmodule BowserBrain.TabDeck do
     BowserBrain.Surface.show(
       :edge_dock,
       magnify_strip(items, size: 32, spacing: 8, magnify: 1.4, event: "select",
-        header: profile_header(active_profile(state)), header_height: 48, chrome: "notch")
+        header: profile_header(active_profile(state)), header_height: 40, chrome: "notch")
       |> Map.put(:profile_id, active_profile(state)),
       title: "Tabs",
       kind: :edge,
@@ -172,10 +168,8 @@ defmodule BowserBrain.TabDeck do
   def profile_header(nil), do: nil
   def profile_header(id) do
     vstack([
-      profile_avatar(id, size: 22),
-      profile_name(id, size: 9, color: "#cccccc", max_width: 42),
-      divider() |> ui(width: 20)
-    ], spacing: 1, alignment: "center", fill_width: true)
+      profile_avatar(id, size: 20)
+    ], spacing: 0, alignment: "center")
   end
 
   defp focus_tab(wv) do
