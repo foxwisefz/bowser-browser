@@ -1,0 +1,28 @@
+#!/bin/zsh
+set -euo pipefail
+repo=${0:A:h:h:h}
+fixture=$(mktemp -d /tmp/bowser-native-modules.XXXXXX)
+app="$fixture/NativeModuleExperiment.app"
+mkdir -p "$app/Contents/MacOS"
+for variant in V1 V2 BAD_ABI FAIL_CREATE; do
+  swiftc -swift-version 6 -D "$variant" -module-name "Experiment_$variant" -emit-library "$repo/experiments/native-modules/Module.swift" -o "$fixture/$variant.dylib"
+  codesign --force --sign - "$fixture/$variant.dylib"
+done
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=960x540:rate=30' -t 60 -c:v libx264 -pix_fmt yuv420p "$fixture/video.mp4"
+cp -f "$repo/experiments/native-modules/fixture.html" "$fixture/fixture.html"
+swiftc -swift-version 6 "$repo/experiments/native-modules/main.swift" -o "$app/Contents/MacOS/NativeModuleExperiment"
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.bowser.native-module-experiment</string>
+<key>CFBundleExecutable</key><string>NativeModuleExperiment</string>
+<key>CFBundleName</key><string>Native Module Experiment</string>
+<key>ExperimentDirectory</key><string>$fixture</string>
+</dict></plist>
+PLIST
+# Ad hoc signed, isolated fixture. Production Team-ID/library validation is a
+# separate gate; this experiment does not disable signing on installed Bowser.
+codesign --force --sign - "$app"
+open -n -W "$app"
+cat "$fixture/result.json"
+print "Artifacts: $fixture"
+test ! -e "$fixture/failure.txt"

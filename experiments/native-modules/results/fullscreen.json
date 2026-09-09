@@ -1,0 +1,54 @@
+{
+  "after" : {
+    "frames" : 81,
+    "fullscreen" : true,
+    "interruptions" : [
+
+    ],
+    "maxGapMS" : 71,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "ticks" : 193,
+    "time" : 5.7321102090090221,
+    "token" : "a564e273-8827-47c9-9ba0-47bfa32a6680"
+  },
+  "before" : {
+    "frames" : 0,
+    "fullscreen" : true,
+    "interruptions" : [
+
+    ],
+    "maxGapMS" : 0,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "ticks" : 48,
+    "time" : 1.3767309583364558,
+    "token" : "a564e273-8827-47c9-9ba0-47bfa32a6680"
+  },
+  "counter" : 18,
+  "loadMS" : 1320.554166653892,
+  "passed" : true,
+  "rejectedCandidates" : 24,
+  "replacements" : 12,
+  "retiredViewsReleased" : 12,
+  "sameWindowAndWebView" : true,
+  "scope" : "Ad hoc signed isolated Swift modules; C ABI; retained dylib mappings; local muted HTML fullscreen video. No production updater integration.",
+  "staleEventsRejected" : 11,
+  "swapMS" : [
+    0.28266666049603373,
+    1.0007499950006604,
+    0.96720833971630782,
+    1.1147916666232049,
+    0.93983333499636501,
+    0.95133332069963217,
+    0.97483332501724362,
+    0.90783333871513605,
+    0.89470834063831717,
+    0.90441666543483734,
+    0.96991666941903532,
+    0.91783332754857838,
+    0.87366666411980987
+  ]
+}
