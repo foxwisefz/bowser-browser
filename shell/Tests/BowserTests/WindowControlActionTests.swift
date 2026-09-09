@@ -3,6 +3,42 @@ import XCTest
 
 final class WindowControlActionTests: XCTestCase {
     @MainActor
+    func testCloseControlClosesOnlyActiveTabUntilLastTab() throws {
+        let controller = BrowserWindowController(profile: .defaultProfile)
+        let window = try XCTUnwrap(controller.window)
+        defer { window.close() }
+        let first = try XCTUnwrap(controller.activeTab)
+        let second = controller.openTab()
+        let third = controller.openTab()
+        controller.activateTab(id: second.webviewId)
+
+        // Exercise AppKit's real traffic-light target/action and delegate path.
+        let button = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        button.performClick(nil)
+        XCTAssertEqual(controller.tabs.map(\.webviewId), [first.webviewId, third.webviewId])
+        XCTAssertTrue(controller.activeTab === third)
+        XCTAssertTrue(BrowserWindowController.all.contains { $0 === controller })
+        XCTAssertNil(EngineView.live[second.webviewId])
+
+        WindowControlAction.close.perform(on: window)
+        XCTAssertEqual(controller.tabs.map(\.webviewId), [first.webviewId])
+        XCTAssertTrue(controller.activeTab === first)
+        window.performClose(nil)
+        XCTAssertTrue(controller.tabs.isEmpty)
+        XCTAssertFalse(BrowserWindowController.all.contains { $0 === controller })
+    }
+
+    @MainActor
+    func testExplicitCloseWindowStillClosesAllTabs() throws {
+        let controller = BrowserWindowController(profile: .defaultProfile)
+        let window = try XCTUnwrap(controller.window)
+        controller.openTab()
+        window.close()
+        XCTAssertTrue(controller.tabs.isEmpty)
+        XCTAssertFalse(BrowserWindowController.all.contains { $0 === controller })
+    }
+
+    @MainActor
     func testNativeButtonsStayVisibleAndBackgroundHoverCreatesNoPanel() throws {
         let controller = BrowserWindowController(profile: .defaultProfile)
         let window = try XCTUnwrap(controller.window)

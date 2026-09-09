@@ -499,6 +499,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    /// The traffic light (and performClose:) means Close Tab, just like ⌘W.
+    /// Explicit Close Window and application teardown call close() directly.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard tabs.count > 1, let active = activeTab else { return true }
+        closeTab(active)
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
         ChromeSurface.unregister(self)
         Self.all.removeAll { $0 === self }
