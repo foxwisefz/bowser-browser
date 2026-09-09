@@ -6,12 +6,13 @@ defmodule BowserBrain.ViewTest do
   test "strip chrome is a composable JSON tree, including profile bindings and actions" do
     header = BowserBrain.TabDeck.profile_header("work")
     footer = View.action("New tab", event: "new", symbol: "plus")
-    tree = View.magnify_strip([], header: header, footer: footer, header_height: 48,
+    tree = View.magnify_strip([], header: header, footer: footer, header_height: 48, header_outside: true,
       footer_height: 32, chrome: "notch", background: "#112233")
     decoded = tree |> JSON.encode!() |> JSON.decode!()
     assert Map.take(decoded["header"], ["t", "profile_id", "size"]) == %{"t" => "profile_avatar", "profile_id" => "work", "size" => 18}
     assert decoded["footer"]["event"] == "new"
     assert decoded["header_height"] == 48
+    assert decoded["header_outside"] == true
     assert decoded["background"] == "#112233"
   end
 

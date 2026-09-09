@@ -994,6 +994,7 @@ struct MagnifyStripView: View {
     // Slots are ordinary live surface trees; the strip only reserves geometry.
     private var header: [String: Any]? { node["header"] as? [String: Any] }
     private var footer: [String: Any]? { node["footer"] as? [String: Any] }
+    private var headerOutside: Bool { node["header_outside"] as? Bool == true }
     private var headerHeight: CGFloat { header == nil ? 0 : min(240, max(0, node["header_height"] as? Double ?? 48)) }
     private var footerHeight: CGFloat { footer == nil ? 0 : min(240, max(0, node["footer_height"] as? Double ?? 48)) }
     private var notch: Bool { (node["chrome"] as? String ?? (surfaceId == "edge_dock" ? "notch" : "none")) == "notch" }
@@ -1045,8 +1046,8 @@ struct MagnifyStripView: View {
                 if notch, !items.isEmpty {
                     DockNotchShape()
                         .fill(Profile.color(hex: node["background"] as? String).map { Color(nsColor: $0) } ?? .black)
-                        .frame(width: geo.size.width, height: contentHeight + headerHeight + footerHeight + 64)
-                        .offset(y: top - headerHeight - 32)
+                        .frame(width: geo.size.width, height: contentHeight + (headerOutside ? 0 : headerHeight) + footerHeight + 64)
+                        .offset(y: top - (headerOutside ? 0 : headerHeight) - 32)
                         .allowsHitTesting(false)
                 }
                 if let header, !items.isEmpty {

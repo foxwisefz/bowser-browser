@@ -121,3 +121,8 @@ panel. It does not recreate browser windows or WebKit pages. After the native
 renderer containing these primitives has been activated once, changing slot
 content, layout, colors, and controls requires only a live surface update.
 Adding a new native primitive still requires native capability activation.
+
+For identity outside the tab container, `header_outside: true` reserves the
+header's layout space but excludes it from the notch backing. The tab deck
+uses a 94-point slot with an 18-point avatar, leaving a visible gap above the
+upper shoulder. This option requires the renderer that implements it.

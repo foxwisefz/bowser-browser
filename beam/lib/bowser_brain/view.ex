@@ -167,7 +167,7 @@ defmodule BowserBrain.View do
       spacing: Keyword.get(opts, :spacing, 8),
       event: to_string(Keyword.get(opts, :event, :select))
     }
-    |> Map.merge(Map.new(Keyword.take(opts, [:header, :footer, :header_height, :footer_height, :chrome, :background])))
+    |> Map.merge(Map.new(Keyword.take(opts, [:header, :footer, :header_height, :header_outside, :footer_height, :chrome, :background])))
   end
 
   @doc "Live profile avatar binding. Compose separately from the name; size is in points."
