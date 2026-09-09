@@ -116,6 +116,43 @@ defmodule BowserBrain.SessionTest do
     assert state.active == 2
   end
 
+  test "a new native process with a launch URL restores both profiles without discarding the launch page", %{path: path} do
+    saved = [%{url: "https://personal.example/", profile: "default"},
+             %{url: "https://work.example/", profile: "work"}]
+    state = base_state(%{disk: %{tabs: saved, urls: Enum.map(saved, & &1.url), active: 0, engine_session_id: "old"}})
+      |> event(%{"event" => "hello", "engine_session_id" => "new", "active" => 2,
+        "tabs" => [%{"id" => 2, "url" => "http://localhost:3000/", "profile" => "default"}]})
+    assert state.pending_restore == saved
+    assert state.active == 2
+    assert %{"tabs" => [_, _, _], "engine_session_id" => "new"} = JSON.decode!(File.read!(path))
+    # Even before any navigation completes, a quit retains the whole session.
+    {:reply, :ok, _} = Session.handle_call(:prepare_quit, self(), state)
+    assert length(JSON.decode!(File.read!(path))["tabs"]) == 3
+    state = state |> event(%{"event" => "tab_opened", "webview" => 3})
+                  |> event(%{"event" => "tab_opened", "webview" => 4})
+    assert state.pending_restore == []
+    assert state.tabs[2] == "http://localhost:3000/"
+    assert state.tabs[3] == "https://personal.example/"
+    assert state.profiles[4] == "work"
+    assert Session.load_disk().engine_session_id == "new"
+  end
+
+  test "backend reconnect to the same native process adopts live tabs without resurrecting closed ones" do
+    saved = [%{url: "https://closed.example/", profile: "default"}]
+    state = base_state(%{disk: %{tabs: saved, urls: [hd(saved).url], active: 0, engine_session_id: "same"}})
+      |> event(%{"event" => "hello", "engine_session_id" => "same", "active" => 8,
+        "tabs" => [%{"id" => 8, "url" => "https://live.example/", "profile" => "work"}]})
+    assert state.tabs == %{8 => "https://live.example/"}
+    refute Map.has_key?(state, :pending_restore)
+  end
+
+  test "launch matching preserves duplicate tabs and never matches across profiles" do
+    personal = %{url: "https://same.example/", profile: "default"}
+    work = %{url: personal.url, profile: "work"}
+    assert Session.missing_entries([personal, personal, work],
+      [%{"id" => 1, "url" => personal.url, "profile" => "default"}]) == [personal, work]
+  end
+
   test "fresh-engine restore arms activation for the remembered active tab" do
     state =
       base_state(%{

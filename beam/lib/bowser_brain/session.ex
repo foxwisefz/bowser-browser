@@ -79,6 +79,14 @@ defmodule BowserBrain.Session do
   end
 
   # A restore is in flight: each tab_opened is one of our open_tab casts
+  # Launch URLs remain open; seed restored URLs immediately so an interrupted
+  # load or quit cannot replace the saved session with a partial restore.
+  def handle_info({:browser_event, %{"event" => "tab_opened", "webview" => wv}},
+                  %{pending_restore: [entry | rest]} = state) do
+    state = state |> note_profile(wv, entry.profile)
+    {:noreply, persist(%{state | tabs: Map.put(state.tabs, wv, entry.url), pending_restore: rest})}
+  end
+
   # coming back with its webview id. When the countdown hits the remembered
   # active tab, put it on screen.
   def handle_info(
@@ -121,8 +129,29 @@ defmodule BowserBrain.Session do
     engine_tabs = Map.get(hello, "tabs", [])
     engine_urls = for %{"url" => u} <- engine_tabs, real_url?(u), do: u
     remembered = ordered_urls(state.tabs)
+    engine_id = hello["engine_session_id"]
+    previous_id = Map.get(state, :engine_session_id) || Map.get(state.disk, :engine_session_id)
+    fresh_engine = is_binary(engine_id) and engine_id != previous_id
+    saved = if remembered == [], do: disk_entries(state.disk), else: entries(state)
+    state = if is_binary(engine_id), do: Map.put(state, :engine_session_id, engine_id), else: state
 
     cond do
+      fresh_engine and engine_urls != [] and saved != [] ->
+        missing = missing_entries(saved, engine_tabs)
+        Logger.info("session: fresh engine with launch URLs — restoring #{length(missing)} missing tabs")
+        adopted = for %{"id" => id, "url" => u} <- engine_tabs, real_url?(u), into: %{}, do: {id, u}
+        profiles = for %{"id" => id} = t <- engine_tabs, into: %{}, do: {id, t["profile"] || "default"}
+        state = state |> Map.put(:tabs, adopted) |> Map.put(:profiles, profiles)
+          |> Map.put(:active, hello["active"]) |> Map.put(:pending_restore, missing)
+        # Persist all pending entries before asking WebKit to open any of them.
+        state = persist(state)
+        BowserBrain.UserContent.push_now()
+        for entry <- missing do
+          Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: entry.url, profile: entry.profile})
+        end
+        Bridge.cast_msg(%{op: "restore_done", webview: hello["active"] || 0})
+        {:noreply, state}
+
       engine_urls != [] ->
         Logger.info("session: adopting engine state (#{length(engine_urls)} tabs)")
         adopted =
@@ -227,6 +256,19 @@ defmodule BowserBrain.Session do
   defp disk_entries(%{urls: urls}), do: Enum.map(urls, &%{url: &1, profile: "default"})
   defp disk_entries(_), do: []
 
+  @doc "Saved tabs absent from the launch snapshot, matching profile and URL with multiplicity."
+  def missing_entries(saved, engine_tabs) do
+    available = engine_tabs |> Enum.map(&{&1["profile"] || "default", &1["url"]}) |> Enum.frequencies()
+    {missing, _} = Enum.reduce(saved, {[], available}, fn entry, {missing, counts} ->
+      key = {entry.profile, entry.url}
+      case Map.get(counts, key, 0) do
+        0 -> {[entry | missing], counts}
+        n -> {missing, Map.put(counts, key, n - 1)}
+      end
+    end)
+    Enum.reverse(missing)
+  end
+
   defp normalize_entry(%{url: u, profile: p}), do: %{url: u, profile: p || "default"}
   defp normalize_entry(%{"url" => u} = e), do: %{url: u, profile: e["profile"] || "default"}
   defp normalize_entry(u) when is_binary(u), do: %{url: u, profile: "default"}
@@ -281,9 +323,9 @@ defmodule BowserBrain.Session do
     with {:ok, raw} <- File.read(disk_path()),
          {:ok, decoded} <- JSON.decode(raw) do
       case decoded do
-        %{"tabs" => tabs, "active" => active} when is_list(tabs) ->
+        %{"tabs" => tabs, "active" => active} = stored when is_list(tabs) ->
           tabs = for %{"url" => u} = t <- tabs, real_url?(u), do: %{url: u, profile: t["profile"] || "default"}
-          disk(tabs, active)
+          Map.put(disk(tabs, active), :engine_session_id, stored["engine_session_id"])
 
         %{"urls" => urls, "active" => active} when is_list(urls) ->
           disk(Enum.map(Enum.filter(urls, &real_url?/1), &%{url: &1, profile: "default"}), active)
@@ -306,12 +348,14 @@ defmodule BowserBrain.Session do
   end
 
   defp persist(state) do
-    urls = ordered_urls(state.tabs)
+    tabs = entries(state) ++ Map.get(state, :pending_restore, [])
+    urls = Enum.map(tabs, & &1.url)
 
     if urls != [] do
       path = disk_path()
       temporary = path <> ".tmp"
-      File.write!(temporary, JSON.encode!(%{tabs: entries(state), urls: urls, active: active_index(state.tabs, state.active)}))
+      File.write!(temporary, JSON.encode!(%{tabs: tabs, urls: urls, active: active_index(state.tabs, state.active),
+                                          engine_session_id: Map.get(state, :engine_session_id)}))
       File.rename!(temporary, path)
     end
 

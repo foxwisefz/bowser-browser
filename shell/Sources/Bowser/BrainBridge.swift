@@ -11,6 +11,8 @@ import WebKit
 @MainActor
 final class BrainBridge {
     static let shared = BrainBridge()
+    /// Stable across backend reconnects, different for every native launch.
+    private let engineSessionID = UUID().uuidString
 
     // Written by the socket thread, read under lock by send().
     private let connLock = NSLock()
@@ -199,7 +201,8 @@ final class BrainBridge {
             }
             return tab
         }
-        var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs]
+        var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs,
+                                    "engine_session_id": engineSessionID]
         if let active = (NSApp.delegate as? AppDelegate)?.currentWebviewId {
             hello["active"] = active
         }
