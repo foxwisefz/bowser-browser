@@ -93,7 +93,7 @@ final class SurfaceRootViewTests: XCTestCase {
         for profile in [Profile.defaultProfile, work] {
             let cursor = CursorModel()
             let items: [[String: Any]] = (1...6).map { ["id": String($0), "symbol": "globe", "active": $0 == 2, "title": "Tab \($0)"] }
-            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 94.0, "header_outside": true, "header": ["t": "profile_avatar", "profile_id": profile.id, "size": 18.0]]
+            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 82.0, "header_outside": true, "header": ["t": "profile_avatar", "profile_id": profile.id, "size": 18.0]]
             let hosting = NSHostingView(rootView: SurfaceTreeView(surfaceId: "edge_dock", node: tree, cursor: cursor).background(Color.gray))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
             window.backgroundColor = .darkGray; window.isOpaque = true

@@ -152,7 +152,7 @@ defmodule BowserBrain.TabDeck do
     BowserBrain.Surface.show(
       :edge_dock,
       magnify_strip(items, size: 32, spacing: 8, magnify: 1.4, event: "select",
-        header: profile_header(active_profile(state)), header_height: 94, header_outside: true, chrome: "notch")
+        header: profile_header(active_profile(state)), header_height: 82, header_outside: true, chrome: "notch")
       |> Map.put(:profile_id, active_profile(state)),
       title: "Tabs",
       kind: :edge,
