@@ -96,6 +96,37 @@ final class SiteAppTests: XCTestCase {
         defer { server.stop() }
         let bundle = try TabAppBundle.create(url: server.url, profile: "default",
                                              iconData: nil, directory: root, bowser: browser)
+        // The saved app may start its parent when the real browser is closed.
+        // Give LaunchServices a complete, harmless parent instead of an invalid
+        // Engine.app or another browser process with access to user state.
+        let fixtureSource = root.appendingPathComponent("Fixture.swift")
+        try """
+        import AppKit
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { app.terminate(nil) }
+        app.run()
+        """.write(to: fixtureSource, atomically: true, encoding: .utf8)
+        let fixtureExecutable = browser.appendingPathComponent("Contents/MacOS/Fixture")
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: "/usr/bin/swiftc")
+        compiler.arguments = [fixtureSource.path, "-o", fixtureExecutable.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let info: [String: Any] = ["CFBundleIdentifier": "com.gezim.bowser.test-parent.\(UUID().uuidString)",
+            "CFBundleExecutable": "Fixture", "CFBundlePackageType": "APPL", "LSUIElement": true]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: browser.appendingPathComponent("Contents/Info.plist"))
+        let signer = Process()
+        signer.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        signer.arguments = ["--force", "--sign", "-", browser.path]
+        try signer.run(); signer.waitUntilExit()
+        XCTAssertEqual(signer.terminationStatus, 0)
+        // Exercise the parent launch even when the user's Bowser is running.
+        let parentOptions = NSWorkspace.OpenConfiguration()
+        parentOptions.activates = false
+        let parent = try await NSWorkspace.shared.openApplication(at: browser, configuration: parentOptions)
+        defer { if !parent.isTerminated { _ = parent.terminate() } }
         print("Signed site app preparation: \((ProcessInfo.processInfo.systemUptime - preparationStart) * 1000)ms")
         let configuration = try XCTUnwrap(SiteAppConfiguration.parse(Bundle(url: bundle)!.infoDictionary!))
         let mainPIDs = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").map(\.processIdentifier))
