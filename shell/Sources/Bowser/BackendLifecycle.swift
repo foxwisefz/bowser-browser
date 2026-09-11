@@ -11,13 +11,15 @@ final class BackendLifecycle {
     private(set) var isQuitting = false
     var quitAcknowledged = false
 
-    static func helper(home: URL = BowserPaths.home) -> URL? {
-        let runtime = home.appendingPathComponent("app")
-        let helper = runtime.appendingPathComponent("bin/bowser")
-        guard FileManager.default.isExecutableFile(atPath: helper.path),
-              FileManager.default.isExecutableFile(atPath: runtime.appendingPathComponent("brain/bin/bowser_brain").path)
-        else { return nil }
-        return helper
+    static func helper(home: URL = BowserPaths.home,
+                       bundledRuntime: URL? = Bundle.main.resourceURL?.appendingPathComponent("runtime")) -> URL? {
+        // A distribution bundle carries a matching runtime. Development installs
+        // retain the external layout; no runtime is copied into user state at launch.
+        let candidates = [bundledRuntime, home.appendingPathComponent("app")].compactMap { $0 }
+        return candidates.first { runtime in
+            FileManager.default.isExecutableFile(atPath: runtime.appendingPathComponent("bin/bowser").path) &&
+            FileManager.default.isExecutableFile(atPath: runtime.appendingPathComponent("brain/bin/bowser_brain").path)
+        }?.appendingPathComponent("bin/bowser")
     }
 
     func start() {

@@ -1,0 +1,56 @@
+#!/bin/bash
+# Package a complete bin/install stage; never reads browser state or changes installs.
+set -euo pipefail
+if [ "$#" -ne 2 ]; then echo "usage: bin/package-dmg STAGE OUTPUT.dmg" >&2; exit 2; fi
+stage="$(cd "$1" && pwd -P)"
+output="$2"
+case "$output" in /*) ;; *) output="$PWD/$output";; esac
+[ ! -e "$output" ] || { echo "output already exists: $output" >&2; exit 1; }
+for file in bundle/Contents/MacOS/Bowser runtime/bin/bowser runtime/bin/backend-host runtime/brain/bin/bowser_brain; do
+  [ -x "$stage/$file" ] || { echo "incomplete stage: $file" >&2; exit 1; }
+done
+if find "$stage/runtime" -name 'Elixir.BowserBrain.XFeed.beam' -o -name 'Elixir.BowserBrain.XServer.beam' -o -name 'Elixir.BowserBrain.SDUI.beam' -o -name 'Elixir.BowserBrain.XAdapter.beam' | grep -q .; then
+  echo "refusing to package mobile experiment modules" >&2; exit 1
+fi
+root="$(mktemp -d /tmp/bowser-dmg.XXXXXX)"
+trap 'rm -rf "$root"' EXIT
+mkdir -p "$root/image" "$(dirname "$output")"
+ditto "$stage/bundle" "$root/image/Bowser.app"
+mkdir -p "$root/image/Bowser.app/Contents/Resources/runtime"
+for entry in bin brain HANDOFF.json VERSION; do
+  ditto "$stage/runtime/$entry" "$root/image/Bowser.app/Contents/Resources/runtime/$entry"
+done
+# Homebrew's OTP crypto NIF links to libcrypto outside the release. Relocate
+# that known dependency beside each consumer before signing the copied tree.
+runtime="$root/image/Bowser.app/Contents/Resources/runtime"
+while IFS= read -r -d '' nif; do
+  dependency="$(otool -L "$nif" | awk '/\/opt\/homebrew\/.*libcrypto.*dylib / {print $1}')"
+  if [ -n "$dependency" ]; then
+    [ -f "$dependency" ] || { echo "missing dependency: $dependency" >&2; exit 1; }
+    cp -f "$dependency" "$(dirname "$nif")/$(basename "$dependency")"
+    install_name_tool -change "$dependency" "@loader_path/$(basename "$dependency")" "$nif"
+    install_name_tool -id "@loader_path/$(basename "$dependency")" "$(dirname "$nif")/$(basename "$dependency")"
+    license="$(dirname "$(dirname "$dependency")")/LICENSE.txt"
+    [ -f "$license" ] || { echo "missing OpenSSL license: $license" >&2; exit 1; }
+    mkdir -p "$runtime/licenses"
+    cp -f "$license" "$runtime/licenses/OpenSSL.txt"
+  fi
+done < <(find "$runtime" -type f -name '*.so' -print0)
+# Native runtime executables and bundled ERTS need signatures, including files
+# with no .dylib extension. Sign inner binaries first, then the outer app.
+identity="${BOWSER_SIGN_IDENTITY:--}"
+while IFS= read -r -d '' file; do
+  if /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
+    if otool -L "$file" | tail -n +2 | grep -Eq '/opt/homebrew/|/usr/local/|/Users/'; then
+      echo "unbundled dependency in $file" >&2; exit 1
+    fi
+    codesign --force --sign "$identity" "$file"
+  fi
+done < <(find "$root/image/Bowser.app/Contents/Resources/runtime" -type f -print0)
+codesign --force --deep --sign "$identity" "$root/image/Bowser.app"
+codesign --verify --deep --strict "$root/image/Bowser.app"
+ln -s /Applications "$root/image/Applications"
+hdiutil create -volname Bowser -srcfolder "$root/image" -format UDZO "$output"
+hdiutil verify "$output"
+echo "Created $output"
+if [ "$identity" = - ]; then echo "Local-test artifact: ad-hoc signed, not notarized."; fi
