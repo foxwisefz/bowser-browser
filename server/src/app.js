@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { createServer as createTLSServer } from 'node:https';
+import { readFileSync, createReadStream, statSync } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { resolve } from 'node:path';
 import { APIError, registration } from './validation.js';
 
@@ -40,11 +42,12 @@ export class RateLimit {
     this.clients.set(key, count + 1); return true;
   }
 }
-export function createApp({ store, website, termsVersions = [], now = Date.now, trustedProxy, limit = new RateLimit(), routes = {} }) {
+export function createApp({ store, website, termsVersions = [], now = Date.now, trustedProxy, limit = new RateLimit(), routes = {}, tls, download }) {
   // Exact allowlist: no file paths derived from incoming URLs, no private DB or
   // source files can be served, and a missing website fails startup.
   const assets = Object.fromEntries(Object.entries(files).map(([url, [file, type]]) => [url, { data: readFileSync(resolve(website, file)), type }]));
-  const server = createServer({ maxHeaderSize: 8192, requestTimeout: 15000, headersTimeout: 10000 }, async (req, res) => {
+  if (download && !statSync(download).isFile()) throw new Error("Download must be a file");
+  const server = (tls ? createTLSServer : createServer)({ ...tls, maxHeaderSize: 8192, requestTimeout: 15000, headersTimeout: 10000 }, async (req, res) => {
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
       if (path === '/healthz' && req.method === 'GET') { json(res, 200, { ok: true }); return; }
@@ -55,6 +58,13 @@ export function createApp({ store, website, termsVersions = [], now = Date.now, 
           res.end(req.method === 'HEAD' ? undefined : asset.data); return;
         }
       }
+      if (path === '/Bowser.zip' && (req.method === 'GET' || req.method === 'HEAD')) {
+        if (!download) throw new APIError(503, 'download_unavailable');
+        res.writeHead(200, { ...headers, 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="Bowser.zip"' });
+        if (req.method === 'HEAD') res.end();
+        else await pipeline(createReadStream(download), res);
+        return;
+      }
       if (path !== '/v1/registrations' && !routes[path]) throw new APIError(404, 'not_found');
       if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); throw new APIError(405, 'method_not_allowed'); }
       const remote = req.socket.remoteAddress;
@@ -64,7 +74,7 @@ export function createApp({ store, website, termsVersions = [], now = Date.now, 
       if (!termsVersions.length) throw new APIError(503, 'registration_unavailable');
       const body = registration(await readJSON(req), req.headers['idempotency-key'], termsVersions, now());
       const result = store.register(body, now());
-      json(res, result.created ? 201 : 200, { registrationID: result.registrationID });
+      json(res, result.created ? 201 : 200, { registrationID: result.registrationID, telemetryToken: store.telemetryToken(result.registrationID) });
     } catch (error) {
       // Never reflect payloads, SQL errors, email addresses or credentials.
       if (!res.headersSent && !res.destroyed) json(res, error instanceof APIError ? error.status : 500,
@@ -72,6 +82,7 @@ export function createApp({ store, website, termsVersions = [], now = Date.now, 
       else res.destroy();
     }
   });
+  server.maxConnections = 1000;
   server.maxHeadersCount = 40;
   server.maxRequestsPerSocket = 100;
   return server;
