@@ -25,7 +25,6 @@ defmodule BowserBrain.Application do
       BowserBrain.ShellTheme,
       BowserBrain.Toolbars,
       BowserBrain.ModLog,
-      BowserBrain.XFeed,
       {DynamicSupervisor, name: BowserBrain.ModSupervisor, strategy: :one_for_one},
       BowserBrain.Settings,
       BowserBrain.ModWorkshop,
@@ -35,7 +34,6 @@ defmodule BowserBrain.Application do
       # Every core event subscriber must exist before the first native hello.
       BowserBrain.Bridge,
       BowserBrain.AgentPort,
-      BowserBrain.XServer,
       BowserBrain.Loader,
       BowserBrain.LibReloader,
       BowserBrain.SiteMods,

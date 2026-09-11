@@ -39,10 +39,22 @@ async def until(predicate, timeout=20):
     await asyncio.wait_for(check(), timeout)
 
 class StartupTests(unittest.TestCase):
+    def test_mobile_state_schema_is_rejected_before_starting_backend(self):
+        with tempfile.TemporaryDirectory(prefix='bs.', dir='/tmp') as directory:
+            root = Path(directory)
+            runtime = root / 'app'
+            runtime.mkdir()
+            (runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
+            result = subprocess.run([str(HOST), str(root), str(runtime)],
+                                    capture_output=True, text=True, timeout=3)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('incompatible', result.stderr)
+            self.assertFalse((root / 'backend/host.sock').exists())
+
     def test_invalid_release_exits_and_releases_socket(self):
         with tempfile.TemporaryDirectory(prefix='bs.',dir='/tmp') as directory:
             root=Path(directory); runtime=root/'app'; runtime.mkdir()
-            (runtime/'HANDOFF.json').write_text('{"protocol":999,"state_schema":3}')
+            (runtime/'HANDOFF.json').write_text('{"protocol":999,"state_schema":4}')
             result=subprocess.run([str(HOST),str(root),str(runtime)],capture_output=True,text=True,timeout=3,env={**os.environ,'PATH':'/nonexistent'})
             self.assertNotEqual(result.returncode,0)
             self.assertIn('incompatible',result.stderr)
@@ -56,9 +68,10 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = self.home / 'app'
         self.runtime.mkdir()
         shutil.copytree(os.environ['BOWSER_TEST_RELEASE'], self.runtime / 'brain')
-        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
+        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":4}')
         (self.home / 'mods').mkdir()
         (self.home / 'mods/Counter.ex').write_text('''
+# bowser-profile: personal
         defmodule HandoffCounter do
           use BowserBrain.Mod, handoff: true
           def init_mod(_) do
@@ -127,7 +140,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(.03)
 
     def event(self):
-        send(self.native_writer, dict(op='event', event='counter', id='fixture_button'))
+        send(self.native_writer, dict(op='event', event='counter', id='fixture_button', profile='personal'))
 
     async def asyncTearDown(self):
         if self.process.returncode is None:
@@ -229,7 +242,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_incompatible_release_never_pauses_active_backend(self):
         candidate = self.candidate()
-        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":3}')
+        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":4}')
         result = await self.control('update', runtime=str(candidate))
         self.assertFalse(result['ok']); self.assertIn('incompatible', result['error'])
         self.event(); await self.count(1)
@@ -282,7 +295,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
     def fake_candidate(self, mode):
         target = self.home / 'releases' / mode
         (target / 'brain/bin').mkdir(parents=True)
-        (target / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":3}')
+        (target / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":4}')
         script = ROOT / 'tests/fixtures/handoff_candidate.py'
         executable = target / 'brain/bin/bowser_brain'
         executable.write_text('#!/bin/sh\nexec /usr/bin/python3 "' + str(script) + '" ' + mode + '\n')

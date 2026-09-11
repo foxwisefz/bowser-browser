@@ -51,6 +51,12 @@ ACTIVE_RUNTIME="${BOWSER_HOME:-$HOME/.bowser}/backend/active.json"
 if [ -f "$ACTIVE_RUNTIME" ]; then
   BASE_RUNTIME="$("$RUNTIME_TOOL" active-runtime "$ACTIVE_RUNTIME")"
 fi
+# A new host cannot boot the old mobile-inclusive schema. Promote a partial
+# shell install to a complete pair rather than publishing incompatible helpers.
+if [ "$SHELL_ONLY" = 1 ] && ! grep -Eq '"state_schema"[[:space:]]*:[[:space:]]*4' "$BASE_RUNTIME/HANDOFF.json" 2>/dev/null; then
+  say "upgrading the backend too: desktop-only host requires state schema 4"
+  SHELL_ONLY=0
+fi
 if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi
 mkdir -p "$APP_DIR/bin"
 # Remove only obsolete helper artifacts from the unpublished copy.
@@ -109,7 +115,7 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 
 if [ "$SHELL_ONLY" = 0 ]; then
-  printf '{"protocol":1,"state_schema":3}\n' > "$APP_DIR/HANDOFF.json"
+  printf '{"protocol":1,"state_schema":4}\n' > "$APP_DIR/HANDOFF.json"
 fi
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"

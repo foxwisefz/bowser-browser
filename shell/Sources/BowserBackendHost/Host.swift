@@ -62,7 +62,7 @@ final class Host {
     }
     func boot(_ runtime: URL) async throws -> Generation {
         let meta = try readJSON(child(runtime, "HANDOFF.json"))
-        guard meta["protocol"] as? Int == 1, meta["state_schema"] as? Int == 3 else {
+        guard meta["protocol"] as? Int == 1, meta["state_schema"] as? Int == 4 else {
             throw RuntimeFailure("incompatible release; waiting for native restart")
         }
         let directory = child(root, "g" + String(UUID().uuidString.prefix(8)))
@@ -89,7 +89,7 @@ final class Host {
             try log.close()
             try await until(20) { exists(child(directory, "control.sock")) || !process.isRunning }
             let status = try await gen.call("status")
-            guard status["schema"] as? Int == 3 else { throw RuntimeFailure("incompatible state schema") }
+            guard status["schema"] as? Int == 4 else { throw RuntimeFailure("incompatible state schema") }
             return gen
         } catch {
             await gen.stop(); children.removeAll { $0 === gen }; throw error

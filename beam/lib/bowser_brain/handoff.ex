@@ -1,16 +1,16 @@
 defmodule BowserBrain.Handoff do
   @moduledoc """
   Installed release handoff. Candidates boot without listeners, watchers or mods.
-  State crosses VMs only at a quiescent boundary. Schema 3 requires data-only
+  State crosses VMs only at a quiescent boundary. Schema 4 excludes mobile services and requires data-only
   mod state and an explicit `handoff: true` contract: no untracked timers, tasks,
   ports or external processes. Restored mods skip init_mod and hello.
   Bump the schema when changing migrated core state incompatibly.
   """
   alias BowserBrain.{Bridge, Paths}
-  @schema 3
+  @schema 4
   @core [BowserBrain.Loader, BowserBrain.SiteMods, BowserBrain.LibReloader,
          BowserBrain.Profiles, BowserBrain.Session, BowserBrain.UserContent,
-         BowserBrain.Surface, BowserBrain.ModLog, BowserBrain.XFeed,
+         BowserBrain.Surface, BowserBrain.ModLog,
          BowserBrain.Settings, BowserBrain.ModWorkshop,
          BowserBrain.ShellTheme, BowserBrain.Toolbars, BowserBrain.Store,
          BowserBrain.TabDeck, BowserBrain.ModControls, BowserBrain.PanelMenu]
@@ -95,7 +95,7 @@ defmodule BowserBrain.Handoff do
         unless function_exported?(module, :__bowser_handoff__, 0) and module.__bowser_handoff__(),
           do: raise("#{inspect(module)} has not declared a safe handoff contract")
       end
-      for server <- [BowserBrain.AgentPort, BowserBrain.XServer], do: GenServer.call(server, :handoff_pause, 200)
+      GenServer.call(BowserBrain.AgentPort, :handoff_pause, 200)
       unless external_idle?(), do: raise("external request in progress")
       pairs = Enum.map(@core, &{&1, Process.whereis(&1)})
       for {_, pid} <- Enum.take(pairs, 3) ++ mods ++ Enum.drop(pairs, 3) ++ [{BowserBrain.IconJobs, Process.whereis(BowserBrain.IconJobs)}] do
@@ -114,7 +114,7 @@ defmodule BowserBrain.Handoff do
       end)
       session = states[BowserBrain.Session]
       unless session.restore == nil and not Map.get(session, :quitting, false), do: raise("session transition in progress")
-      unless states[BowserBrain.ModWorkshop].run == nil and not states[BowserBrain.XFeed].busy and not states[BowserBrain.XFeed].awaiting, do: raise("background request in progress")
+      unless states[BowserBrain.ModWorkshop].run == nil, do: raise("background request in progress")
       snapshot = %{schema: @schema, states: states, mods: Enum.map(mods, &elem(&1, 0)), mod_hashes: Map.new(mods, fn {m, _} -> {m, m.module_info(:md5)} end), icon_latest: icon.latest}
       bytes = :erlang.term_to_binary(snapshot, [:compressed])
       if byte_size(bytes) > 8_000_000, do: raise("checkpoint exceeds 8 MB")
@@ -160,7 +160,7 @@ defmodule BowserBrain.Handoff do
     resume_listeners()
   end
   defp resume_listeners do
-    for server <- [BowserBrain.AgentPort, BowserBrain.XServer], do: send(server, :listen)
+    send(BowserBrain.AgentPort, :listen)
   end
   defp thaw do
     Enum.each(Process.get(:handoff_suspended, []), &safe_resume/1)
