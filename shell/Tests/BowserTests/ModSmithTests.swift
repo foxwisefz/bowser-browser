@@ -57,6 +57,21 @@ final class ModSmithTests: XCTestCase {
         XCTAssertEqual(model.draft, "Keep this")
         XCTAssertNotNil(model.connectionError)
     }
+    @MainActor func testExistingPickerUsesExplicitPathAndKeepsNewDraft() {
+        let model = ModSmithModel()
+        model.connected = { true }
+        var sent: [String: Any] = [:]
+        model.send = { sent = $0 }
+        model.draft = "Keep my new idea"
+        model.receive(["projects": [], "busy": false, "progress": [], "stage": "Ready",
+                       "available_mods": [["path": "mods/reader.ex.off", "name": "Reader", "scope": "Across Bowser", "enabled": false]]])
+        XCTAssertEqual(model.snapshot.available_mods?.first?.path, "mods/reader.ex.off")
+        model.action("edit_existing", path: "mods/reader.ex.off")
+        XCTAssertEqual(sent["action"] as? String, "edit_existing")
+        XCTAssertEqual(sent["path"] as? String, "mods/reader.ex.off")
+        XCTAssertEqual(model.draft, "Keep my new idea")
+    }
+
     @MainActor func testRenderNativeWorkspace() throws {
         guard let directory = ProcessInfo.processInfo.environment["BOWSER_MODSMITH_RENDER"] else {
             throw XCTSkip("Set BOWSER_MODSMITH_RENDER for native visual verification")

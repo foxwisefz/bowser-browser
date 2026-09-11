@@ -47,7 +47,16 @@ struct ModSmithProject: Decodable, Identifiable {
     }
 }
 
+struct ModSmithExisting: Decodable, Identifiable {
+    let path: String
+    let name: String
+    let scope: String
+    let enabled: Bool
+    var id: String { path }
+}
+
 struct ModSmithSnapshot: Decodable {
+    var available_mods: [ModSmithExisting]? = nil
     var projects: [ModSmithProject] = []
     var selected: String?
     var busy = false
@@ -96,10 +105,11 @@ final class ModSmithModel: ObservableObject {
         connectionError = nil
     }
 
-    func action(_ action: String, project id: String? = nil) {
+    func action(_ action: String, project id: String? = nil, path: String? = nil) {
         guard connected() else { connectionError = "Connecting to Bowser. Your draft is saved here; try again shortly."; return }
         var message: [String: Any] = ["op": "event", "event": "modsmith", "action": action]
         if let id = id ?? snapshot.selected { message["project"] = id }
+        if let path { message["path"] = path }
         send(message)
     }
 
@@ -158,6 +168,7 @@ struct ModSmithRootView: View {
     @ObservedObject var model: ModSmithModel
     @FocusState private var composerFocused: Bool
     @State private var showDetails = false
+    @State private var showExisting = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -173,6 +184,38 @@ struct ModSmithRootView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { composerFocused = true }
+        .sheet(isPresented: $showExisting) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Continue working on a mod").font(.title2.weight(.semibold))
+                Text("Choose an installed mod. Its existing conversation will reopen when available.").foregroundStyle(.secondary)
+                if (model.snapshot.available_mods ?? []).isEmpty {
+                    Text("No installed mods are available in this window yet.").padding(.vertical, 24)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(model.snapshot.available_mods ?? []) { mod in
+                                Button {
+                                    model.action("edit_existing", path: mod.path)
+                                    showExisting = false
+                                    composerFocused = true
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(mod.name).font(.headline)
+                                            Text(mod.scope).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(mod.enabled ? "Enabled" : "Disabled").font(.caption)
+                                        Image(systemName: "chevron.right")
+                                    }.padding(12).contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }.frame(maxHeight: 300)
+                }
+                HStack { Spacer(); Button("Cancel") { showExisting = false }.keyboardShortcut(.cancelAction) }
+            }.padding(24).frame(width: 440)
+        }
     }
 
     private var sidebar: some View {
@@ -181,6 +224,10 @@ struct ModSmithRootView: View {
             Button { model.action("new") } label: {
                 Label("New mod", systemImage: "plus").frame(maxWidth: .infinity)
             }.controlSize(.large)
+            Button("Edit existing mod…", systemImage: "square.and.pencil") {
+                model.action("open")
+                showExisting = true
+            }.controlSize(.small)
             ScrollView {
                 VStack(spacing: 5) {
                     ForEach(model.snapshot.projects) { project in
@@ -246,6 +293,10 @@ struct ModSmithRootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let project = model.project {
+                        if project.turns.isEmpty {
+                            Text("What would you like to change about this mod?").font(.headline)
+                            Text("Describe the next change below. Your existing files will be refined in place.").foregroundStyle(.secondary)
+                        }
                         ForEach(project.turns) { turn in turnView(turn) }
                         if project.status == "interrupted" || project.status == "restored" {
                             Text(project.summary).font(.callout).foregroundStyle(.secondary)

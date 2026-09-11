@@ -49,6 +49,43 @@ defmodule BowserBrain.ModWorkshopTest do
     {:ok, root: root}
   end
 
+  test "existing disabled mods reopen one conversation and reject foreign paths", %{root: root} do
+    File.mkdir_p!(Path.join(root, "mods"))
+    File.write!(Path.join(root, "mods/reader.ex.off"), "# Existing reader\n")
+    File.write!(Path.join(root, "mods/other.ex"), "# bowser-profile: other\n")
+    state = event("open", %{})
+    available = ModWorkshop.snapshot(state, "main").available_mods
+    assert Enum.any?(available, &(&1.path == "mods/reader.ex.off" and not &1.enabled))
+    refute Enum.any?(available, &(&1.path == "mods/other.ex"))
+    state = event("edit_existing", %{"path" => "mods/reader.ex.off"})
+    [project] = state.data["projects"]
+    assert project["existing_path"] == "mods/reader.ex"
+    assert project["status"] == "ready"
+    state = event("edit_existing", %{"path" => "mods/reader.ex"})
+    assert length(state.data["projects"]) == 1
+    assert ModWorkshop.snapshot(state, "main").selected == project["id"]
+    state = event("edit_existing", %{"path" => "mods/other.ex"})
+    assert state.error != nil
+    state = event("edit_existing", %{"path" => "../private"})
+    assert state.error != nil
+    assert length(state.data["projects"]) == 1
+  end
+
+  test "saved-app picker includes disabled files only from its own app", %{root: root} do
+    id = "com.gezim.bowser.site.0123456789abcdef"
+    app = %{"id" => id, "url" => "https://example.com", "name" => "Example"}
+    dir = Path.join([root, "app-mods", id])
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, "reader.css.off"), "body { color: red }")
+    state = event("open", %{"app" => app})
+    assert [%{path: path, enabled: false}] = ModWorkshop.snapshot(state, id).available_mods
+    state = event("edit_existing", %{"app" => app, "path" => path})
+    [project] = state.data["projects"]
+    assert project["scope"] == "app"
+    assert project["app"] == app
+    assert ModWorkshop.snapshot(state, "main").projects == []
+  end
+
   defp event(action, values) do
     send(
       ModWorkshop,

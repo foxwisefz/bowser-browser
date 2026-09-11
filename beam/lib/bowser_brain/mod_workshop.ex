@@ -264,31 +264,7 @@ defmodule BowserBrain.ModWorkshop do
 
   @impl true
   def handle_cast({:modify, path}, state) do
-    project = Enum.find(state.data["projects"], fn p -> path in paths(p) end)
-
-    {state, project} =
-      if project do
-        {state, project}
-      else
-        host =
-          case Path.split(path) do
-            ["sites", host, _] -> host
-            _ -> "browser"
-          end
-
-        p =
-          new_project(
-            Path.basename(path),
-            if(host == "browser", do: "browser", else: "site"),
-            "https://#{host}",
-            nil
-          )
-
-        p = Map.put(p, "existing_path", path)
-        {put_project(state, p), p}
-      end
-
-    state = select(state, "main", project["id"])
+    state = edit_existing(state, %{"path" => path})
     publish(state, "main", true)
     {:noreply, state}
   end
@@ -408,6 +384,51 @@ defmodule BowserBrain.ModWorkshop do
   defp select(state, client, id),
     do: persist(%{state | data: put_in(state.data, ["selected", selection_key(state, client)], id), error: nil})
 
+  defp available_mods(state, "main") do
+    profile = BowserBrain.ModScope.profile_of(state.active)
+    BowserBrain.ModCatalog.catalog()
+    |> Enum.filter(&(&1.profile == profile))
+    |> Enum.map(fn entry ->
+      %{path: entry.path, name: Path.basename(BowserBrain.ModCatalog.display(entry.path)),
+        scope: entry.host || "Across Bowser", enabled: entry.enabled}
+    end)
+  end
+  defp available_mods(_state, client) do
+    if AppMods.valid_id?(client) do
+      Path.wildcard(Path.join([AppMods.root(), client, "*.{css,js}{,.off}"]))
+      |> Enum.map(fn path ->
+        name = Path.basename(path)
+        %{path: "app-mods/#{client}/#{name}", name: String.replace_suffix(name, ".off", ""),
+          scope: "Only this app", enabled: not String.ends_with?(name, ".off")}
+      end)
+    else
+      []
+    end
+  end
+  defp edit_existing(state, event) do
+    client = client(event)
+    requested = event["path"]
+    entry = Enum.find(available_mods(state, client), fn entry ->
+      BowserBrain.ModCatalog.display(entry.path) == BowserBrain.ModCatalog.display(requested || "")
+    end)
+    if entry do
+      path = BowserBrain.ModCatalog.display(entry.path)
+      profile = BowserBrain.ModScope.profile_of(state.active)
+      existing = Enum.find(state.data["projects"], fn p ->
+        (get_in(p, ["app", "id"]) || "main") == client and
+          (client != "main" or Map.get(p, "profile", "default") == profile) and
+          Enum.any?(paths(p), &(BowserBrain.ModCatalog.display(&1) == path))
+      end)
+      project = existing ||
+        (new_project(entry.name, if(client != "main", do: "app", else: if(entry.scope == "Across Bowser", do: "browser", else: "site")),
+          if(client != "main", do: get_in(event, ["app", "url"]) || "", else: if(entry.scope == "Across Bowser", do: "", else: "https://#{entry.scope}")), event["app"])
+          |> Map.put("existing_path", path) |> Map.put("profile", profile))
+      state |> put_project(project) |> select(client, project["id"])
+    else
+      %{state | error: "That mod is no longer available in this window."}
+    end
+  end
+
   defp action(state, %{"action" => action} = event) do
     client = client(event)
     id = event["project"]
@@ -418,6 +439,9 @@ defmodule BowserBrain.ModWorkshop do
     cond do
       action == "open" ->
         %{state | error: nil}
+
+      action == "edit_existing" ->
+        edit_existing(state, event)
 
       action == "new" ->
         select(state, client, nil)
@@ -924,6 +948,7 @@ defmodule BowserBrain.ModWorkshop do
 
     %{
       op: "modsmith_state",
+      available_mods: available_mods(state, client),
       app: if(client == "main", do: nil, else: client),
       selected: selected(state, client),
       busy: state.run != nil,
