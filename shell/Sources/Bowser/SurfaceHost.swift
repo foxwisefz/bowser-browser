@@ -1094,15 +1094,21 @@ struct MagnifyStripView: View {
                         let s = scale(forRow: index, top: top)
                         let active = item["active"] as? Bool ?? false
                         Button(action: { emit(eventId, item["id"]) }) {
-                            ZStack(alignment: .bottom) {
+                            ZStack {
+                                if active {
+                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                        .fill(.white.opacity(0.16))
+                                        .frame(width: min(baseSize * s + 8, geo.size.width - 2),
+                                               height: baseSize * s + 8)
+                                }
                                 icon(for: item)
                                     .frame(width: baseSize * s, height: baseSize * s)
                                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                                 if active {
-                                    Circle()
-                                        .fill(Color.accentColor)
-                                        .frame(width: 4, height: 4)
-                                        .offset(y: 2)
+                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                                        .frame(width: min(baseSize * s + 8, geo.size.width - 2),
+                                               height: baseSize * s + 8)
                                 }
                             }
                             .frame(height: baseSize * s)
@@ -1116,6 +1122,7 @@ struct MagnifyStripView: View {
                             }
                         }
                         .help(item["title"] as? String ?? "")
+                        .accessibilityValue(active ? "Active tab" : "")
                         .animation(.easeOut(duration: 0.09), value: cursor.point)
                         // The hop: out fast, settle back springy. The left-edge
                         // dock bounces rightward, into the page.
