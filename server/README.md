@@ -1,14 +1,17 @@
 # Bowser website and API
 
-Standalone Node 24.14+ service, independent of the desktop BEAM process. No npm
-dependencies. SQLite stores registrations on a persistent local volume. The
+Standalone Elixir 1.18+ / Phoenix 1.8 service, independent of the desktop BEAM process. Bandit serves HTTP; Exqlite/SQLite stores registrations on a persistent local volume. The
 existing `website/` directory is served from an explicit public-file allowlist.
 
-From the repository root:
+From `server/`:
 
 ```sh
-node --test server/test/*.test.js
-BOWSER_DATABASE=/absolute/persistent/path/bowser.sqlite node server/src/main.js
+mix deps.get
+mix test
+PHX_SERVER=true BOWSER_DATABASE=/absolute/persistent/path/bowser.sqlite mix phx.server
+# Build a self-contained release (includes website assets):
+MIX_ENV=prod mix release
+PHX_SERVER=true _build/prod/rel/bowser_server/bin/bowser_server start
 ```
 
 The default listener is `127.0.0.1:8080`. `PORT` and `HOST` override it. Do not
@@ -67,7 +70,7 @@ enabled by this service.
 
 ## HTTPS deployment for bowser.app
 
-Use a host with a persistent disk, Node 24.14+, and Caddy. Copy `server/` and
+Use a host with a persistent disk, an Elixir/OTP release built for that host, and Caddy. Copy `server/` and
 `website/` together, run the service as an unprivileged user under a supervisor,
 and keep its data outside the release directory. Set `BOWSER_TRUSTED_PROXY` to
 `127.0.0.1` only when Caddy is the local edge, as in the included Caddyfile. All
@@ -89,9 +92,7 @@ public certificate or deployment has been provisioned by this repository change.
 
 The service can also terminate TLS directly: set both `BOWSER_TLS_CERT` and
 `BOWSER_TLS_KEY` to PEM files, then choose `HOST`/`PORT`. Non-loopback plaintext
-listeners are rejected. The HTTPS test generates a one-day certificate in a
-throwaway directory and verifies it as a CA; it never disables TLS verification.
-Caddy remains the automatic-certificate deployment path. Its configuration has
+listeners are rejected. Caddy remains the automatic-certificate deployment path. Its configuration has
 not been executed here because Caddy is absent and the Docker daemon is stopped.
 
 Set `BOWSER_DOWNLOAD_PATH` to the approved distribution ZIP to enable the landing
@@ -138,13 +139,15 @@ Registration retries return the same token. Keep tokens out of logs.
 Run locally with access to the database; no public read/admin endpoints exist:
 
 ```sh
-BOWSER_DATABASE=/persistent/bowser.sqlite node server/src/admin.js backup /backups/new-snapshot.sqlite
-BOWSER_DATABASE=/persistent/bowser.sqlite node server/src/admin.js prune-events
-BOWSER_DATABASE=/persistent/bowser.sqlite node server/src/admin.js withdraw-training REGISTRATION_UUID
-BOWSER_DATABASE=/persistent/bowser.sqlite node server/src/admin.js delete-registration REGISTRATION_UUID
+# Against a running release (same user/environment):
+bin/bowser_server rpc 'BowserServer.Admin.run("backup", "/backups/new-snapshot.sqlite")'
+bin/bowser_server rpc 'BowserServer.Admin.run("prune-events")'
+bin/bowser_server rpc 'BowserServer.Admin.run("withdraw-training", "REGISTRATION_UUID")'
+bin/bowser_server rpc 'BowserServer.Admin.run("delete-registration", "REGISTRATION_UUID")'
+# Development: mix run -e 'BowserServer.Admin.run("prune-events")' 
 ```
 
-Backup uses SQLite's online backup API and refuses an existing destination.
+Backup uses SQLite VACUUM INTO for a consistent snapshot and refuses an existing destination.
 Restrict database and backup access, and choose an off-host backup schedule and
 retention policy before launch. To restore, stop the service, replace the entire
 database/WAL pair with the standalone backup (no stale WAL sidecars), then start
