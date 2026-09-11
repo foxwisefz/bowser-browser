@@ -1,0 +1,12 @@
+# Copy alongside lobsterfarm-backend/docker-compose.yml as compose.bowser.yaml.
+# Merge with that existing Compose file; never use this file by itself.
+services:
+  caddy:
+    networks:
+      lobsterfarm_net: {}
+      bowser_edge:
+        ipv4_address: 172.30.29.2
+networks:
+  bowser_edge:
+    external: true
+    name: bowser_edge

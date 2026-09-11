@@ -8,10 +8,13 @@ defmodule BowserServer.Application do
         {BowserServer.Store, path: Application.fetch_env!(:bowser_server, :database)},
         BowserServer.RateLimit,
         BowserServerWeb.Endpoint
-      ], strategy: :one_for_one, name: BowserServer.Supervisor)
+      ],
+      strategy: :one_for_one,
+      name: BowserServer.Supervisor
+    )
   end
 
-  def config_change(changed, removed, _) do
+  def config_change(changed, _new, removed) do
     BowserServerWeb.Endpoint.config_change(changed, removed)
     :ok
   end

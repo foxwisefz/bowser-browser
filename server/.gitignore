@@ -4,3 +4,6 @@ data/
 /_build/
 /deps/
 /priv/static/*
+/downloads/
+
+/erl_crash.dump

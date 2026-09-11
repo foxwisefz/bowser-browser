@@ -1,0 +1,15 @@
+**
+!server/
+!server/mix.exs
+!server/mix.lock
+!server/config/
+!server/config/**
+!server/lib/
+!server/lib/**
+!website/
+!website/index.html
+!website/terms.html
+!website/styles.css
+!website/legal.css
+!website/script.js
+!website/app-icon.webp

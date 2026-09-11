@@ -1,5 +1,7 @@
 import Config
 config :phoenix, :json_library, Jason
+# Compile the SQLite NIF for the production image/release platform.
+config :exqlite, force_build: config_env() == :prod
 
 config :bowser_server, BowserServerWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

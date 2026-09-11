@@ -1,0 +1,50 @@
+name: bowser
+services:
+  bowser:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: bowser-server:local
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file: ${BOWSER_ENV_FILE:-.env}
+    environment:
+      PHX_SERVER: "true"
+      HOST: 0.0.0.0
+      PORT: "8080"
+      BOWSER_INTERNAL_HTTP: "1"
+      BOWSER_DATABASE: /data/bowser.sqlite
+      BOWSER_TRUSTED_PROXY: 172.30.29.2
+    # No host ports: only the dedicated Caddy network can reach this service.
+    networks: [edge]
+    volumes:
+      - data:/data
+      - backups:/backups
+      - ./downloads:/downloads:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, "3", http://127.0.0.1:8080/healthz]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  data:
+  backups:
+networks:
+  edge:
+    name: bowser_edge
+    ipam:
+      config:
+        - subnet: 172.30.29.0/29
+          ip_range: 172.30.29.4/30

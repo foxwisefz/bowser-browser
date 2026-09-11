@@ -17,7 +17,11 @@ if config_env() != :test do
   if !!cert != !!key, do: raise("Both TLS certificate and key are required")
   host = System.get_env("HOST", "127.0.0.1")
   {:ok, ip} = :inet.parse_address(String.to_charlist(host))
-  if not cert and host not in ["127.0.0.1", "::1"], do: raise("Public listeners require TLS")
+  internal_http = System.get_env("BOWSER_INTERNAL_HTTP") == "1"
+
+  if is_nil(cert) and host not in ["127.0.0.1", "::1"] and not internal_http,
+    do: raise("Non-loopback HTTP requires explicit BOWSER_INTERNAL_HTTP=1 behind a private proxy")
+
   port = String.to_integer(System.get_env("PORT", "8080"))
 
   transport =
