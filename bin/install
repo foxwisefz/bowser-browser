@@ -127,11 +127,17 @@ AGENT_LABEL="com.gezim.bowser.pending-update"
 mkdir -p "$AGENT_DIR"
 "$RUNTIME_TOOL" watcher-plist "$AGENT_DIR/$AGENT_LABEL.plist" "$UPDATE_ROOT"
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json" --refresh-watcher
-if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
-  launchctl bootstrap "gui/$(id -u)" "$AGENT_DIR/$AGENT_LABEL.plist" || {
-    echo "Unable to register pending-update login job; update remains staged." >&2; exit 1;
+# The updater binary was replaced above. Refresh its launchd registration too:
+# retaining the old registration can retain a stale code requirement on Tahoe
+# ("Unable to get updated LWCR", EX_CONFIG), so kickstart never runs the job.
+if launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)/$AGENT_LABEL" || {
+    echo "Unable to refresh pending-update login job; update remains staged." >&2; exit 1;
   }
 fi
+launchctl bootstrap "gui/$(id -u)" "$AGENT_DIR/$AGENT_LABEL.plist" || {
+  echo "Unable to register pending-update login job; update remains staged." >&2; exit 1;
+}
 
 launchctl kickstart "gui/$(id -u)/$AGENT_LABEL"
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json"
