@@ -38,6 +38,7 @@ struct RegistrationRequest: Codable, Equatable, Sendable {
 
 struct RegistrationReceipt: Codable, Equatable, Sendable {
     let registrationID: String
+    var telemetryToken: String? = nil
     let request: RegistrationRequest
 }
 
@@ -71,12 +72,12 @@ struct RegistrationService: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw RegistrationFailure.invalidResponse
         }
-        struct Response: Decodable { let registrationID: String }
+        struct Response: Decodable { let registrationID: String; let telemetryToken: String? }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard !result.registrationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw RegistrationFailure.invalidResponse
         }
-        return RegistrationReceipt(registrationID: result.registrationID, request: registration)
+        return RegistrationReceipt(registrationID: result.registrationID, telemetryToken: result.telemetryToken, request: registration)
     }
 }
 
@@ -141,6 +142,8 @@ final class OnboardingModel: ObservableObject {
             guard result.request == request, !result.registrationID.isEmpty else { throw RegistrationFailure.invalidResponse }
             try store.save(result)
             receipt = result
+            await Telemetry.shared.start(token: result.telemetryToken)
+            await Telemetry.shared.record(.registration(id: result.request.requestID))
         } catch {
             // Never echo server bodies, URLs, emails or credentials into error text.
             self.error = "We couldn’t finish setup. Check your connection and try again."

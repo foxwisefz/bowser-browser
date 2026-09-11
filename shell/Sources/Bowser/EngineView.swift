@@ -856,6 +856,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     // The chrome/engine split, delivered by WebKit: a page crash kills only
     // Apple's WebContent process. Reload and move on; the window never blinks.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Task { await Telemetry.shared.record(.crash(.native)) }
         NSLog("Bowser: WebContent process died for webview \(webviewId) — reloading")
         webView.reload()
     }

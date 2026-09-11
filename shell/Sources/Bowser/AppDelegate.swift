@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         didFinishLaunching = true
+        Task {
+            let receipt = try? RegistrationStore(directory: BowserPaths.home).load()
+            await Telemetry.shared.start(token: receipt?.telemetryToken)
+        }
         if SiteAppConfiguration.current != nil { SiteAppNotifications.shared.start() }
         buildMenu()
         // Before any webview exists: embedded players need real third-party

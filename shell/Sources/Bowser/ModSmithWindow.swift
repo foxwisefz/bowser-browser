@@ -67,6 +67,7 @@ final class ModSmithModel: ObservableObject {
     var targetWebview: UInt64?
     private var drafts: [String: String] = [:]
     private var pending: (id: String, key: String, text: String)?
+    var track: (TelemetryEvent) -> Void = { event in Task { await Telemetry.shared.record(event) } }
     var send: ([String: Any]) -> Void = { BrainBridge.shared.send($0) }
     var connected: () -> Bool = { BrainBridge.shared.isConnected }
     var project: ModSmithProject? { snapshot.projects.first { $0.id == snapshot.selected } }
@@ -75,6 +76,15 @@ final class ModSmithModel: ObservableObject {
     func receive(_ message: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               let incoming = try? JSONDecoder().decode(ModSmithSnapshot.self, from: data) else { return }
+        for next in incoming.projects {
+            guard let previous = snapshot.projects.first(where: { $0.id == next.id }) else { continue }
+            if previous.status == "working", next.status != "working" {
+                let operation: TelemetryEvent.Operation = previous.files.isEmpty && previous.turns.filter({ $0.role == "user" }).count <= 1 ? .create : .refine
+                track(.modsmith(operation, next.status == "active" ? .succeeded : next.status == "interrupted" ? .cancelled : .failed))
+            } else if next.status == "restored", next.turns.count > previous.turns.count {
+                track(.modsmith(.undo, .succeeded))
+            }
+        }
         drafts[key] = draft
         if let pending, incoming.accepted == pending.id {
             // Preserve anything typed after submission; clear only the accepted draft.
