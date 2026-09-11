@@ -12,7 +12,9 @@ child=$!
 trap 'kill -TERM "$child" 2>/dev/null' TERM INT
 
 exec 3<&0
-( cat 0<&3 >/dev/null 2>/dev/null; kill -TERM "$child" 2>/dev/null ) &
+# Redirect the whole watcher shell, not just cat. Otherwise the shell retains
+# the BEAM output pipe after a hard kill of wrapper/browser, hiding EOF forever.
+( cat 0<&3; kill -TERM "$child" 2>/dev/null ) >/dev/null 2>&1 &
 watcher=$!
 
 wait "$child"
