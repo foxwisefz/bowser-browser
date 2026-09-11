@@ -426,7 +426,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         // The band shows the PAGE's theme color through its scrim — the
         // profile tint lives on the ⌘K keycap only (owner's call).
-        let color = ChromeSurface.theme.color("background") ?? pageColor
+        let color = ChromeSurface.theme(for: profile.id).color("background") ?? pageColor
         window.backgroundColor = color ?? .windowBackgroundColor
         if let color, let rgb = color.usingColorSpace(.sRGB) {
             let luminance =
@@ -441,6 +441,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func clusterView() -> some View {
         CmdCluster(
+            profileID: profile.id,
             reveal: reveal,
             tint: profile.color.map { Color(nsColor: $0) },
             openBar: { [weak self] in
@@ -474,10 +475,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         clusterHosting?.rootView = AnyView(clusterView())
     }
 
-    func syncToolbars() { container.setBars(ChromeSurface.toolbars) }
+    func syncToolbars() { container.setBars(ChromeSurface.toolbars(for: profile.id)) }
 
     func syncShellTheme() {
-        let theme = ChromeSurface.theme
+        let theme = ChromeSurface.theme(for: profile.id)
         band?.theme = theme
         container.theme = theme
         titleLabel.textColor = theme.color("foreground") ?? .secondaryLabelColor
@@ -516,6 +517,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        (NSApp.delegate as? AppDelegate)?.rebuildModMenuItems()
         // Panels ride with the focused browser window (bowser-browser-fwz).
         if let window { SurfaceManager.shared.orderAllFront(parent: window) }
         // Same reveal as a tab switch: the dock slides out for a beat so the
@@ -569,7 +571,8 @@ final class ChromeReveal: ObservableObject {
 }
 
 struct CmdCluster: View {
-    private var theme: ShellTheme { ChromeSurface.theme }
+    let profileID: String
+    private var theme: ShellTheme { ChromeSurface.theme(for: profileID) }
     @ObservedObject var reveal: ChromeReveal
     /// The window's profile tint — painted on the ⌘K keycap only (the
     /// owner's call: not the whole bar, not the command palette).
@@ -616,7 +619,7 @@ struct CmdCluster: View {
                 clusterButton("chevron.right", action: goForward)
                 clusterButton("arrow.clockwise", action: reload)
                     .help("Reload this tab (⌘R)")
-                ForEach(ChromeSurface.buttons, id: \.id) { button in
+                ForEach(ChromeSurface.buttons(for: profileID), id: \.id) { button in
                     clusterButton(button.symbol ?? "puzzlepiece.extension") {
                         modClick(button.id)
                     }

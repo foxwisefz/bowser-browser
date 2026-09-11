@@ -30,6 +30,8 @@ final class SiteAppRuntime {
     static let shared = SiteAppRuntime()
     private var contentTimer: Timer?
     private var inheritedScripts: [String] = []
+    private var profileScripts: [String] = []
+    private var profileStyles: [String] = []
     private var inheritedStyles: [String] = []
     private var appScripts: [String] = []
     var modCount: Int { appScripts.count }
@@ -89,16 +91,26 @@ final class SiteAppRuntime {
     }
 
     func updateContent(_ message: [String: Any], reload: Bool) {
+        if let profile = message["profile"] as? String {
+            guard profile == SiteAppConfiguration.current?.profile else { return }
+            if let scripts = message["scripts"] as? [String] { profileScripts = scripts }
+            if let styles = message["styles"] as? [String] { profileStyles = styles }
+            applyContent(reload: reload)
+            return
+        }
+        if let scripts = message["profile_scripts"] as? [String] { profileScripts = scripts }
+        if let styles = message["profile_styles"] as? [String] { profileStyles = styles }
         if let scripts = message["scripts"] as? [String] { inheritedScripts = scripts }
         if let styles = message["styles"] as? [String] { inheritedStyles = styles }
         applyContent(reload: reload)
     }
 
     private func applyContent(reload: Bool) {
-        let scripts = inheritedScripts + appScripts
-        EngineView.rememberUserContent(scripts: scripts, styles: inheritedStyles)
+        let scripts = inheritedScripts + profileScripts + appScripts
+        let styles = inheritedStyles + profileStyles
+        EngineView.rememberUserContent(scripts: scripts, styles: styles)
         for view in EngineView.live.values {
-            view.applyUserContent(scripts: scripts, styles: inheritedStyles, reload: reload)
+            view.applyUserContent(scripts: scripts, styles: styles, reload: reload)
         }
     }
 
@@ -266,6 +278,8 @@ final class SiteAppHub {
                 let send: (String?) -> Void = { storage in
                     connection.send(["op": "site_bootstrap", "cookies": properties,
                                      "scripts": EngineView.sharedScripts, "styles": EngineView.sharedStyles,
+                                     "profile_scripts": Array(EngineView.content(for: profile.id).scripts.dropFirst(EngineView.sharedScripts.count)),
+                                     "profile_styles": Array(EngineView.content(for: profile.id).styles.dropFirst(EngineView.sharedStyles.count)),
                                      "local_storage": storage ?? "{}"])
                 }
                 if let source = EngineView.live.values.first(where: {

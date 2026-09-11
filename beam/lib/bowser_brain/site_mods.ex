@@ -23,12 +23,12 @@ defmodule BowserBrain.SiteMods do
     File.write!(Path.join(dir, sanitize(name)), content)
   end
 
-  def payloads_for(host) do
+  def payloads_for(host, profile \\ "default") do
     dir = Path.join(sites_dir(), host)
 
     case File.ls(dir) do
       {:ok, names} ->
-        for name <- Enum.sort(names), Path.extname(name) in [".css", ".js"] do
+        for name <- Enum.sort(names), Path.extname(name) in [".css", ".js"], BowserBrain.ModScope.file_profile(Path.join(dir, name)) == profile do
           {name, File.read!(Path.join(dir, name))}
         end
 
@@ -62,14 +62,17 @@ defmodule BowserBrain.SiteMods do
         Logger.info("sitemods: #{map_size(mtimes)} payload(s) across sites — applying")
       end
 
-      UserContent.put_scripts(:site_mods, build_scripts(files),
-        # First load registers before pages load; edits need a reload.
-        reload: reload_on_change
-      )
+groups = Enum.group_by(files, &BowserBrain.ModScope.file_profile/1)
+profiles = Enum.uniq(Map.keys(groups) ++ Map.get(state, :profiles, []))
+for profile <- profiles do
+  UserContent.put_scripts(:site_mods, build_scripts(Map.get(groups, profile, [])),
+    reload: reload_on_change, profile: profile)
+end
+
     end
 
     Process.send_after(self(), {:scan, true}, @poll_ms)
-    {:noreply, %{state | mtimes: mtimes}}
+    {:noreply, state |> Map.put(:mtimes, mtimes) |> Map.put(:profiles, Enum.map(files, &BowserBrain.ModScope.file_profile/1) |> Enum.uniq())}
   end
 
   def handle_info(_other, state), do: {:noreply, state}

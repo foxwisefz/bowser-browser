@@ -13,6 +13,13 @@ final class SurfaceManager {
     private var panels: [String: NSPanel] = [:]
     private var hostings: [String: NSHostingView<AnyView>] = [:]
     private var activationObserved = false
+    private var scopedMessages: [String: [String: Any]] = [:]
+    private var activeProfile = "default"
+
+    private func belongsToActiveProfile(_ id: String) -> Bool {
+        guard let profile = scopedMessages[id]?["profile"] as? String else { return true }
+        return profile == activeProfile
+    }
 
     /// Floating panels ride above the browser window only while Bowser is
     /// the active app; otherwise they drop to normal level and behave like
@@ -37,7 +44,7 @@ final class SurfaceManager {
         // reactivation that shoved the overlay's original window on top.
         for (id, panel) in panels where edgeConfigs[id] == nil && panel.parent == nil {
             panel.level = level
-            if front { panel.orderFront(nil) }
+            if front && belongsToActiveProfile(id) { panel.orderFront(nil) }
         }
     }
 
@@ -46,6 +53,14 @@ final class SurfaceManager {
         case "show":
             guard let id = message["id"] as? String,
                   let tree = message["view"] as? [String: Any] else { return }
+            if message["profile"] is String {
+                scopedMessages[id] = message
+                guard belongsToActiveProfile(id) else {
+                    panels[id]?.orderOut(nil)
+                    SettingsWindow.shared.remove(id: id)
+                    return
+                }
+            }
             if message["kind"] as? String == "settings" {
                 // A section of the Settings window, not a panel. A floating
                 // leftover with this id (from before it moved) goes away.
@@ -89,6 +104,7 @@ final class SurfaceManager {
             )
         case "close":
             guard let id = message["id"] as? String else { return }
+            scopedMessages.removeValue(forKey: id)
             SettingsWindow.shared.remove(id: id)
             SurfaceFormStore.shared.remove(surface: id)
             hostings.removeValue(forKey: id)
@@ -479,7 +495,20 @@ final class SurfaceManager {
     /// them, never re-parent them. Any panel that drifted off every screen
     /// gets rescued back beside the parent (bowser-browser-gpi).
     func orderAllFront(parent: NSWindow) {
-        for (id, panel) in panels where panel !== parent {
+        let next = BrowserWindowController.all.first(where: { $0.window === parent })?.profile.id ?? "default"
+        if next != activeProfile {
+            activeProfile = next
+            for (id, message) in scopedMessages {
+                if belongsToActiveProfile(id) {
+                    handle(message)
+                } else {
+                    panels[id]?.parent?.removeChildWindow(panels[id]!)
+                    panels[id]?.orderOut(nil)
+                    SettingsWindow.shared.remove(id: id)
+                }
+            }
+        }
+        for (id, panel) in panels where panel !== parent && belongsToActiveProfile(id) {
             let screenAttached = edgeConfigs[id]?.attach == "screen"
             let windowAttachedEdge = edgeConfigs[id] != nil && !screenAttached
             // Edges keep their hosting view in overlayHostings too — a

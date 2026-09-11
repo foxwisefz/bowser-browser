@@ -102,6 +102,11 @@ defmodule BowserBrain.Loader do
     Logger.info("loader: compiling #{Path.basename(path)}")
 
     try do
+      profile = BowserBrain.ModScope.file_profile(path)
+      for module <- modules_in(path), {pid, _} <- Registry.lookup(BowserBrain.ModRegistry, module) do
+        if BowserBrain.ModScope.current(pid) not in [nil, profile],
+          do: raise("Module #{inspect(module)} already belongs to another profile; choose a distinct module name")
+      end
       results = for {module, _bytecode} <- Code.compile_file(path),
           function_exported?(module, :__bowser_mod__, 0) do
         case DynamicSupervisor.start_child(BowserBrain.ModSupervisor, {module, []}) do

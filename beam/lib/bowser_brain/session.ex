@@ -20,7 +20,7 @@ defmodule BowserBrain.Session do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   @doc "Currently remembered tabs, ordered by webview id."
-  def tabs, do: GenServer.call(__MODULE__, :tabs)
+  def tabs, do: GenServer.call(__MODULE__, {:tabs, BowserBrain.ModScope.current()})
 
   @doc "The mirrored URL of one webview (nil when unknown). Cheap call; used by host-scoped mods."
   def url_of(webview) do
@@ -46,6 +46,11 @@ defmodule BowserBrain.Session do
   end
 
   @impl true
+  def handle_call({:tabs, profile}, _from, state) do
+    tabs = if is_nil(profile), do: state.tabs, else: Map.filter(state.tabs, fn {id, _} -> Map.get(state.profiles, id, "default") == profile end)
+    {:reply, ordered_urls(tabs), state}
+  end
+
   def handle_call(:tabs, _from, state) do
     {:reply, ordered_urls(state.tabs), state}
   end

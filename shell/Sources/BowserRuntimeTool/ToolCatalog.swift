@@ -61,7 +61,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "put_mod",
-    "description": "Install or update an Elixir mod draft during an active ModSmith run, recording Undo history. Returns compilation and startup/reload results; fix errors, then verify runtime behavior. Use shell_theme for native theme state. Not available for saved apps. Reference the installed file by path in the final envelope; omit unchanged content.",
+    "description": "Install or update an Elixir mod draft during an active ModSmith run, recording Undo history. New files belong to the selected browser profile; an existing file owned by another profile cannot be overwritten. Untagged legacy mods belong to Default. Returns compilation and startup/reload results; fix errors, then verify runtime behavior. Use shell_theme for native theme state. Not available for saved apps. Reference the installed file by path in the final envelope; omit unchanged content.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -157,7 +157,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "list_mods",
-    "description": "Every existing mod and site payload the owner already has: path, on/off, host scope, one line on what it does. Check this BEFORE writing anything \u2014 modify what exists instead of duplicating it.",
+    "description": "Existing mods and site payloads (restricted to the selected profile during ModSmith): path, on/off, host scope, one line on what it does. Check this BEFORE writing anything \u2014 modify what exists instead of duplicating it.",
     "inputSchema": {
       "type": "object",
       "properties": {}

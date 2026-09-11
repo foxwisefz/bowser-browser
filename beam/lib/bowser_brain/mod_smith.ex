@@ -124,6 +124,8 @@ defmodule BowserBrain.ModSmith do
     (subdomains included). Omit host: ONLY for genuinely browser-wide mods
     (tab docks, global chrome).
 
+    PROFILE OWNERSHIP: ModSmith automatically tags new files with the selected profile. Untagged legacy mods belong to Default. Preserve the tag when editing. Browser-wide mods affect only their owning profile. Panels, toolbars, themes, events and site payloads stay in that profile. Use distinct filenames and module names for separate profiles.
+
     MOD API (for tier "mod"):
     defmodule MyMod do use BowserBrain.Mod          # add host: "site" per SCOPE RULE
       def init_mod(_opts), do: %{}                # state

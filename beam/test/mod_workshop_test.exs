@@ -91,6 +91,24 @@ defmodule BowserBrain.ModWorkshopTest do
 
   defp file(content), do: %{"path" => "sites/example.com/reading.css", "content" => content}
 
+test "Work drafts and project lists cannot take over Default mods" do
+  session = :sys.get_state(BowserBrain.Session)
+  :sys.replace_state(BowserBrain.Session, &Map.put(&1, :profiles, %{7 => "work"}))
+  on_exit(fn -> :sys.replace_state(BowserBrain.Session, fn _ -> session end) end)
+  ModRevision.write("mods/owned.ex", "defmodule DefaultOwned do use BowserBrain.Mod end")
+  event("submit", %{"text" => "Work shell", "scope" => "browser"})
+  assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+  assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "owned.ex", "content" => "defmodule DefaultOwned do use BowserBrain.Mod end"})
+  assert BowserBrain.ModScope.file_profile(ModRevision.absolute("mods/owned.ex")) == "default"
+  state = :sys.get_state(ModWorkshop)
+  [work] = state.data["projects"]
+  assert work["profile"] == "work"
+  default = ModWorkshop.new_project("Default only", "browser", "https://example.com", nil)
+  state = put_in(state.data["projects"], [default, work])
+  assert Enum.map(ModWorkshop.snapshot(state, "main").projects, & &1["id"]) == [work["id"]]
+  assert ModWorkshop.snapshot(state, "main").selected == work["id"]
+end
+
   test "Elixir drafts share final revision history and Undo removes the installed file" do
     event("submit", %{"text" => "AOL shell", "scope" => "browser"})
     assert_receive {:runner, pid, token, prompt, nil, nil}, 1000
@@ -98,7 +116,7 @@ defmodule BowserBrain.ModWorkshopTest do
     content = "defmodule DraftSkin do\n use BowserBrain.Mod\nend"
     assert %{ok: true, installed: "mods/draft_skin.ex"} =
       ModWorkshop.tool(token, "put_mod", %{"name" => "draft_skin.ex", "content" => content})
-    assert ModRevision.read("mods/draft_skin.ex") == content
+    assert ModRevision.read("mods/draft_skin.ex") == BowserBrain.ModScope.tag(content, "default")
     state = complete(pid, [%{"path" => "mods/draft_skin.ex"}], %{"notes" => "Use the toolbar."})
     assert hd(state.data["projects"])["status"] == "active"
     [project] = state.data["projects"]
@@ -177,10 +195,10 @@ defmodule BowserBrain.ModWorkshopTest do
     end
 
     state = event("undo", %{"project" => id})
-    assert ModRevision.read("sites/example.com/reading.css") == "second"
+    assert ModRevision.read("sites/example.com/reading.css") == BowserBrain.ModScope.tag("second", "default", ".css")
     assert hd(state.data["projects"])["session"] == nil
     event("undo", %{"project" => id})
-    assert ModRevision.read("sites/example.com/reading.css") == "first"
+    assert ModRevision.read("sites/example.com/reading.css") == BowserBrain.ModScope.tag("first", "default", ".css")
     event("undo", %{"project" => id})
     assert ModRevision.read("sites/example.com/reading.css") == "original"
     assert ModRevision.load()["selected"]["main"] == id
@@ -201,7 +219,7 @@ defmodule BowserBrain.ModWorkshopTest do
     await(fn -> :sys.get_state(ModWorkshop).run == nil end)
     [p] = :sys.get_state(ModWorkshop).data["projects"]
     assert p["status"] == "failed"
-    assert ModRevision.read("sites/example.com/reading.css") == "draft"
+    assert ModRevision.read("sites/example.com/reading.css") == BowserBrain.ModScope.tag("draft", "default", ".css")
     assert %{ok: false} = ModWorkshop.tool(token, "put_payload", %{})
     event("undo", %{"project" => p["id"]})
     assert ModRevision.read("sites/example.com/reading.css") == nil
@@ -264,15 +282,15 @@ defmodule BowserBrain.ModWorkshopTest do
     [p] = state.data["projects"]
     event("toggle", %{"project" => p["id"]})
     assert ModRevision.read("sites/example.com/reading.css") == nil
-    assert ModRevision.read("sites/example.com/reading.css.off") == "one"
+    assert ModRevision.read("sites/example.com/reading.css.off") == BowserBrain.ModScope.tag("one", "default", ".css")
     event("submit", %{"project" => p["id"], "text" => "Change while disabled"})
     assert_receive {:runner, pid, _, _, _, _}, 1000
     complete(pid, [file("two")])
     assert ModRevision.read("sites/example.com/reading.css") == nil
-    assert ModRevision.read("sites/example.com/reading.css.off") == "two"
+    assert ModRevision.read("sites/example.com/reading.css.off") == BowserBrain.ModScope.tag("two", "default", ".css")
     event("undo", %{"project" => p["id"]})
     event("undo", %{"project" => p["id"]})
-    assert ModRevision.read("sites/example.com/reading.css") == "one"
+    assert ModRevision.read("sites/example.com/reading.css") == BowserBrain.ModScope.tag("one", "default", ".css")
     assert ModRevision.read("sites/example.com/reading.css.off") == nil
   end
 
@@ -378,7 +396,7 @@ defmodule BowserBrain.ModWorkshopTest do
 
     assert hd(hd(state.data["projects"])["revisions"])["files"]["sites/example.com/reading.css"][
              "after"
-           ] == "draft"
+           ] == BowserBrain.ModScope.tag("draft", "default", ".css")
   end
 
   test "invalid later file prevents final envelope writes, and saved apps reject modules" do

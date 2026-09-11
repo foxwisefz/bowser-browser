@@ -36,6 +36,10 @@ defmodule BowserBrain.ModWorkshop do
           tool in ["shell_theme", "toolbars"] and run.app == nil ->
             BowserBrain.AgentPort.dispatch(%{"tool" => tool})
 
+          tool == "list_mods" and run.app == nil ->
+            profile = Map.get(run, :profile, BowserBrain.ModScope.profile_of(run.webview))
+            %{ok: true, mods: Enum.filter(BowserBrain.ModCatalog.catalog(), &(&1.profile == profile))}
+
           tool in ["page_eval", "page_html", "list_mods", "read_mod", "store_get", "store_put"] ->
             args = args |> Map.delete("site_app") |> Map.put("webview", run.webview)
 
@@ -179,7 +183,7 @@ defmodule BowserBrain.ModWorkshop do
   end
 
   def handle_info({:browser_event, %{"event" => "tab_activated", "webview" => wv}}, state),
-    do: {:noreply, %{state | active: wv}}
+    do: {:noreply, tap(%{state | active: wv}, &publish/1)}
 
   def handle_info(
         {:browser_event, %{"event" => "url_changed", "webview" => wv, "url" => url}},
@@ -320,7 +324,13 @@ defmodule BowserBrain.ModWorkshop do
         do: "app-mods/#{p["app"]["id"]}/#{args["name"]}",
         else: "sites/#{args["host"] || host}/#{args["name"]}"
 
-    case write_files(state, [%{"path" => path, "content" => args["content"]}]) do
+    profile = Map.get(state.run, :profile, BowserBrain.ModScope.profile_of(state.run.webview))
+    content = if p["app"], do: args["content"], else: BowserBrain.ModScope.tag(args["content"], profile, Path.extname(path))
+    existing = ModRevision.absolute(ModRevision.actual_path(path))
+    result = if is_nil(p["app"]) and File.exists?(existing) and BowserBrain.ModScope.file_profile(existing) != profile,
+      do: {:error, "This payload belongs to another profile; choose a different name", state},
+      else: write_files(state, [%{"path" => path, "content" => content}])
+    case result do
       {:ok, state} ->
         {:reply, %{ok: true, installed: path, applies: "Live; revision recorded for Undo"}, state}
 
@@ -353,7 +363,13 @@ defmodule BowserBrain.ModWorkshop do
     if is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex$/, name) do
       path = "mods/#{name}"
 
-      case write_files(state, [%{"path" => path, "content" => args["content"]}]) do
+      profile = Map.get(state.run, :profile, BowserBrain.ModScope.profile_of(state.run.webview))
+      source = BowserBrain.ModScope.tag(args["content"], profile)
+      existing = ModRevision.absolute(ModRevision.actual_path(path))
+      result = if File.exists?(existing) and BowserBrain.ModScope.file_profile(existing) != profile,
+        do: {:error, "This mod belongs to another profile; choose a different name", state},
+        else: write_files(state, [%{"path" => path, "content" => source}])
+      case result do
         {:ok, state} ->
           {:reply, %{ok: true, installed: path,
             applies: "Written with Undo history. Loader compiles asynchronously; verify runtime state before reporting success."}, state}
@@ -370,7 +386,14 @@ defmodule BowserBrain.ModWorkshop do
 
   defp client(event), do: get_in(event, ["app", "id"]) || "main"
   defp project(state, id), do: Enum.find(state.data["projects"], &(&1["id"] == id))
-  defp selected(state, client), do: state.data["selected"][client]
+  defp selection_key(state, "main") do
+    case BowserBrain.ModScope.profile_of(state.active) do
+      "default" -> "main"
+      profile -> "main:" <> profile
+    end
+  end
+  defp selection_key(_state, client), do: client
+  defp selected(state, client), do: state.data["selected"][selection_key(state, client)]
   defp persist(state), do: %{state | data: ModRevision.save(state.data)}
 
   defp put_project(state, project) do
@@ -383,13 +406,14 @@ defmodule BowserBrain.ModWorkshop do
   end
 
   defp select(state, client, id),
-    do: persist(%{state | data: put_in(state.data, ["selected", client], id), error: nil})
+    do: persist(%{state | data: put_in(state.data, ["selected", selection_key(state, client)], id), error: nil})
 
   defp action(state, %{"action" => action} = event) do
     client = client(event)
     id = event["project"]
     project = project(state, id)
-    valid = project && (get_in(project, ["app", "id"]) || "main") == client
+    valid = project && (get_in(project, ["app", "id"]) || "main") == client &&
+      (client != "main" or Map.get(project, "profile", "default") == BowserBrain.ModScope.profile_of(state.active))
 
     cond do
       action == "open" ->
@@ -453,7 +477,7 @@ defmodule BowserBrain.ModWorkshop do
            (scope != "browser" and URI.parse(url).host == nil) do
         %{state | error: "Open a website before creating a site mod."}
       else
-        p = existing || new_project(text, scope, url, app)
+        p = existing || Map.put(new_project(text, scope, url, app), "profile", BowserBrain.ModScope.profile_of(event["webview"] || state.active))
         revision = ModRevision.new_revision(text)
 
         p =
@@ -467,7 +491,7 @@ defmodule BowserBrain.ModWorkshop do
 
         state = state |> put_project(p) |> select(client(event), p["id"])
         wv = if app, do: 0, else: target_webview(state, url, event["webview"])
-        run = %{token: revision["id"], project: p["id"], webview: wv, url: url, app: p["app"]}
+        run = %{token: revision["id"], project: p["id"], webview: wv, profile: BowserBrain.ModScope.profile_of(wv), url: url, app: p["app"]}
         parent = self()
 
         {pid, ref} =
@@ -520,7 +544,7 @@ defmodule BowserBrain.ModWorkshop do
 
       true ->
         Enum.find_value(state.urls, state.active, fn {wv, u} ->
-          if URI.parse(u).host == host, do: wv
+          if URI.parse(u).host == host and BowserBrain.ModScope.profile_of(wv) == BowserBrain.ModScope.profile_of(state.active), do: wv
         end)
     end
   end
@@ -531,12 +555,12 @@ defmodule BowserBrain.ModWorkshop do
     catalog =
       if p["app"],
         do: "Only this saved app's CSS/JS is available.",
-        else: BowserBrain.ModCatalog.summary()
+        else: BowserBrain.ModCatalog.catalog() |> Enum.filter(&(&1.profile == BowserBrain.ModScope.profile_of(wv))) |> Enum.map_join("\n", &("#{&1.path}: #{&1.about}"))
 
     payloads =
       if p["app"],
         do: AppMods.payloads(p["app"]["id"]),
-        else: BowserBrain.SiteMods.payloads_for(host)
+        else: BowserBrain.SiteMods.payloads_for(host, BowserBrain.ModScope.profile_of(wv))
 
     base =
       ModSmith.build_prompt(
@@ -641,7 +665,23 @@ defmodule BowserBrain.ModWorkshop do
 
   defp write_files(state, files) do
     p = project(state, state.run.project)
-    prepared = Enum.map(files, &prepare_file(p, &1))
+    profile = Map.get(state.run, :profile, BowserBrain.ModScope.profile_of(state.run.webview))
+    prepared = Enum.map(files, fn file ->
+      case prepare_file(p, file) do
+        {:ok, {path, content}} = result ->
+          if is_nil(p["app"]) and (String.starts_with?(path, "mods/") or String.starts_with?(path, "sites/")) do
+            existing = ModRevision.absolute(ModRevision.actual_path(path))
+            if File.exists?(existing) and BowserBrain.ModScope.file_profile(existing) != profile do
+              {:error, "This file belongs to another profile; choose a different name"}
+            else
+              {:ok, {path, if(is_binary(content), do: BowserBrain.ModScope.tag(content, profile, Path.extname(String.replace_suffix(path, ".off", ""))), else: content)}}
+            end
+          else
+            result
+          end
+        error -> error
+      end
+    end)
 
     case Enum.find(prepared, &match?({:error, _}, &1)) do
       {:error, reason} ->
@@ -879,7 +919,8 @@ defmodule BowserBrain.ModWorkshop do
 
   def snapshot(state, client) do
     projects =
-      Enum.filter(state.data["projects"], &((get_in(&1, ["app", "id"]) || "main") == client))
+      Enum.filter(state.data["projects"], &((get_in(&1, ["app", "id"]) || "main") == client and
+        (client != "main" or Map.get(&1, "profile", "default") == BowserBrain.ModScope.profile_of(state.active))))
 
     %{
       op: "modsmith_state",

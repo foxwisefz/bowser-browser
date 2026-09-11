@@ -85,10 +85,20 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     // (bowser-browser-1af). New views seed from here instead.
     private(set) static var sharedScripts: [String] = []
     private(set) static var sharedStyles: [String] = []
+    private static var profileScripts: [String: [String]] = [:]
+    private static var profileStyles: [String: [String]] = [:]
+    static func content(for profile: String) -> (scripts: [String], styles: [String]) {
+        (sharedScripts + (profileScripts[profile] ?? []), sharedStyles + (profileStyles[profile] ?? []))
+    }
 
     /// Same nil/[] semantics as applyUserContent: nil leaves that kind
     /// untouched, [] clears it.
-    static func rememberUserContent(scripts: [String]?, styles: [String]?) {
+    static func rememberUserContent(scripts: [String]?, styles: [String]?, profile: String? = nil) {
+        if let profile {
+            if let scripts { profileScripts[profile] = scripts }
+            if let styles { profileStyles[profile] = styles }
+            return
+        }
         if let scripts { sharedScripts = scripts }
         if let styles { sharedStyles = styles }
     }
@@ -193,8 +203,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
         pageRelay.view = self
         registerRelay()
-        currentScripts = Self.sharedScripts
-        currentStyles = Self.sharedStyles
+        currentScripts = Self.content(for: profileId).scripts
+        currentStyles = Self.content(for: profileId).styles
         rebuildUserScripts()
 
         webView.navigationDelegate = self
@@ -288,10 +298,11 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
 
     /// nil = leave that kind untouched; [] = clear. Applies on reload.
     func applyUserContent(scripts: [String]?, styles: [String]?, reload: Bool) {
+        let changed = (scripts != nil && scripts != currentScripts) || (styles != nil && styles != currentStyles)
         if let scripts { currentScripts = scripts }
         if let styles { currentStyles = styles }
         rebuildUserScripts()
-        if reload { webView.reload() }
+        if reload && changed { webView.reload() }
     }
 
     // The chrome band is transparent and the page runs under it; a root

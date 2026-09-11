@@ -17,11 +17,16 @@ defmodule BowserBrain.Bridge do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   @doc "Fire-and-forget message to the engine."
-  def cast_msg(map) when is_map(map), do: GenServer.cast(__MODULE__, {:send, map})
+  def cast_msg(map) when is_map(map), do: GenServer.cast(__MODULE__, {:send, BowserBrain.ModScope.outgoing(map)})
 
   @doc "Evaluate JS in a webview and wait for the result."
   def eval_js(webview, code, timeout \\ 5_000) do
-    GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
+    profile = BowserBrain.ModScope.current()
+    if is_nil(profile) or profile == BowserBrain.ModScope.profile_of(webview) do
+      GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
+    else
+      {:error, :wrong_profile}
+    end
   end
 
   def eval_site_js(app, code, timeout \\ 5_000) do
@@ -197,6 +202,15 @@ defmodule BowserBrain.Bridge do
   end
 
   defp broadcast(event) do
+    profiles = Process.get(:tab_profiles, %{})
+    profiles = case event do
+      %{"event" => "hello", "tabs" => tabs} -> Map.new(tabs, &{&1["id"] || &1["webview"], &1["profile"] || "default"})
+      %{"event" => "tab_opened", "webview" => id} -> Map.put(profiles, id, event["profile"] || "default")
+      _ -> profiles
+    end
+    Process.put(:tab_profiles, profiles)
+    if event["event"] in ["hello", "tab_activated"], do: Process.put(:active_profile, profiles[event["webview"] || event["active"]] || "default")
+    event = Map.put_new(event, "profile", profiles[event["webview"]] || Process.get(:active_profile, "default"))
     Registry.dispatch(BowserBrain.Events, :browser_event, fn entries ->
       for {pid, _} <- entries, do: send(pid, {:browser_event, event})
     end)

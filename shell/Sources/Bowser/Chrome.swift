@@ -20,6 +20,17 @@ enum ChromeSurface {
         let checked: Bool?
     }
 
+    private static var profileButtons: [String: [ModButton]] = [:]
+    private static var profileMenus: [String: [ModMenuItem]] = [:]
+    private static var profileThemes: [String: ShellTheme] = [:]
+    private static var profileToolbars: [String: [ModToolbar]] = [:]
+    private static var profileCommands: [String: [String: String]] = [:]
+    static func buttons(for profile: String) -> [ModButton] { buttons + (profileButtons[profile] ?? []) }
+    static func menus(for profile: String) -> [ModMenuItem] { menuItems + (profileMenus[profile] ?? []) }
+    static func theme(for profile: String) -> ShellTheme { profileThemes[profile] ?? theme }
+    static func toolbars(for profile: String) -> [ModToolbar] { toolbars + (profileToolbars[profile] ?? []) }
+    static func commands(for profile: String) -> [String: String] { commands.merging(profileCommands[profile] ?? [:]) { _, new in new } }
+
     private(set) static var buttons: [ModButton] = []
     /// Mod-owned entries appended to the native View menu; clicks come back
     /// as chrome_click, exactly like band buttons.
@@ -47,51 +58,57 @@ enum ChromeSurface {
             return
         }
 
+        let profile = object["profile"] as? String
         switch action {
         case "set_toolbars":
             guard let json = object["toolbars"] as? [[String: Any]], json.count <= 16 else { return }
             let parsed = json.compactMap(ModToolbar.init(json:))
             guard parsed.count == json.count, Set(parsed.map(\.id)).count == parsed.count else { return }
-            toolbars = parsed
+            if let profile { profileToolbars[profile] = parsed } else { toolbars = parsed }
             for controller in controllers.values { controller.syncToolbars() }
             return
         case "set_theme":
             guard let json = object["theme"] as? [String: Any],
                   let next = ShellTheme(json: json) else { return }
-            theme = next
+            if let profile { profileThemes[profile] = next } else { theme = next }
             for controller in controllers.values { controller.syncShellTheme() }
             return
         case "add_button":
             guard let id = object["id"] as? String else { return }
-            buttons.removeAll { $0.id == id }
-            buttons.append(ModButton(
+            var entries = profile.map { profileButtons[$0] ?? [] } ?? buttons
+            entries.removeAll { $0.id == id }
+            entries.append(ModButton(
                 id: id,
                 title: object["title"] as? String ?? id,
                 symbol: object["symbol"] as? String
             ))
+        if let profile { profileButtons[profile] = entries } else { buttons = entries }
         case "remove_button":
             guard let id = object["id"] as? String else { return }
-            buttons.removeAll { $0.id == id }
+            if let profile { profileButtons[profile]?.removeAll { $0.id == id } } else { buttons.removeAll { $0.id == id } }
         case "add_menu_item":
             guard let id = object["id"] as? String else { return }
-            menuItems.removeAll { $0.id == id }
-            menuItems.append(ModMenuItem(
+            var entries = profile.map { profileMenus[$0] ?? [] } ?? menuItems
+            entries.removeAll { $0.id == id }
+            entries.append(ModMenuItem(
                 id: id,
                 title: object["title"] as? String ?? id,
                 key: object["key"] as? String,
                 checked: object["checked"] as? Bool
             ))
+            if let profile { profileMenus[profile] = entries } else { menuItems = entries }
             // NSApplication.shared, not NSApp: NSApp is nil in headless tests.
             (NSApplication.shared.delegate as? AppDelegate)?.rebuildModMenuItems()
             return
         case "remove_menu_item":
             guard let id = object["id"] as? String else { return }
-            menuItems.removeAll { $0.id == id }
+            if let profile { profileMenus[profile]?.removeAll { $0.id == id } } else { menuItems.removeAll { $0.id == id } }
             (NSApplication.shared.delegate as? AppDelegate)?.rebuildModMenuItems()
             return
         case "register_command":
             guard let name = object["name"] as? String else { return }
-            commands[name] = object["hint"] as? String ?? name
+            if let profile { profileCommands[profile, default: [:]][name] = object["hint"] as? String ?? name }
+            else { commands[name] = object["hint"] as? String ?? name }
             return
         case "hide_tab_bar", "show_tab_bar":
             // Accepted and ignored: there IS no native tab bar any more

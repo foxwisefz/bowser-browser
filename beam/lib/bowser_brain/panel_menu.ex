@@ -23,6 +23,8 @@ defmodule BowserBrain.PanelMenu do
     sync(state)
   end
 
+  def handle_event(%{"event" => "tab_activated"}, state), do: sync(state)
+
   def handle_event(_event, state), do: state
 
   def handle_info(:sync, state) do
@@ -58,7 +60,7 @@ defmodule BowserBrain.PanelMenu do
   # Diff-based: only cast add/remove when an item's presence or checkmark
   # actually changed — the menu rebuild in the shell is not free.
   defp sync(state) do
-    entries = visible(Surface.list())
+    entries = visible(Surface.list()) |> Enum.filter(&(Map.get(&1, :profile) in [nil, BowserBrain.ModScope.active()]))
     titles = menu_titles(entries)
 
     desired =

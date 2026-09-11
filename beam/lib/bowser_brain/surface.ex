@@ -23,6 +23,8 @@ defmodule BowserBrain.Surface do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def show(id, view, opts \\ []) when is_map(view) do
+    id = BowserBrain.ModScope.surface_id(id)
+    opts = Keyword.put(opts, :profile, BowserBrain.ModScope.current())
     # The registry decides whether the engine sees this show: a SUPPRESSED
     # panel (toggled off in the View menu) records the fresh view but drops
     # the cast — otherwise event-driven mods like the dock re-show
@@ -40,20 +42,26 @@ defmodule BowserBrain.Surface do
   end
 
   def close(id) do
+    id = BowserBrain.ModScope.surface_id(id)
     GenServer.cast(__MODULE__, {:closed, to_string(id)})
     Bridge.cast_msg(%{op: "surface", surface: "close", id: to_string(id)})
   end
 
   @doc "Every panel ever shown this brain-lifetime: id, title, kind, owner, closed."
   def list do
-    GenServer.call(__MODULE__, :list)
+    entries = GenServer.call(__MODULE__, :list)
+    case BowserBrain.ModScope.current() do
+      nil -> entries
+      profile -> entries |> Enum.filter(&(Map.get(&1, :profile) == profile))
+        |> Enum.map(&Map.update!(&1, :id, fn id -> String.replace_prefix(id, "profile:#{profile}:", "") end))
+    end
   catch
     :exit, _ -> []
   end
 
   @doc "Re-show a known panel from its stored view tree."
   def reshow(id) do
-    GenServer.call(__MODULE__, {:reshow, to_string(id)})
+    GenServer.call(__MODULE__, {:reshow, BowserBrain.ModScope.surface_id(id)})
   catch
     :exit, _ -> {:error, :registry_down}
   end
@@ -64,7 +72,7 @@ defmodule BowserBrain.Surface do
   re-shown from its stored view. Returns {:ok, :hidden | :shown}.
   """
   def toggle(id) do
-    GenServer.call(__MODULE__, {:toggle, to_string(id)})
+    GenServer.call(__MODULE__, {:toggle, BowserBrain.ModScope.surface_id(id)})
   catch
     :exit, _ -> {:error, :registry_down}
   end
@@ -127,6 +135,7 @@ defmodule BowserBrain.Surface do
       title: Keyword.get(opts, :title, id),
       kind: to_string(Keyword.get(opts, :kind, :floating)),
       owner: owner_name(owner_pid),
+      profile: Keyword.get(opts, :profile),
       view: view,
       opts: opts,
       shown_at: System.system_time(:millisecond),
@@ -144,7 +153,7 @@ defmodule BowserBrain.Surface do
       |> Enum.sort_by(& &1.shown_at, :desc)
       |> Enum.map(fn e ->
         e
-        |> Map.take([:id, :title, :kind, :owner, :closed, :shown_at])
+        |> Map.take([:id, :title, :kind, :owner, :closed, :shown_at, :profile])
         |> Map.put(:suppressed, MapSet.member?(state.suppressed, e.id))
       end)
 
@@ -198,6 +207,7 @@ defmodule BowserBrain.Surface do
   defp show_msg(id, view, opts) do
     %{
       op: "surface",
+      profile: Keyword.get(opts, :profile),
       surface: "show",
       id: to_string(id),
       # :floating (default), :toolbar_overlay (click-through effects layer

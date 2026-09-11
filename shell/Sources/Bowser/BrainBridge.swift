@@ -216,7 +216,11 @@ final class BrainBridge {
 
     private func handle(_ message: [String: Any]) {
         let op = message["op"] as? String ?? ""
-        let requested = UInt64(message["webview"] as? Int ?? 0)
+        var requested = UInt64(message["webview"] as? Int ?? 0)
+        if let profile = message["profile"] as? String, message["webview"] != nil, op != "set_user_content" {
+            if requested == 0 { requested = EngineView.live.values.first(where: { $0.profileId == profile })?.webviewId ?? 0 }
+            guard requested != 0, EngineView.live[requested]?.profileId == profile else { return }
+        }
 
         switch op {
         case "quit_ready":
@@ -354,13 +358,15 @@ final class BrainBridge {
             let reload = message["reload"] as? Bool ?? true
             // Remember for webviews that don't exist yet — new tabs seed
             // from this store instead of being born unmodded.
-            EngineView.rememberUserContent(scripts: scripts, styles: styles)
+            let profile = message["profile"] as? String
+            EngineView.rememberUserContent(scripts: scripts, styles: styles, profile: profile)
             // webview 0 = ALL tabs: injected content is conceptually global
             // (site payloads + mod scripts self-guard by hostname). Targeting
             // only the lowest-id tab left every other tab unmodded.
             if requested == 0 {
-                for view in EngineView.live.values {
-                    view.applyUserContent(scripts: scripts, styles: styles, reload: reload)
+                for view in EngineView.live.values where profile == nil || view.profileId == profile {
+                    let content = EngineView.content(for: view.profileId)
+                    view.applyUserContent(scripts: content.scripts, styles: content.styles, reload: reload)
                 }
             } else {
                 resolve(requested)?.applyUserContent(scripts: scripts, styles: styles, reload: reload)

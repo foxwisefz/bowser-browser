@@ -25,7 +25,7 @@ defmodule BowserBrain.ModControls do
   def handle_event(%{"event" => "settings_opened"}, state), do: render(state)
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
-    %{state | active: wv}
+    render(%{state | active: wv})
   end
 
   def handle_event(%{"event" => "url_changed", "webview" => wv, "url" => url}, state) do
@@ -135,6 +135,7 @@ defmodule BowserBrain.ModControls do
   def describe_source(source) do
     source
     |> String.split("\n", parts: 6)
+    |> Enum.reject(&String.contains?(&1, "bowser-profile:"))
     |> Enum.find_value(fn line ->
       case Regex.run(~r{^\s*(?:#|//|/\*)\s*(.+?)\s*(?:\*/)?\s*$}, line) do
         [_, text] when text != "" -> String.slice(text, 0, 60)
@@ -217,7 +218,8 @@ defmodule BowserBrain.ModControls do
       case sites_dir && File.ls(sites_dir) do
         {:ok, names} ->
           for name <- Enum.sort(names),
-              Path.extname(display(name)) in [".css", ".js"] do
+              Path.extname(display(name)) in [".css", ".js"],
+              BowserBrain.ModScope.file_profile(Path.join(sites_dir, name)) == BowserBrain.ModScope.profile_of(state.active) do
             info = describe_file(Path.join(sites_dir, name)) || "site payload"
             row(dot(enabled?(name)) <> " " <> display(name), "site|#{host}|#{name}", info, state)
           end
@@ -234,7 +236,8 @@ defmodule BowserBrain.ModControls do
           for name <- Enum.sort(names),
               String.ends_with?(name, ".ex") or String.ends_with?(name, ".ex.off"),
               not String.starts_with?(name, "zz_"),
-              not BowserBrain.LegacyMods.superseded?(Path.join(mods_dir, name)) do
+              not BowserBrain.LegacyMods.superseded?(Path.join(mods_dir, name)),
+              BowserBrain.ModScope.file_profile(Path.join(mods_dir, name)) == BowserBrain.ModScope.profile_of(state.active) do
             source = File.read!(Path.join(mods_dir, name))
             scope = host_of_source(source)
 
@@ -262,7 +265,7 @@ defmodule BowserBrain.ModControls do
       vstack(
         [section("This page#{if host, do: " · #{host}", else: ""}")] ++
           (site_rows == [] && [text("No site payloads for this page.", style: :caption)] || site_rows) ++
-          [section("Global mods")] ++
+          [section("Profile mods")] ++
           mod_rows
       ),
       title: "Mods",

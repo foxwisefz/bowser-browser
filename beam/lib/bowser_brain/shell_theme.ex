@@ -126,6 +126,12 @@ defmodule BowserBrain.ShellTheme do
   defp theme([{_, _, theme} | _]), do: theme
   defp theme([]), do: %{}
 
-  defp publish(entries),
-    do: Bridge.cast_msg(%{op: "chrome", chrome: "set_theme", theme: theme(entries)})
+  defp publish(entries) do
+    groups = Enum.group_by(entries, fn {pid, _, _} -> BowserBrain.ModScope.current(pid) end)
+    profiles = Enum.uniq(Process.get(:published_profiles, [nil]) ++ Map.keys(groups))
+    Process.put(:published_profiles, profiles)
+    for profile <- profiles do
+      Bridge.cast_msg(%{op: "chrome", chrome: "set_theme", profile: profile, theme: theme(Map.get(groups, profile, []))})
+    end
+  end
 end

@@ -123,11 +123,11 @@ defmodule BowserBrain.UserContent do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def put_scripts(owner, scripts, opts \\ []) when is_list(scripts) do
-    GenServer.call(__MODULE__, {:put, :scripts, owner, scripts, Keyword.get(opts, :reload, true)})
+    GenServer.call(__MODULE__, {:put, :scripts, {owner, Keyword.get(opts, :profile, BowserBrain.ModScope.current())}, scripts, Keyword.get(opts, :reload, true)})
   end
 
   def put_styles(owner, styles, opts \\ []) when is_list(styles) do
-    GenServer.call(__MODULE__, {:put, :styles, owner, styles, Keyword.get(opts, :reload, true)})
+    GenServer.call(__MODULE__, {:put, :styles, {owner, Keyword.get(opts, :profile, BowserBrain.ModScope.current())}, styles, Keyword.get(opts, :reload, true)})
   end
 
   @doc """
@@ -177,16 +177,21 @@ defmodule BowserBrain.UserContent do
   def handle_info(_other, state), do: {:noreply, state}
 
   defp push(state, reload) do
-    Bridge.cast_msg(%{
-      op: "set_user_content",
-      webview: 0,
-      scripts: [@std_preserve | flatten(state.scripts)],
-      styles: flatten(state.styles),
-      reload: reload
-    })
+    profiles = for bucket <- [state.scripts, state.styles], {{_, profile}, _} <- bucket, do: profile
+    profiles = Enum.uniq([nil | profiles] ++ Process.get(:published_profiles, []))
+    Process.put(:published_profiles, profiles)
+    for profile <- profiles do
+      Bridge.cast_msg(%{op: "set_user_content", webview: 0, profile: profile,
+        scripts: (if is_nil(profile), do: [@std_preserve], else: []) ++ flatten(state.scripts, profile),
+        styles: flatten(state.styles, profile), reload: reload})
+    end
   end
 
-  defp flatten(bucket) do
-    bucket |> Enum.sort() |> Enum.flat_map(fn {_owner, list} -> list end)
+  defp flatten(bucket, profile) do
+    bucket |> Enum.sort() |> Enum.flat_map(fn
+      {{_owner, ^profile}, list} -> list
+      {{_, _}, _} -> []
+      {_owner, list} -> if is_nil(profile), do: list, else: []
+    end)
   end
 end

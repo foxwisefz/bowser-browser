@@ -51,9 +51,11 @@ defmodule BowserBrain.Mod do
   end
 
   defmacro __using__(opts) do
+    profile = BowserBrain.ModScope.file_profile(__CALLER__.file)
     quote do
       use GenServer
       @behaviour BowserBrain.Mod
+      @bowser_profile unquote(profile)
       @bowser_mod_host unquote(Keyword.get(opts, :host))
 
       def __bowser_mod__, do: true
@@ -67,6 +69,7 @@ defmodule BowserBrain.Mod do
 
       @impl GenServer
       def init(opts) do
+        Process.put(:bowser_profile, @bowser_profile)
         {:ok, _} = Registry.register(BowserBrain.Events, :browser_event, nil)
         case Application.get_env(:bowser_brain, :handoff_mod_states, %{}) do
           %{__MODULE__ => state} -> {:ok, state}
@@ -76,7 +79,8 @@ defmodule BowserBrain.Mod do
 
       @impl GenServer
       def handle_info({:browser_event, event}, state) do
-        if BowserBrain.Mod.scoped_out?(event, @bowser_mod_host) do
+        event = BowserBrain.ModScope.filter(event, @bowser_profile)
+        if is_nil(event) or BowserBrain.Mod.scoped_out?(event, @bowser_mod_host) do
           {:noreply, state}
         else
           {:noreply, handle_event(event, state)}

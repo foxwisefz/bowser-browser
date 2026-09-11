@@ -81,6 +81,7 @@ defmodule BowserBrain.ModCatalog do
       source
       |> String.split("\n")
       |> Enum.map(&String.trim/1)
+      |> Enum.reject(&String.contains?(&1, "bowser-profile:"))
       |> Enum.find(&String.match?(&1, ~r{^(#|//|/\*)}))
       |> case do
         nil -> nil
@@ -101,6 +102,7 @@ defmodule BowserBrain.ModCatalog do
     %{
       path: path,
       enabled: not String.ends_with?(file, ".off"),
+      profile: BowserBrain.ModScope.source_profile(source),
       host: host || host_of_source(source),
       about: about(source)
     }

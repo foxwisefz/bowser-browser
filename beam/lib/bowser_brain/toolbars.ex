@@ -53,6 +53,7 @@ defmodule BowserBrain.Toolbars do
   def handle_call({:put, id, view, opts}, {owner, _}, entries) do
     case validate(id, view, opts) do
       {:ok, bar} ->
+        bar = Map.put(bar, :profile, BowserBrain.ModScope.current(owner))
         remaining = drop(entries, owner, id)
 
         if length(remaining) >= 16 do
@@ -107,8 +108,14 @@ defmodule BowserBrain.Toolbars do
   end
 
   defp bars(entries),
-    do: entries |> Enum.map(&elem(&1, 2)) |> Enum.uniq_by(& &1.id) |> Enum.sort_by(& &1.id)
+    do: entries |> Enum.map(&elem(&1, 2)) |> Enum.uniq_by(&{Map.get(&1, :profile), &1.id}) |> Enum.sort_by(& &1.id)
 
-  defp publish(entries),
-    do: Bridge.cast_msg(%{op: "chrome", chrome: "set_toolbars", toolbars: bars(entries)})
+  defp publish(entries) do
+    groups = Enum.group_by(bars(entries), &Map.get(&1, :profile))
+    profiles = Enum.uniq(Process.get(:published_profiles, [nil]) ++ Map.keys(groups))
+    Process.put(:published_profiles, profiles)
+    for profile <- profiles do
+      Bridge.cast_msg(%{op: "chrome", chrome: "set_toolbars", profile: profile, toolbars: Map.get(groups, profile, [])})
+    end
+  end
 end

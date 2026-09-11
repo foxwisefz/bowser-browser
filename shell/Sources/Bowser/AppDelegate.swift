@@ -373,11 +373,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         while let index = viewMenu.items.firstIndex(where: { $0.tag == Self.modItemTag }) {
             viewMenu.removeItem(at: index)
         }
-        guard !ChromeSurface.menuItems.isEmpty else { return }
+        let items = ChromeSurface.menus(for: currentController?.profile.id ?? "default")
+        guard !items.isEmpty else { return }
         let separator = NSMenuItem.separator()
         separator.tag = Self.modItemTag
         viewMenu.addItem(separator)
-        for item in ChromeSurface.menuItems {
+        for item in items {
             let menuItem = NSMenuItem(
                 title: item.title,
                 action: #selector(modMenuClick(_:)),
