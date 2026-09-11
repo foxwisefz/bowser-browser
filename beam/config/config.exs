@@ -11,6 +11,7 @@ if config_env() == :test do
     load_user_mods: false,
     watch_lib: false,
     watch_sites: false,
+    settings_path: Path.join(System.tmp_dir!(), "bowser-test-settings.json"),
     session_path: Path.join(System.tmp_dir!(), "bowser-test-session.json"),
     data_dir: Path.join(System.tmp_dir!(), "bowser-test-data"),
     profiles_path: Path.join(System.tmp_dir!(), "bowser-test-profiles.json"),

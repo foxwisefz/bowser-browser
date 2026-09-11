@@ -22,7 +22,7 @@ defmodule HermeticTest do
   end
 
   test "session persistence points at tmp, never ~/.bowser" do
-    for key <- [:session_path, :modsmith_sessions_path, :modsmith_workspace_path] do
+    for key <- [:session_path, :settings_path, :modsmith_sessions_path, :modsmith_workspace_path] do
       path = Application.get_env(:bowser_brain, key)
       assert is_binary(path)
       refute String.contains?(path, ".bowser")

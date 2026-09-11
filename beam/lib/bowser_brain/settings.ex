@@ -24,7 +24,7 @@ defmodule BowserBrain.Settings do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  def path, do: Path.join(BowserBrain.Paths.home(), "settings.json")
+  def path, do: Application.get_env(:bowser_brain, :settings_path, Path.join(BowserBrain.Paths.home(), "settings.json"))
 
   def all do
     case File.read(path()) do
@@ -49,6 +49,7 @@ defmodule BowserBrain.Settings do
   end
 
   def delete(key) do
+    File.mkdir_p!(Path.dirname(path()))
     File.write!(path(), JSON.encode!(Map.delete(all(), key)))
     :ok
   end
@@ -202,7 +203,7 @@ defmodule BowserBrain.Settings do
         String.match?(key, ~r/key|token|secret|password/i)
 
     if secret? do
-      String.slice(to_string(value), 0, 6) <> "…"
+      "••••••"
     else
       to_string(value)
     end
