@@ -34,6 +34,8 @@ if config_env() != :test do
          transport ++ [server: System.get_env("PHX_SERVER") == "true"]
 
   config :bowser_server,
+    update_manifest: System.get_env("BOWSER_UPDATE_MANIFEST"),
+    update_image: System.get_env("BOWSER_UPDATE_IMAGE"),
     database: System.get_env("BOWSER_DATABASE", Path.expand("data/bowser.sqlite")),
     website:
       System.get_env("BOWSER_WEBSITE") || Application.app_dir(:bowser_server, "priv/static"),

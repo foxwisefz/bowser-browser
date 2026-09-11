@@ -79,6 +79,9 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   cp "$REPO/assets/AppIcon.icns" "$STAGE/Bowser.app/Contents/Resources/AppIcon.icns"
   cp -Rf "$REPO/shell/Sources/Bowser/Resources/ProfileCharacters" "$STAGE/Bowser.app/Contents/Resources/ProfileCharacters"
   sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$REPO/bin/Info.plist" > "$STAGE/Bowser.app/Contents/Info.plist"
+  if [ -n "${BOWSER_UPDATE_PUBLIC_KEY:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :BowserUpdatePublicKey string $BOWSER_UPDATE_PUBLIC_KEY" "$STAGE/Bowser.app/Contents/Info.plist"
+  fi
   printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
   codesign --force --deep --sign - "$STAGE/Bowser.app" >/dev/null 2>&1 || echo "  (codesign skipped)"
   # Assemble inside the unpublished generation.

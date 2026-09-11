@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if SiteAppConfiguration.current != nil { SiteAppNotifications.shared.start() }
         buildMenu()
+        AppUpdates.shared.start()
         // Before any webview exists: embedded players need real third-party
         // cookies (bowser-browser-yll).
         EngineView.disableTrackingPrevention()
@@ -404,6 +405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         if SiteAppConfiguration.current == nil {
             appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+            let updates = appMenu.addItem(withTitle: "Check for Updates…", action: #selector(AppUpdates.checkForUpdates(_:)), keyEquivalent: "")
+            updates.target = AppUpdates.shared
         }
         appMenu.addItem(.separator())
         if SiteAppConfiguration.current != nil {
