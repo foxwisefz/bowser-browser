@@ -155,7 +155,10 @@ an artifact the route returns 503 rather than serving a development binary.
 ## Limited telemetry
 
 Owner-approved categories: registration completion, ModSmith outcomes, and crash
-categories. No client sender is installed by this change. Set
+categories. The desktop sender now records registration completion, observed ModSmith
+outcomes, and WebContent process crash categories. It persists at most 100 events
+for 24 hours, retries with backoff, and gives each saved app its own queue. It never
+attaches page URLs, prompts, source code or crash logs. Set
 `BOWSER_TELEMETRY_ENABLED=1` and choose `BOWSER_EVENT_RETENTION_DAYS` (1–365) to
 accept events; otherwise `/v1/events` returns 503. There is deliberately no
 invented production retention default. Expired events are deleted at startup,
@@ -178,11 +181,9 @@ pluses or hyphens. All other fields and event names are rejected, including
 URLs, page content, prompts, generated code, email, raw stack traces and error
 messages. No model training pipeline is implemented.
 
-Registration responses now also include `telemetryToken`. The existing native
-registration decoder tolerates additional response keys, but does not yet store
-or transmit this token. It is a bearer capability **only for attribution of
+Registration responses now also include `telemetryToken`. The native registration store persists this token and attaches it when available. It is a bearer capability **only for attribution of
 telemetry**, not account authentication or proof that the email is controlled.
-A future client may pass `Authorization: Bearer TOKEN`; invalid tokens get 401.
+Clients pass `Authorization: Bearer TOKEN`; invalid tokens get 401.
 No header means anonymous events with no persistent device identifier. The secret
 is generated once in SQLite, so tokens survive process restarts and backups.
 Registration retries return the same token. Keep tokens out of logs.

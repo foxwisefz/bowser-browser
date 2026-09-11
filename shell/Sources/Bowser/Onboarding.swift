@@ -142,8 +142,10 @@ final class OnboardingModel: ObservableObject {
             guard result.request == request, !result.registrationID.isEmpty else { throw RegistrationFailure.invalidResponse }
             try store.save(result)
             receipt = result
-            await Telemetry.shared.start(token: result.telemetryToken)
-            await Telemetry.shared.record(.registration(id: result.request.requestID))
+            Task {
+                await Telemetry.shared.start(token: result.telemetryToken)
+                await Telemetry.shared.record(.registration(id: result.request.requestID))
+            }
         } catch {
             // Never echo server bodies, URLs, emails or credentials into error text.
             self.error = "We couldn’t finish setup. Check your connection and try again."
