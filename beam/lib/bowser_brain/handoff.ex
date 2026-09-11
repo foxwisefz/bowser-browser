@@ -1,13 +1,13 @@
 defmodule BowserBrain.Handoff do
   @moduledoc """
   Installed release handoff. Candidates boot without listeners, watchers or mods.
-  State crosses VMs only at a quiescent boundary. Schema 4 excludes mobile services and requires data-only
+  State crosses VMs only at a quiescent boundary. Schema 5 migrates symbolic theme/toolbar owners and excludes mobile services and requires data-only
   mod state and an explicit `handoff: true` contract: no untracked timers, tasks,
   ports or external processes. Restored mods skip init_mod and hello.
   Bump the schema when changing migrated core state incompatibly.
   """
   alias BowserBrain.{Bridge, Paths}
-  @schema 4
+  @schema 5
   @core [BowserBrain.Loader, BowserBrain.SiteMods, BowserBrain.LibReloader,
          BowserBrain.Profiles, BowserBrain.Session, BowserBrain.UserContent,
          BowserBrain.Surface, BowserBrain.ModLog,
@@ -70,6 +70,7 @@ defmodule BowserBrain.Handoff do
     {%{ok: true, schema: @schema, pid: System.pid(),
        profiles: session.profiles, active: session.active,
        restoring: session.restore != nil,
+       engine_build: Map.get(:sys.get_state(Bridge, 150), :engine_build),
        core: %{
          tab_deck: :sys.get_state(BowserBrain.TabDeck, 150),
          panel_menu: :sys.get_state(BowserBrain.PanelMenu, 150),
@@ -77,10 +78,8 @@ defmodule BowserBrain.Handoff do
        }}, suspended}
   end
   defp command(%{"op" => "preflight"}, []) do
-    for {_, _, _, [module]} <- DynamicSupervisor.which_children(BowserBrain.ModSupervisor) do
-      unless function_exported?(module, :__bowser_handoff__, 0) and module.__bowser_handoff__(),
-        do: raise("#{inspect(module)} has not declared a safe handoff contract")
-    end
+    modules = for {_, _, _, [module]} <- DynamicSupervisor.which_children(BowserBrain.ModSupervisor), do: module
+    require_contracts!(modules)
     {%{ok: true}, []}
   end
   defp command(%{"op" => "start"}, []) do
@@ -91,10 +90,7 @@ defmodule BowserBrain.Handoff do
     Process.put(:handoff_suspended, [])
     try do
       mods = for {_, pid, _, [module]} <- DynamicSupervisor.which_children(BowserBrain.ModSupervisor), do: {module, pid}
-      for {module, _} <- mods do
-        unless function_exported?(module, :__bowser_handoff__, 0) and module.__bowser_handoff__(),
-          do: raise("#{inspect(module)} has not declared a safe handoff contract")
-      end
+      require_contracts!(Enum.map(mods, &elem(&1, 0)))
       GenServer.call(BowserBrain.AgentPort, :handoff_pause, 200)
       unless external_idle?(), do: raise("external request in progress")
       pairs = Enum.map(@core, &{&1, Process.whereis(&1)})
@@ -106,7 +102,7 @@ defmodule BowserBrain.Handoff do
       icon = :sys.get_state(BowserBrain.IconJobs, 150)
       unless map_size(icon.active) == 0 and map_size(icon.waiting) == 0 and Task.Supervisor.children(BowserBrain.IconTasks) == [], do: raise("icon job in flight")
       states = Map.new(pairs ++ mods, fn {module, pid} ->
-        state = :sys.get_state(pid, 150)
+        state = checkpoint_state(module, :sys.get_state(pid, 150), Map.new(pairs ++ mods, fn {m, p} -> {p, m} end))
         unless portable?(state), do: raise("#{inspect(module)} holds a live resource")
         {:messages, messages} = Process.info(pid, :messages)
         unless Enum.all?(messages, &poll_message?(module, &1)), do: raise("#{inspect(module)} has queued work")
@@ -115,7 +111,7 @@ defmodule BowserBrain.Handoff do
       session = states[BowserBrain.Session]
       unless session.restore == nil and not Map.get(session, :quitting, false), do: raise("session transition in progress")
       unless states[BowserBrain.ModWorkshop].run == nil, do: raise("background request in progress")
-      snapshot = %{schema: @schema, states: states, mods: Enum.map(mods, &elem(&1, 0)), mod_hashes: Map.new(mods, fn {m, _} -> {m, m.module_info(:md5)} end), icon_latest: icon.latest}
+      snapshot = %{schema: @schema, states: states, mods: Enum.map(mods, &elem(&1, 0)), mod_hashes: Map.new(mods, fn {m, _} -> {m, m.module_info(:md5)} end), icon_latest: icon.latest, engine_identity: Map.get(:sys.get_state(Bridge, 150), :engine_hello, %{})}
       bytes = :erlang.term_to_binary(snapshot, [:compressed])
       if byte_size(bytes) > 8_000_000, do: raise("checkpoint exceeds 8 MB")
       {%{ok: true, snapshot: Base.encode64(bytes)}, Process.get(:handoff_suspended)}
@@ -128,9 +124,10 @@ defmodule BowserBrain.Handoff do
   defp command(%{"op" => "restore", "snapshot" => encoded}, []) do
     bytes = Base.decode64!(encoded)
     if byte_size(bytes) > 8_000_000, do: raise("checkpoint too large")
-    %{schema: @schema, states: states, mods: mods, mod_hashes: hashes, icon_latest: latest} = :erlang.binary_to_term(bytes, [:safe])
+    %{schema: @schema, states: states, mods: mods, mod_hashes: hashes, icon_latest: latest} = snapshot = :erlang.binary_to_term(bytes, [:safe])
     unless Enum.all?(states, fn {_, s} -> portable?(s) end), do: raise("nonportable checkpoint")
-    for module <- @core, do: :sys.replace_state(module, fn _ -> Map.fetch!(states, module) end)
+    for module <- @core -- [BowserBrain.ShellTheme, BowserBrain.Toolbars],
+      do: :sys.replace_state(module, fn _ -> Map.fetch!(states, module) end)
     :sys.replace_state(BowserBrain.IconJobs, &%{&1 | latest: latest})
     Application.put_env(:bowser_brain, :handoff_mod_states, Map.take(states, mods))
     for module <- mods do
@@ -139,6 +136,13 @@ defmodule BowserBrain.Handoff do
       {:ok, _} = DynamicSupervisor.start_child(BowserBrain.ModSupervisor, {module, []})
     end
     Application.delete_env(:bowser_brain, :handoff_mod_states)
+    owners = Map.new(@core, &{&1, Process.whereis(&1)}) |> Map.merge(Map.new(mods, fn module ->
+      [{pid, _}] = Registry.lookup(BowserBrain.ModRegistry, module)
+      {module, pid}
+    end))
+    for module <- [BowserBrain.ShellTheme, BowserBrain.Toolbars],
+      do: GenServer.call(module, {:handoff_restore, Map.fetch!(states, module), owners})
+    GenServer.call(Bridge, {:restore_engine_identity, Map.get(snapshot, :engine_identity, %{})})
     send(Bridge, :connect)
     {%{ok: true}, []}
   end
@@ -169,6 +173,40 @@ defmodule BowserBrain.Handoff do
   defp safe_resume(pid) do
     try do :sys.resume(pid, 100) catch :exit, _ -> :ok end
   end
+  @doc false
+  def incompatible_mods(modules) do
+    Enum.reject(modules, fn module ->
+      function_exported?(module, :__bowser_handoff__, 0) and module.__bowser_handoff__()
+    end) |> Enum.sort()
+  end
+  defp require_contracts!(modules) do
+    case incompatible_mods(modules) do
+      [] -> :ok
+      blocked -> raise("mods have not declared a safe handoff contract: #{Enum.map_join(blocked, ", ", &inspect/1)}")
+    end
+  end
+
+  @doc false
+  def checkpoint_state(module, entries, owners)
+      when module in [BowserBrain.ShellTheme, BowserBrain.Toolbars] do
+    Enum.map(entries, fn {pid, _monitor, payload} ->
+      # Unregistered workers are not transferable owners. Fail before authority
+      # changes instead of silently dropping their native UI.
+      {Map.fetch!(owners, pid), payload}
+    end)
+  end
+  def checkpoint_state(_, state, _owners), do: state
+
+  @doc false
+  def restore_owned_entries(entries, owners) do
+    resolved = Enum.map(entries, fn {owner, payload} ->
+      pid = Map.fetch!(owners, owner)
+      unless is_pid(pid) and Process.alive?(pid), do: raise("handoff owner is unavailable")
+      {pid, payload}
+    end)
+    Enum.map(resolved, fn {pid, payload} -> {pid, Process.monitor(pid), payload} end)
+  end
+
   def portable?(x) when is_pid(x) or is_port(x) or is_reference(x) or is_function(x), do: false
   def portable?(x) when is_map(x), do: Enum.all?(Map.to_list(x), fn {k, v} -> portable?(k) and portable?(v) end)
   def portable?(x) when is_tuple(x), do: x |> Tuple.to_list() |> Enum.all?(&portable?/1)

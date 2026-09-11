@@ -54,7 +54,7 @@ class StartupTests(unittest.TestCase):
     def test_invalid_release_exits_and_releases_socket(self):
         with tempfile.TemporaryDirectory(prefix='bs.',dir='/tmp') as directory:
             root=Path(directory); runtime=root/'app'; runtime.mkdir()
-            (runtime/'HANDOFF.json').write_text('{"protocol":999,"state_schema":4}')
+            (runtime/'HANDOFF.json').write_text('{"protocol":999,"state_schema":5}')
             result=subprocess.run([str(HOST),str(root),str(runtime)],capture_output=True,text=True,timeout=3,env={**os.environ,'PATH':'/nonexistent'})
             self.assertNotEqual(result.returncode,0)
             self.assertIn('incompatible',result.stderr)
@@ -68,7 +68,9 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = self.home / 'app'
         self.runtime.mkdir()
         shutil.copytree(os.environ['BOWSER_TEST_RELEASE'], self.runtime / 'brain')
-        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":4}')
+        (self.runtime / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":5}')
+        self.engine = self.home / 'engine-fixture'
+        self.engine.write_bytes(struct.pack('<8I', 0xFEEDFACF, 0, 0, 0, 1, 24, 0, 0) + struct.pack('<2I', 0x1B, 24) + bytes([1]) * 16)
         (self.home / 'mods').mkdir()
         (self.home / 'mods/Counter.ex').write_text('''
 # bowser-profile: personal
@@ -77,6 +79,8 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
           def init_mod(_) do
             File.write!(Path.join(BowserBrain.Paths.home(), "init-count"), "init\\n", [:append])
             BowserBrain.Bridge.cast_msg(%{op: "chrome", chrome: "add_button", id: "fixture_button"})
+            BowserBrain.Chrome.set_theme(%{background: "#123456"})
+            BowserBrain.Chrome.put_toolbar("handoff-status", %{t: "text", text: "Retained"}, [])
             %{count: 0}
           end
           def handle_event(%{"event" => "counter"}, state) do
@@ -102,7 +106,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
     async def native(self, reader, writer):
         self.connections += 1
         self.native_writer = writer
-        send(writer, dict(op='hello', v=1, webviews=[1, 2], active=2,
+        send(writer, dict(op='hello', v=1, engine_build_id='01' * 16, engine_binary=str(self.engine), webviews=[1, 2], active=2,
             tabs=[dict(id=1, url='https://fixture.invalid/work', profile='work'),
                   dict(id=2, url='https://fixture.invalid/personal', profile='personal')]))
         try:
@@ -201,12 +205,30 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
         state = await self.generation_status()
         self.assertEqual(state['profiles'], {'1': 'work', '2': 'personal'})
         self.assertFalse(state['restoring'])
+        self.assertEqual(state['engine_build'], {'running': '01' * 16, 'disk': '01' * 16, 'stale': False})
         self.assertEqual(state['core'], core_before)
+        self.assertEqual((await self.tool('shell_theme'))['theme'], {'background': '#123456'})
+        (self.home / 'mods/Counter.ex').unlink()
+        await until(lambda: any(m.get('chrome') == 'set_theme' and m.get('profile') == 'personal'
+                               and m.get('theme') == {} for m in self.commands), 3)
+        await until(lambda: any(m.get('chrome') == 'set_toolbars' and m.get('profile') == 'personal'
+                               and m.get('toolbars') == [] for m in self.commands), 3)
+
         result = json.loads((self.home / 'backend/last-update.json').read_text())
         self.assertLess(result['handoff_ms'], 1000)
         forbidden = {'navigate', 'open_tab', 'close_tab', 'activate_tab', 'reload'}
         self.assertFalse([m for m in self.commands if m.get('op') in forbidden])
         print('NATIVE REAL RELEASE HANDOFF:', result, 'counter=', sent)
+
+    async def test_engine_replacement_is_detected_without_restarting_native(self):
+        self.engine.write_bytes(struct.pack('<8I', 0xFEEDFACF, 0, 0, 0, 1, 24, 0, 0) + struct.pack('<2I', 0x1B, 24) + bytes([2]) * 16)
+        async def stale():
+            while not (await self.generation_status())['engine_build']['stale']:
+                await asyncio.sleep(.05)
+        await asyncio.wait_for(stale(), 5)
+        self.assertEqual(self.connections, 1)
+        self.event(); await self.count(1)
+        self.assertIn('engine is stale', (self.home / 'brain.log').read_text())
 
     async def test_core_only_session_updates_and_keeps_deck_and_menu_controls(self):
         (self.home / 'mods/Counter.ex').unlink()
@@ -242,7 +264,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_incompatible_release_never_pauses_active_backend(self):
         candidate = self.candidate()
-        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":4}')
+        (candidate / 'HANDOFF.json').write_text('{"protocol":999,"state_schema":5}')
         result = await self.control('update', runtime=str(candidate))
         self.assertFalse(result['ok']); self.assertIn('incompatible', result['error'])
         self.event(); await self.count(1)
@@ -295,7 +317,7 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
     def fake_candidate(self, mode):
         target = self.home / 'releases' / mode
         (target / 'brain/bin').mkdir(parents=True)
-        (target / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":4}')
+        (target / 'HANDOFF.json').write_text('{"protocol":1,"state_schema":5}')
         script = ROOT / 'tests/fixtures/handoff_candidate.py'
         executable = target / 'brain/bin/bowser_brain'
         executable.write_text('#!/bin/sh\nexec /usr/bin/python3 "' + str(script) + '" ' + mode + '\n')

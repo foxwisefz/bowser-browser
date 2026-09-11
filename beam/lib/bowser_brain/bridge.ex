@@ -98,7 +98,8 @@ defmodule BowserBrain.Bridge do
           Map.put(state, :quitting, true)
 
         {:ok, %{"op" => "event"} = event} ->
-          broadcast(event)
+          {emit?, state} = accept_event(event, state)
+          if emit?, do: broadcast(event)
           state
 
         {:ok, %{"op" => "js_result", "id" => id} = result} ->
@@ -117,7 +118,9 @@ defmodule BowserBrain.Bridge do
           )
 
           broadcast(Map.put(hello, "event", "hello"))
-          state
+          state = state |> Map.put(:engine_hello, Map.take(hello, ["engine_build_id", "engine_binary"])) |> Map.put(:last_urls, %{})
+          unless Map.get(state, :build_check_scheduled, false), do: Process.send_after(self(), :check_engine_build, 3_000)
+          check_engine_build(Map.put(state, :build_check_scheduled, true))
 
         {:ok, other} ->
           Logger.warning("bridge: unknown message #{inspect(other)}")
@@ -129,6 +132,15 @@ defmodule BowserBrain.Bridge do
       end
 
     {:noreply, state}
+  end
+
+  def handle_info(:check_engine_build, state) do
+    if state.sock != nil do
+      Process.send_after(self(), :check_engine_build, 3_000)
+      {:noreply, check_engine_build(state)}
+    else
+      {:noreply, Map.put(state, :build_check_scheduled, false)}
+    end
   end
 
   def handle_info({:tcp_closed, _sock}, state) do
@@ -149,6 +161,12 @@ defmodule BowserBrain.Bridge do
   end
 
   @impl true
+  def handle_call({:restore_engine_identity, hello}, _from, state) do
+    unless Map.get(state, :build_check_scheduled, false), do: Process.send_after(self(), :check_engine_build, 3_000)
+    state = state |> Map.put(:engine_hello, Map.take(hello, ["engine_build_id", "engine_binary"])) |> Map.put(:build_check_scheduled, true)
+    {:reply, :ok, check_engine_build(state)}
+  end
+
   def handle_call(:connected?, _from, state), do: {:reply, state.sock != nil, state}
 
   def handle_call({:eval_js, webview, code}, from, state) do
@@ -189,6 +207,28 @@ defmodule BowserBrain.Bridge do
 
       :error ->
         {:reply, {:error, :not_connected}, state}
+    end
+  end
+
+  defp check_engine_build(state) do
+    status = BowserBrain.EngineBuild.status(Map.get(state, :engine_hello, %{}))
+    if status.stale == true and status != Map.get(state, :engine_build) do
+      Logger.warning("bridge: engine is stale (running #{status.running}, disk #{status.disk}); preserving live browsing until native update activation")
+    end
+    Map.put(state, :engine_build, status)
+  end
+
+  @doc false
+  def accept_event(event, state) do
+    urls = Map.get(state, :last_urls, %{})
+    case event do
+      %{"event" => "url_changed", "webview" => id, "url" => url} when is_binary(url) ->
+        {Map.get(urls, id) != url, Map.put(state, :last_urls, Map.put(urls, id, url))}
+      %{"event" => "webview_closed", "webview" => id} ->
+        {true, Map.put(state, :last_urls, Map.delete(urls, id))}
+      %{"event" => "load_status", "webview" => id, "status" => 0} ->
+        {true, Map.put(state, :last_urls, Map.delete(urls, id))}
+      _ -> {true, state}
     end
   end
 

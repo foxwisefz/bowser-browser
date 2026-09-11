@@ -4,7 +4,7 @@
 # items and badge counts to this mod via window.bowser.emit(); the palette
 # renders them natively; clicks relay back into the real page.
 defmodule TwitterNavMod do
-  use BowserBrain.Mod
+  use BowserBrain.Mod, handoff: true
   import BowserBrain.View
   alias BowserBrain.{Page, Surface}
 

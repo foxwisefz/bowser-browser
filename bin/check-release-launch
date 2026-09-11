@@ -77,7 +77,23 @@ while true {
     let object = try JSONSerialization.jsonObject(with: readExactly(size)) as? [String: Any]
     if object?["op"] as? String == "hello" {
         guard object?["v"] as? Int == 1, object?["tabs"] is [[String: Any]] else { throw failure("invalid hello") }
-        print("Signed optimized bundle started and returned protocol hello with isolated state")
+        guard let buildID = object?["engine_build_id"] as? String,
+              buildID.count == 32,
+              object?["engine_binary"] as? String == mac.appendingPathComponent("Bowser").path else {
+            throw failure("missing engine build identity")
+        }
+        let dwarfdump = Process()
+        dwarfdump.executableURL = URL(fileURLWithPath: "/usr/bin/dwarfdump")
+        dwarfdump.arguments = ["--uuid", mac.appendingPathComponent("Bowser").path]
+        let output = Pipe(); dwarfdump.standardOutput = output
+        try dwarfdump.run()
+        let uuidText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        dwarfdump.waitUntilExit()
+        guard dwarfdump.terminationStatus == 0,
+              uuidText.replacingOccurrences(of: "-", with: "").lowercased().contains(buildID) else {
+            throw failure("mapped build does not match executable UUID")
+        }
+        print("Signed optimized bundle returned protocol hello and matching mapped build identity with isolated state")
         break
     }
 }

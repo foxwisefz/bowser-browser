@@ -50,6 +50,15 @@ defmodule BowserBrain.Toolbars do
   end
 
   @impl true
+  def handle_call({:handoff_restore, checkpoint, owners}, _from, entries) do
+    restored = BowserBrain.Handoff.restore_owned_entries(checkpoint, owners)
+    Enum.each(entries, fn {_, ref, _} -> Process.demonitor(ref, [:flush]) end)
+    Process.put(:published_profiles, Enum.uniq([nil | Enum.map(restored, fn {pid, _, _} -> BowserBrain.ModScope.current(pid) end)]))
+    # The native host already displays these entries. Do not replay or clear UI
+    # while the candidate is warming; future changes and reconnects publish it.
+    {:reply, :ok, restored}
+  end
+
   def handle_call({:put, id, view, opts}, {owner, _}, entries) do
     case validate(id, view, opts) do
       {:ok, bar} ->

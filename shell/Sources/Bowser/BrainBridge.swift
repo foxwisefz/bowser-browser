@@ -203,6 +203,8 @@ final class BrainBridge {
         }
         var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs,
                                     "engine_session_id": engineSessionID]
+        hello["engine_build_id"] = EngineBuild.identifier
+        hello["engine_binary"] = Bundle.main.executableURL?.path
         if let active = (NSApp.delegate as? AppDelegate)?.currentWebviewId {
             hello["active"] = active
         }

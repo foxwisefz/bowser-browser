@@ -13,7 +13,7 @@ async def client(reader, writer):
         if sys.argv[1] == 'die': os._exit(1)
         (Path(os.environ['BOWSER_HOME']) / 'restore.marker').touch()
         await asyncio.sleep(5)
-    reply = json.dumps(dict(ok=True, schema=4)).encode()
+    reply = json.dumps(dict(ok=True, schema=5)).encode()
     writer.write(struct.pack('>I', len(reply)) + reply)
     await writer.drain()
     writer.close()

@@ -3,7 +3,7 @@
 # this process's state, so it survives engine kills better than any native
 # tab strip could.
 defmodule TabsMod do
-  use BowserBrain.Mod
+  use BowserBrain.Mod, handoff: true
   import BowserBrain.View
   alias BowserBrain.Surface
 

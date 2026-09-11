@@ -49,10 +49,10 @@ ACTIVE_RUNTIME="${BOWSER_HOME:-$HOME/.bowser}/backend/active.json"
 if [ -f "$ACTIVE_RUNTIME" ]; then
   BASE_RUNTIME="$("$RUNTIME_TOOL" active-runtime "$ACTIVE_RUNTIME")"
 fi
-# A new host cannot boot the old mobile-inclusive schema. Promote a partial
+# A new host cannot boot an older checkpoint schema. Promote a partial
 # shell install to a complete pair rather than publishing incompatible helpers.
-if [ "$SHELL_ONLY" = 1 ] && ! grep -Eq '"state_schema"[[:space:]]*:[[:space:]]*4' "$BASE_RUNTIME/HANDOFF.json" 2>/dev/null; then
-  say "upgrading the backend too: desktop-only host requires state schema 4"
+if [ "$SHELL_ONLY" = 1 ] && ! grep -Eq '"state_schema"[[:space:]]*:[[:space:]]*5' "$BASE_RUNTIME/HANDOFF.json" 2>/dev/null; then
+  say "upgrading the backend too: owner-migrating host requires state schema 5"
   SHELL_ONLY=0
 fi
 if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi
@@ -114,7 +114,7 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 
 if [ "$SHELL_ONLY" = 0 ]; then
-  printf '{"protocol":1,"state_schema":4}\n' > "$APP_DIR/HANDOFF.json"
+  printf '{"protocol":1,"state_schema":5}\n' > "$APP_DIR/HANDOFF.json"
 fi
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"

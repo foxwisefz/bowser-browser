@@ -3,7 +3,7 @@
 # play-state via window.bowser.emit; this mod drives a :toolbar_overlay
 # surface with the particles widget.
 defmodule ToolbarDanceMod do
-  use BowserBrain.Mod
+  use BowserBrain.Mod, handoff: true
   import BowserBrain.View
   alias BowserBrain.{Page, Surface}
 
