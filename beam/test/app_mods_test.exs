@@ -147,29 +147,63 @@ defmodule BowserBrain.AppModsTest do
   end
 
   test "MCP bridge pins every tool call to its app even if arguments try to override it" do
-    script = """
-    import json, os, runpy, socket, tempfile, threading
-    with tempfile.TemporaryDirectory(prefix='bowser-mcp-', dir='/tmp') as root:
-        os.environ['BOWSER_HOME'] = root
-        os.environ['BOWSER_SITE_APP_ID'] = '#{@id}'
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(root + '/agent.sock')
-        listener.listen(1)
-        received = []
-        def serve():
-            conn, _ = listener.accept()
-            with conn:
-                received.append(json.loads(conn.makefile('rb').readline()))
-                conn.sendall(b'{"ok":true}' + bytes([10]))
-        worker = threading.Thread(target=serve)
-        worker.start()
-        bridge = runpy.run_path('../bin/bowser-mcp-bridge', run_name='fixture')
-        assert bridge['call_brain']('list_tabs', {'site_app': '#{@other}'}) == {'ok': True}
-        worker.join(timeout=2)
-        assert received[0]['args']['site_app'] == '#{@id}'
-        listener.close()
-    """
+    root = Path.join(System.tmp_dir!(), "mcp-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    executable = Path.expand("../../shell/.build/debug/BowserRuntimeTool", __DIR__)
 
-    assert {_, 0} = System.cmd("python3", ["-c", script], stderr_to_stdout: true)
+    assert File.regular?(executable),
+           "Build native helper: swift build --package-path shell --product BowserRuntimeTool"
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        active: false,
+        packet: :line,
+        ifaddr: {:local, Path.join(root, "agent.sock")},
+        reuseaddr: true
+      ])
+
+    on_exit(fn -> :gen_tcp.close(listener) end)
+
+    port =
+      Port.open({:spawn_executable, executable}, [
+        :binary,
+        :exit_status,
+        {:line, 65_536},
+        args: ["bowser-mcp-bridge"],
+        env: [
+          {~c"BOWSER_HOME", String.to_charlist(root)},
+          {~c"BOWSER_SITE_APP_ID", String.to_charlist(@id)}
+        ]
+      ])
+
+    on_exit(fn -> if Port.info(port), do: Port.close(port) end)
+
+    Port.command(
+      port,
+      JSON.encode!(%{
+        jsonrpc: "2.0",
+        id: 17,
+        method: "tools/call",
+        params: %{name: "list_tabs", arguments: %{site_app: @other}}
+      }) <> "\n"
+    )
+
+    {:ok, connection} = :gen_tcp.accept(listener, 3_000)
+
+    try do
+      assert {:ok, request} = :gen_tcp.recv(connection, 0, 3_000)
+      assert %{"tool" => "list_tabs", "args" => %{"site_app" => @id}} = JSON.decode!(request)
+      :ok = :gen_tcp.send(connection, "{\"ok\":true}\n")
+      assert_receive {^port, {:data, {:eol, reply}}}, 3_000
+
+      assert %{"id" => 17, "result" => %{"isError" => false, "content" => [%{"text" => text}]}} =
+               JSON.decode!(reply)
+
+      assert JSON.decode!(text) == %{"ok" => true}
+    after
+      :gen_tcp.close(connection)
+    end
   end
 end
