@@ -8,17 +8,15 @@
 #   bin/install                 stage shell + brain; activate only when apps are stopped
 #   bin/install --shell-only    stage only the browser and helpers
 #   bin/install --brain-only    stage only the brain and helpers
-#   bin/install --release       release shell build (DEFAULT IS DEBUG until the
-#                               release-only SIGTRAP in BrainBridge's listener is fixed —
-#                               see bead bowser-browser-oeo; debug in a bundle runs fine)
-#   bin/install --debug         explicit debug shell build (the current default)
+#   bin/install --release       optimized shell build (default; isolated launch gate)
+#   bin/install --debug         explicit debug shell build
 #   bin/install --no-restart    compatibility alias; installs never restart apps
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
-SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=1
+SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0
 for a in "$@"; do case "$a" in
   --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) :;;
   *) echo "unknown flag: $a" >&2; exit 2;;
@@ -73,6 +71,7 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   # Never trust "Build complete": the artifact must be newer than the sources.
   NEWEST_SRC="$(find "$REPO/shell/Sources/Bowser" -name '*.swift' -newer "$BIN" | head -1)"
   [ -z "$NEWEST_SRC" ] || { echo "binary older than $NEWEST_SRC — stale build" >&2; exit 1; }
+  if [ "$CONF" = release ]; then "$REPO/bin/check-release-launch" "$BIN"; fi
 
   say "shell: assembling $BUNDLE ($VERSION)"
   STAGE="$(mktemp -d)"; mkdir -p "$STAGE/Bowser.app/Contents/MacOS" "$STAGE/Bowser.app/Contents/Resources"

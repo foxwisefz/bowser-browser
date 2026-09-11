@@ -1,0 +1,89 @@
+#!/usr/bin/env swift
+// Developer gate only. Launch a signed optimized bundle with disposable state.
+import Foundation
+import Darwin
+
+func failure(_ message: String) -> NSError { NSError(domain: message, code: 1) }
+
+func run() throws {
+let fm = FileManager.default
+let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+let binary = CommandLine.arguments.dropFirst().first.map { URL(fileURLWithPath: $0) }
+    ?? repo.appendingPathComponent("shell/.build/release/Bowser")
+let root = URL(fileURLWithPath: "/tmp/br-" + UUID().uuidString.prefix(8))
+let bundle = root.appendingPathComponent("Bowser.app")
+let mac = bundle.appendingPathComponent("Contents/MacOS")
+let home = root.appendingPathComponent("home")
+try fm.createDirectory(at: mac, withIntermediateDirectories: true)
+try fm.createDirectory(at: home, withIntermediateDirectories: true)
+defer { try? fm.removeItem(at: root) }
+try fm.copyItem(at: binary, to: mac.appendingPathComponent("Bowser"))
+let template = try String(contentsOf: repo.appendingPathComponent("bin/Info.plist"), encoding: .utf8)
+let plist = template.replacingOccurrences(of: "__VERSION__", with: "test")
+    .replacingOccurrences(of: "__BUILD__", with: "1")
+    .replacingOccurrences(of: "com.gezim.bowser", with: "com.gezim.bowser.release-test")
+try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"), atomically: true, encoding: .utf8)
+let sign = Process()
+sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+sign.arguments = ["--force", "--deep", "--sign", "-", bundle.path]
+try sign.run(); sign.waitUntilExit()
+guard sign.terminationStatus == 0 else { throw failure("fixture signing failed") }
+let app = Process()
+app.executableURL = mac.appendingPathComponent("Bowser")
+app.environment = ProcessInfo.processInfo.environment.merging(["BOWSER_HOME": home.path]) { _, new in new }
+app.standardOutput = FileHandle.nullDevice
+app.standardError = FileHandle.nullDevice
+try app.run()
+defer {
+    if app.isRunning { app.terminate() }
+    let until = Date().addingTimeInterval(2)
+    while app.isRunning && Date() < until { Thread.sleep(forTimeInterval: 0.02) }
+    if app.isRunning { kill(app.processIdentifier, SIGKILL) }
+    app.waitUntilExit()
+}
+let deadline = Date().addingTimeInterval(10)
+let path = home.appendingPathComponent("brain.sock").path
+while !fm.fileExists(atPath: path) && app.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+guard app.isRunning else { throw failure("optimized bundle exited: \(app.terminationStatus)") }
+let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+guard fd >= 0 else { throw failure("socket failed") }
+defer { close(fd) }
+var address = sockaddr_un()
+address.sun_family = sa_family_t(AF_UNIX)
+withUnsafeMutableBytes(of: &address.sun_path) { bytes in
+    for (index, byte) in path.utf8.enumerated() { bytes[index] = byte }
+}
+let connected = withUnsafePointer(to: &address) {
+    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+}
+guard connected == 0 else { throw failure("listener unavailable: \(errno)") }
+func readExactly(_ count: Int) throws -> Data {
+    var result = Data()
+    while result.count < count {
+        var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        guard Date() < deadline, poll(&pollFD, 1, 200) >= 0 else { throw NSError(domain: "listener timeout", code: 1) }
+        if pollFD.revents == 0 { continue }
+        var buffer = [UInt8](repeating: 0, count: count - result.count)
+        let n = read(fd, &buffer, buffer.count)
+        guard n > 0 else { throw NSError(domain: "listener disconnected", code: 2) }
+        result.append(contentsOf: buffer.prefix(n))
+    }
+    return result
+}
+while true {
+    let header = try readExactly(4)
+    let size = header.reduce(0) { ($0 << 8) | Int($1) }
+    guard size > 0 && size < 1_000_000 else { throw failure("invalid frame") }
+    let object = try JSONSerialization.jsonObject(with: readExactly(size)) as? [String: Any]
+    if object?["op"] as? String == "hello" {
+        guard object?["v"] as? Int == 1, object?["tabs"] is [[String: Any]] else { throw failure("invalid hello") }
+        print("Signed optimized bundle started and returned protocol hello with isolated state")
+        break
+    }
+}
+
+}
+do { try run() } catch {
+    FileHandle.standardError.write(Data("Release launch gate failed: \(error)\n".utf8))
+    exit(1)
+}
