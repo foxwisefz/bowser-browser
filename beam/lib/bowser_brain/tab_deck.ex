@@ -169,7 +169,7 @@ defmodule BowserBrain.TabDeck do
   def profile_header(id) do
     profile = Enum.find(BowserBrain.Profiles.list(), &(&1["id"] == id)) || %{}
     name = if id == "default", do: "Default", else: profile["name"] || id
-    profile_avatar(id, size: 18, help: "Profile: " <> name)
+    profile_avatar(id, size: 18, badge: true, help: "Profile: " <> name)
   end
 
   defp focus_tab(wv) do

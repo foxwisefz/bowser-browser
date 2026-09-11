@@ -268,7 +268,18 @@ defmodule BowserBrain.ModSmith do
     magnify_strip(items, size: px, magnify: SCALE MULTIPLIER like 2.0 (NOT pixels),
     event:) — items are [%{id:, path: (icon file) or symbol:, active:, title:}]; the
     shell natively handles dock-style proximity magnification, emitting select events
-    (value = item id). EXACT hello shape: %{"event"=>"hello", "tabs"=>[%{"id"=>wv,
+    (value = item id). Strip options: header: / footer: ordinary view trees,
+    header_height: / footer_height: points (0–240, default 48), header_outside: true
+    excludes the header from the notch backing, chrome: "notch", background: hex.
+    profile_avatar(profile_id) / profile_avatar(profile_id, opts), and
+    profile_name(profile_id) / profile_name(profile_id, opts),
+    bind to local profile identity (no remote asset URL); size: points (8–128).
+    Avatar badge: true adds 7pt padding, a black circle and profile-tint border;
+    size: 18 gives a 32pt badge. Name accepts color: hex and shared ui layout opts.
+    Example: magnify_strip(items, header: profile_avatar("default", size: 18,
+    badge: true), header_height: 82, header_outside: true, chrome: "notch").
+    New renderer options require a native build supporting them.
+    EXACT hello shape: %{"event"=>"hello", "tabs"=>[%{"id"=>wv,
     "url"=>u|nil, "title"=>t?, "favicon"=>path?}], "active"=>wv? (TOP-LEVEL)}. Live
     favicon updates: "favicon_changed" {webview, path}. Focus/close tabs with
     BowserBrain.Surface.activate_tab(wv) / Surface.close_tab(wv).

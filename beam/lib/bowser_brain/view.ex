@@ -173,6 +173,7 @@ defmodule BowserBrain.View do
   @doc "Live profile avatar binding. Compose separately from the name; size is in points."
   def profile_avatar(id, opts \\ []) do
     ui(%{t: "profile_avatar", profile_id: id, size: Keyword.get(opts, :size, 22)}, opts)
+    |> Map.merge(Map.new(Keyword.take(opts, [:badge])))
   end
 
   @doc "Live profile name binding; updates on profile edits without rebuilding the tree."

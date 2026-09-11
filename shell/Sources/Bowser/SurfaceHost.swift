@@ -1211,6 +1211,7 @@ struct SurfaceProfileValue: View {
     @ObservedObject private var profiles = ProfileSettingsModel.shared
     private var profile: Profile? { profiles.profiles.first { $0.id == node["profile_id"] as? String } }
     private var size: CGFloat { min(128, max(8, node["size"] as? Double ?? 22)) }
+    private var badge: Bool { node["t"] as? String == "profile_avatar" && node["badge"] as? Bool == true }
     var body: some View {
         if let profile {
             Group {
@@ -1223,6 +1224,14 @@ struct SurfaceProfileValue: View {
                     Text(icon).font(.system(size: size * 0.85)).frame(width: size, height: size)
                 } else {
                     Image(systemName: "person.crop.circle.fill").font(.system(size: size))
+                }
+            }
+            .padding(badge ? 7 : 0)
+            .background {
+                if badge {
+                    Circle().fill(.black)
+                        .overlay(Circle().strokeBorder(
+                            Color(nsColor: Profile.color(hex: profile.tint) ?? .gray).opacity(0.55), lineWidth: 1))
                 }
             }
             .foregroundStyle(Profile.color(hex: node["color"] as? String).map { Color(nsColor: $0) } ?? .primary)

@@ -10,6 +10,7 @@ defmodule BowserBrain.ViewTest do
       footer_height: 32, chrome: "notch", background: "#112233")
     decoded = tree |> JSON.encode!() |> JSON.decode!()
     assert Map.take(decoded["header"], ["t", "profile_id", "size"]) == %{"t" => "profile_avatar", "profile_id" => "work", "size" => 18}
+    assert decoded["header"]["badge"] == true
     assert decoded["footer"]["event"] == "new"
     assert decoded["header_height"] == 48
     assert decoded["header_outside"] == true

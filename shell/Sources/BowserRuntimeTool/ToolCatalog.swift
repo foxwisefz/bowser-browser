@@ -70,7 +70,8 @@ let toolCatalogJSON = #"""
           "description": "Filename only, e.g. og_aol.ex"
         },
         "content": {
-          "type": "string"
+          "type": "string",
+          "description": "Elixir source. Use the ModSmith guide for BowserBrain.View builders and native renderer availability. profile_avatar(id, badge: true, size: 18) adds a circular backing; its native renderer must support badge. No remote avatar assets are fetched."
         }
       },
       "required": [

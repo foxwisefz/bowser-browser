@@ -126,3 +126,13 @@ For identity outside the tab container, `header_outside: true` reserves the
 header's layout space but excludes it from the notch backing. The tab deck
 uses a 82-point slot with an 18-point avatar, leaving a visible gap above the
 upper shoulder. This option requires the renderer that implements it.
+
+`profile_avatar(id, badge: true, size: 18)` surrounds the local profile artwork
+with a black circle and a one-point profile-tint border. The optional badge adds
+seven points of padding per side: an 18-point avatar produces a 32-point badge,
+matching the 16-point shoulder radius of the 48-point notch. It introduces no
+remote asset loading and requires a renderer supporting `badge`. The default
+remains an unframed avatar. `profile_avatar/1,2` and `profile_name/1,2` bind to
+profile edits; both accept shared `ui/2` layout options. Native size is clamped
+to 8–128 points; `profile_name` also accepts `color:`. Surface trees are emitted
+by mod code; the MCP tool catalog does not expose a separate view-node schema.

@@ -88,12 +88,12 @@ final class SurfaceRootViewTests: XCTestCase {
         let model = ProfileSettingsModel.shared
         let previous = model.profiles
         defer { model.replaceProfiles(previous) }
-        let work = Profile(id: "work", name: "Work", tint: "#3e63dd", icon: nil, uuid: nil, character: "shy-guy")
+        let work = Profile(id: "work", name: "Work", tint: "#30a46c", icon: nil, uuid: nil, character: "shy-guy")
         model.replaceProfiles([.defaultProfile, work])
         for profile in [Profile.defaultProfile, work] {
             let cursor = CursorModel()
             let items: [[String: Any]] = (1...6).map { ["id": String($0), "symbol": "globe", "active": $0 == 2, "title": "Tab \($0)"] }
-            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 82.0, "header_outside": true, "header": ["t": "profile_avatar", "profile_id": profile.id, "size": 18.0]]
+            let tree: [String: Any] = ["t": "magnify_strip", "items": items, "size": 32.0, "spacing": 8.0, "header_height": 82.0, "header_outside": true, "header": ["t": "profile_avatar", "profile_id": profile.id, "size": 18.0, "badge": true]]
             let hosting = NSHostingView(rootView: SurfaceTreeView(surfaceId: "edge_dock", node: tree, cursor: cursor).background(Color.gray))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 48, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
             window.backgroundColor = .darkGray; window.isOpaque = true
@@ -108,6 +108,13 @@ final class SurfaceRootViewTests: XCTestCase {
             XCTAssertFalse(png.isEmpty)
             if let directory = ProcessInfo.processInfo.environment["BOWSER_SURFACE_RENDER"] {
                 try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-\(profile.id).png"))
+                let renderer = ImageRenderer(content: SurfaceProfileValue(node: ["t": "profile_avatar", "profile_id": profile.id, "size": 18.0, "badge": true]))
+                renderer.scale = 2
+                let rendered = try XCTUnwrap(renderer.cgImage)
+                XCTAssertEqual(rendered.width, 64)
+                XCTAssertEqual(rendered.height, 64)
+                let badge = try XCTUnwrap(NSBitmapImageRep(cgImage: rendered).representation(using: .png, properties: [:]))
+                try badge.write(to: URL(fileURLWithPath: directory).appendingPathComponent("badge-\(profile.id).png"))
 
             }
         }
