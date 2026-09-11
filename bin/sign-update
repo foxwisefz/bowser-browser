@@ -6,6 +6,11 @@ import CryptoKit
 func fail(_ message: String) -> Never { fputs(message + "\n", stderr); exit(1) }
 let args = Array(CommandLine.arguments.dropFirst())
 do {
+    if args.count == 2 && args[0] == "--public-key" {
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(contentsOf: URL(fileURLWithPath: args[1])))
+        print(key.publicKey.rawRepresentation.base64EncodedString())
+        exit(0)
+    }
     if args.count == 2 && args[0] == "--generate-key" {
         let file = URL(fileURLWithPath: args[1])
         guard !FileManager.default.fileExists(atPath: file.path) else { fail("Refusing to overwrite a signing key") }
@@ -15,7 +20,7 @@ do {
         print("BOWSER_UPDATE_PUBLIC_KEY=" + key.publicKey.rawRepresentation.base64EncodedString())
         exit(0)
     }
-    guard args.count == 6 else { fail("usage: sign-update KEY DMG VERSION BUILD MIN_MACOS OUTPUT.json | --generate-key PATH") }
+    guard args.count == 6 else { fail("usage: sign-update KEY DMG VERSION BUILD MIN_MACOS OUTPUT.json | --generate-key PATH | --public-key PATH") }
     let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(contentsOf: URL(fileURLWithPath: args[0])))
     let image = URL(fileURLWithPath: args[1])
     guard UInt64(args[3]) != nil, let os = Int(args[4]), os >= 15 else { fail("Invalid build or minimum macOS") }

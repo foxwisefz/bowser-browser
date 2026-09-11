@@ -1,0 +1,106 @@
+name: Build desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 0.1.0; no leading v)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write
+    env:
+      BOWSER_VERSION: ${{ inputs.version }}
+      BOWSER_TELEMETRY_DISABLED: "1"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == arm64 ]]
+          [[ "$BOWSER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]
+          [[ ${#BOWSER_VERSION} -le 64 ]]
+          echo "BOWSER_STAGE_FILE=$RUNNER_TEMP/bowser-stage-path" >> "$GITHUB_ENV"
+          echo "BOWSER_BUILD=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_ENV"
+      - name: Install Elixir and inspect toolchain
+        run: |
+          brew install elixir
+          elixir --version
+          swift --version
+      - name: Restore update signing key
+        env:
+          UPDATE_KEY: ${{ secrets.BOWSER_UPDATE_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, base64, pathlib
+          value = base64.b64decode(os.environ['UPDATE_KEY'], validate=True)
+          if len(value) != 32:
+              raise SystemExit('BOWSER_UPDATE_PRIVATE_KEY_BASE64 must encode a 32-byte Ed25519 key')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bowser-update.key'
+          fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, 'wb') as file:
+              file.write(value)
+          PY
+          echo "BOWSER_UPDATE_PUBLIC_KEY=$(bin/sign-update --public-key "$RUNNER_TEMP/bowser-update.key")" >> "$GITHUB_ENV"
+      - name: Verify release contracts
+        run: |
+          swift test --package-path shell --filter 'UpdateTests|TelemetryTests|ModSmithTests|OnboardingTests'
+          swift build --package-path shell --product BowserRuntimeTool
+          python3 -m unittest discover -s tests -p test_apply_update.py
+      - name: Build fresh application and runtime
+        run: bin/install --stage-only
+      - name: Package DMG and sign update metadata
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bin/package-dmg "$(cat "$BOWSER_STAGE_FILE")" "$PWD/dist/Bowser.dmg"
+          bin/sign-update "$RUNNER_TEMP/bowser-update.key" "$PWD/dist/Bowser.dmg" "$BOWSER_VERSION" "$BOWSER_BUILD" 15 "$PWD/dist/stable.json"
+          (cd dist && shasum -a 256 Bowser.dmg stable.json > SHA256SUMS)
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bowser-${{ inputs.version }}-arm64
+          path: |
+            dist/Bowser.dmg
+            dist/stable.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Apple Silicon build. Contains the standalone browser and bundled runtime.
+
+          This DMG is ad-hoc signed, not Developer ID signed/notarized. Keep this release as a draft until public distribution signing is configured and validated.
+
+          The Ed25519-signed stable.json is paired with this exact DMG and expires after 30 days. To activate updates, serve both files at the configured bowser.app update endpoints. Publishing this GitHub release alone does not activate the update feed.
+          NOTES
+          gh release create "v$BOWSER_VERSION" dist/Bowser.dmg dist/stable.json dist/SHA256SUMS \
+            --draft --target "$RELEASE_COMMIT" --title "Bowser $BOWSER_VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bowser-update.key"

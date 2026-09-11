@@ -62,3 +62,41 @@ and production signing-key provisioning are separate activation steps.
 Validation: `swift test --package-path shell --filter UpdateTests` covers signed
 metadata, wrong-key/tamper rejection, expiry, downgrade prevention and image
 size/hash checks. `tests/test_apply_update.py` covers staged activation/rollback.
+
+## GitHub Actions builds
+
+`.github/workflows/desktop-release.yml` builds on GitHub's Apple Silicon
+`macos-26` runner. Run **Actions → Build desktop release → Run workflow**, with
+a version such as `0.1.0`. The workflow tests the release contracts, creates a
+fresh standalone app/runtime, packages `Bowser.dmg`, signs `stable.json`, and
+uploads both plus `SHA256SUMS` as workflow artifacts and a **draft GitHub Release**.
+Use a new version for each run: existing release tags/assets are not overwritten.
+[GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+
+Create a GitHub environment named `release` and add its secret
+`BOWSER_UPDATE_PRIVATE_KEY_BASE64`. Generate the key once with `bin/sign-update
+--generate-key /secure/path/bowser-update.key`; then set the secret without
+printing its value:
+
+```sh
+base64 < /secure/path/bowser-update.key | tr -d '\n' | gh secret set BOWSER_UPDATE_PRIVATE_KEY_BASE64 --env release
+```
+
+Keep an encrypted backup of that same private key outside GitHub. The workflow
+derives the matching public key and embeds it in every build, restores the private
+key into a mode-0600 temporary file, and removes it afterward. The key is never
+included in artifacts. Restrict the `release` environment to trusted release
+branches. [GitHub Actions secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
+
+`bin/install --stage-only` is the build entry point. It always uses a new temporary
+home, reads no installed runtime, and does not publish a pending update or register
+LaunchAgents. `BOWSER_VERSION` and `BOWSER_BUILD` supply artifact identity;
+`BOWSER_STAGE_FILE` receives the completed stage path for subsequent packaging.
+
+The first workflow produces an **ad-hoc-signed test DMG**, not an Apple-notarized
+public distribution. Update metadata signing and Apple Developer ID/notarization
+are separate. Draft release notes call out this limit; public signing remains an
+activation requirement. This workflow does not connect to the Ubuntu host or
+change DNS. Copy its matched DMG/manifest to the configured `bowser.app` endpoints
+as described above. A GitHub Release URL alone will not work with the current
+updater's origin and redirect restrictions.

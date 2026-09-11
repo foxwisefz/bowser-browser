@@ -10,20 +10,32 @@
 #   bin/install --brain-only    stage only the brain and helpers
 #   bin/install --release       optimized shell build (default; isolated launch gate)
 #   bin/install --debug         explicit debug shell build
+#   bin/install --stage-only   build a fresh pair; do not publish, install or register launch agents
 #   bin/install --no-restart    compatibility alias; installs never restart apps
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
-SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0
+SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0; STAGE_ONLY=0
 for a in "$@"; do case "$a" in
+  --stage-only) STAGE_ONLY=1;;
   --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) :;;
   *) echo "unknown flag: $a" >&2; exit 2;;
 esac; done
 
-VERSION="$(cd "$REPO" && (jj log -r @ --no-graph -T 'change_id.short()' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev))"
-BUILD="$(date +%Y%m%d%H%M%S)"
+if [ "$STAGE_ONLY" = 1 ]; then
+  [ "$SHELL_ONLY" = 0 ] && [ "$BRAIN_ONLY" = 0 ] || { echo "--stage-only requires a complete build" >&2; exit 2; }
+  # Always isolate from installed runtimes and pending updates, even when the
+  # caller has BOWSER_HOME set for an active development browser.
+  export BOWSER_HOME="$(mktemp -d /tmp/bowser-release.XXXXXX)"
+  APP_DIR="$BOWSER_HOME/app"
+  BUNDLE="$BOWSER_HOME/Bowser.app"
+fi
+VERSION="${BOWSER_VERSION:-$(cd "$REPO" && (jj log -r @ --no-graph -T 'change_id.short()' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev))}"
+BUILD="${BOWSER_BUILD:-$(date -u +%Y%m%d%H%M%S)}"
+[[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9.+-]*$ ]] && [ "${#VERSION}" -le 64 ] || { echo "invalid BOWSER_VERSION" >&2; exit 2; }
+[[ "$BUILD" =~ ^[0-9]{1,18}$ ]] || { echo "invalid BOWSER_BUILD" >&2; exit 2; }
 say() { printf '\033[1m▸ %s\033[0m\n' "$*"; }
 
 say "checking icon crash isolation before replacing the installed app"
@@ -121,6 +133,12 @@ if [ "$SHELL_ONLY" = 0 ]; then
 fi
 echo "$VERSION $BUILD" > "$APP_DIR/VERSION"
 say "built $VERSION → $BUILD_STAGE"
+
+if [ "$STAGE_ONLY" = 1 ]; then
+  if [ -n "${BOWSER_STAGE_FILE:-}" ]; then printf '%s\n' "$BUILD_STAGE" > "$BOWSER_STAGE_FILE"; fi
+  say "release stage ready — no installation or launch-agent changes"
+  exit 0
+fi
 
 # Publish a complete generation only after builds and signatures succeed.
 # Atomic replacement: an existing watcher can keep executing its mapped binary.
