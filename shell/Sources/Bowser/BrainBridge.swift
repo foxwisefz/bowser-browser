@@ -396,12 +396,15 @@ final class BrainBridge {
 
         case "get_cookies":
             guard let id = message["id"] as? Int else { return }
-            let host = (message["url"] as? String).flatMap(URL.init(string:))?.host ?? ""
-            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
+            guard let url = CookieAccess.target(message["url"]), let host = url.host,
+                  let store = CookieAccess.store(profile: message["profile"] as? String, webview: requested) else {
+                send(["op": "cookies_result", "id": id, "cookies": [], "error": "invalid_cookie_scope"])
+                return
+            }
+            store.httpCookieStore.getAllCookies { [weak self] cookies in
                 MainActor.assumeIsolated {
                     let matched = cookies.filter { c in
-                        host.isEmpty || host.hasSuffix(c.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
-                            || c.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).hasSuffix(host)
+                        CookieAccess.matches(domain: c.domain, host: host)
                     }
                     let serialized: [[String: Any]] = matched.map { c in
                         [
@@ -417,7 +420,9 @@ final class BrainBridge {
             guard let spec = message["cookie"] as? [String: Any],
                   let name = spec["name"] as? String,
                   let value = spec["value"] as? String,
-                  let url = (message["url"] as? String).flatMap(URL.init(string:))
+                  let url = CookieAccess.target(message["url"]), let host = url.host,
+                  CookieAccess.matches(domain: spec["domain"] as? String ?? host, host: host),
+                  let store = CookieAccess.store(profile: message["profile"] as? String, webview: requested)
             else { return }
             var properties: [HTTPCookiePropertyKey: Any] = [
                 .name: name,
@@ -427,7 +432,7 @@ final class BrainBridge {
             ]
             if spec["secure"] as? Bool == true { properties[.secure] = "TRUE" }
             if let cookie = HTTPCookie(properties: properties) {
-                WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie)
+                store.httpCookieStore.setCookie(cookie)
             }
 
         case "profiles":

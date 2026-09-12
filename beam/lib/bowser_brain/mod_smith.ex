@@ -260,6 +260,8 @@ defmodule BowserBrain.ModSmith do
     or page-origin handlers. Use JSON (built in), not Jason (not installed).
     Verify actual typing, commands, saving/reopening, appearance at narrow widths.
 
+    PRIVILEGED COOKIE API: Bridge.get_cookies(url, timeout \\ 5000) reads only the caller profile (active profile for core callers). Bridge.get_cookies_for(url, profile, timeout \\ 5000) and Bridge.set_cookie(url, cookie, profile \\ nil) reject cross-profile scoped callers. Targets must be HTTP(S) with a host and no credentials. Reads include HttpOnly cookies for native browser tools; never expose these to page JavaScript or third-party services. These API checks are not a sandbox for arbitrary Elixir.
+
     NATIVE APPEARANCE: Prefer semantic colors over fixed hex in native mod UI:
     :text, :secondary_text, :surface, :editor_background, :control_background,
     :separator, :accent, :selection, :selected_text, :disabled_text, :error.

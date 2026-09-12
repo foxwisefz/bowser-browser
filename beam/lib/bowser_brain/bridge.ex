@@ -35,12 +35,33 @@ defmodule BowserBrain.Bridge do
 
   @doc "Engine-level cookie read for a URL (includes HttpOnly)."
   def get_cookies(url, timeout \\ 5_000) do
-    GenServer.call(__MODULE__, {:get_cookies, url}, timeout)
+    get_cookies_for(url, BowserBrain.ModScope.current() || BowserBrain.ModScope.active(), timeout)
   end
 
+  @doc "Read cookies for a validated URL in a specific profile. Scoped mods cannot cross profiles."
+  def get_cookies_for(url, profile, timeout \\ 5_000) do
+    scope = BowserBrain.ModScope.current()
+    if is_binary(profile) and (is_nil(scope) or scope == profile) and valid_cookie_url?(url) do
+      GenServer.call(__MODULE__, {:get_cookies, url, profile}, timeout)
+    else
+      {:error, :invalid_cookie_scope}
+    end
+  end
+
+  def valid_cookie_url?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host, userinfo: nil} when scheme in ["http", "https"] and is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+  def valid_cookie_url?(_), do: false
+
   @doc "Engine-level cookie write (HTTP source, so HttpOnly replays too)."
-  def set_cookie(url, cookie) when is_map(cookie) do
-    cast_msg(%{op: "set_cookie", url: url, cookie: cookie})
+  def set_cookie(url, cookie, profile \\ nil) when is_map(cookie) do
+    profile = profile || BowserBrain.ModScope.current() || BowserBrain.ModScope.active()
+    scope = BowserBrain.ModScope.current()
+    if valid_cookie_url?(url) and is_binary(profile) and (is_nil(scope) or scope == profile),
+      do: cast_msg(%{op: "set_cookie", url: url, cookie: cookie, profile: profile})
   end
 
   def socket_path, do: Path.join(System.get_env("BOWSER_RELAY_DIR") || BowserBrain.Paths.home(), "brain.sock")
@@ -109,7 +130,7 @@ defmodule BowserBrain.Bridge do
 
         {:ok, %{"op" => "cookies_result", "id" => id} = result} ->
           {from, pending} = Map.pop(state.pending, id)
-          if from, do: GenServer.reply(from, {:ok, Map.get(result, "cookies", [])})
+          if from, do: GenServer.reply(from, if(result["error"], do: {:error, result["error"]}, else: {:ok, Map.get(result, "cookies", [])}))
           %{state | pending: pending}
 
         {:ok, %{"op" => "hello", "v" => v} = hello} ->
@@ -198,10 +219,10 @@ defmodule BowserBrain.Bridge do
     end
   end
 
-  def handle_call({:get_cookies, url}, from, state) do
+  def handle_call({:get_cookies, url, profile}, from, state) do
     id = state.next_id
 
-    case send_frame(state.sock, %{op: "get_cookies", id: id, url: url}) do
+    case send_frame(state.sock, %{op: "get_cookies", id: id, url: url, profile: profile}) do
       :ok ->
         {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
 

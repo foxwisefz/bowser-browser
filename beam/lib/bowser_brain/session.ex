@@ -123,8 +123,8 @@ defmodule BowserBrain.Session do
   def handle_info({:browser_event, %{"event" => "load_status", "status" => 2, "webview" => wv}}, state) do
     with url when is_binary(url) <- state.tabs[wv],
          origin when is_binary(origin) <- origin_of(url),
-         {:ok, cookies} <- safe_get_cookies(url) do
-      {:noreply, put_in(state.cookies[origin], %{url: url, cookies: cookies})}
+         {:ok, cookies} <- safe_get_cookies(url, Map.get(state.profiles, wv, "default")) do
+      {:noreply, put_in(state.cookies[{Map.get(state.profiles, wv, "default"), origin}], %{url: url, cookies: cookies, profile: Map.get(state.profiles, wv, "default")})}
     else
       _ -> {:noreply, state}
     end
@@ -190,9 +190,9 @@ defmodule BowserBrain.Session do
         # and cookies first, so restored tabs load logged in AND styled.
         BowserBrain.UserContent.push_now()
 
-        for {_origin, %{url: url, cookies: cookies}} <- state.cookies,
+        for {_origin, %{url: url, cookies: cookies, profile: profile}} <- state.cookies,
             cookie <- cookies,
-            do: Bridge.set_cookie(url, cookie)
+            do: Bridge.set_cookie(url, cookie, profile)
 
         restore = rebuild(entries(state), active_index(state.tabs, state.active), engine_tabs)
         # Old ids are meaningless now; url_changed events rebuild the map.
@@ -367,8 +367,8 @@ defmodule BowserBrain.Session do
     end
   end
 
-  defp safe_get_cookies(url) do
-    Bridge.get_cookies(url)
+  defp safe_get_cookies(url, profile) do
+    Bridge.get_cookies_for(url, profile)
   catch
     :exit, _ -> {:error, :timeout}
   end
