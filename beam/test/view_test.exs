@@ -3,6 +3,17 @@ defmodule BowserBrain.ViewTest do
 
   alias BowserBrain.View
 
+  test "multiline editor options survive native JSON transport" do
+    node = View.input(:body, kind: :multiline, monospaced: true, preview: :markdown,
+      editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}], fill_height: true)
+    wire = node |> JSON.encode!() |> JSON.decode!()
+    assert wire["kind"] == "multiline"
+    assert wire["preview"] == "markdown"
+    assert wire["monospaced"]
+    assert wire["fill_height"]
+    assert wire["editor_actions"] == [%{"label" => "Bold", "prefix" => "**", "suffix" => "**"}]
+  end
+
   test "strip chrome is a composable JSON tree, including profile bindings and actions" do
     header = BowserBrain.TabDeck.profile_header("work")
     footer = View.action("New tab", event: "new", symbol: "plus")

@@ -117,8 +117,7 @@ rename it to `.ex.off` or remove it to restore the previous appearance.
 `Chrome.put_toolbar(id, view, edge: :bottom, size: 32, style: %{...})`
 adds or updates a process-owned bar in every browser window. The view uses
 normal `BowserBrain.View` controls and layout. `edge` can be `:top`, `:bottom`,
-`:left`, or `:right`; `size` is 16–200 points (height for top/bottom, width
-for left/right). Style accepts `background`, `foreground`, and `border` as
+`:left`, or `:right`; `size` is 16–200 points for top/bottom height and 16–800 for left/right width. Style accepts `background`, `foreground`, and `border` as
 `#rrggbb` colors. View DSL spacing controls the gaps between controls.
 
 Bars reserve native webpage space, including when switching or warming tabs
@@ -183,3 +182,9 @@ builders. The native shell renders nested containers and sizing constraints; gen
 mods choose the websites, controls and behavior. See [live website layouts](../docs/mod-ui.md#live-website-layouts)
 for limits, lifecycle and examples. This capability does not require a resident
 agent to implement a particular layout feature.
+
+Native document editors use `View.input/1,2` with `kind: :multiline` inside a form.
+Optional `editor_actions` wrap selections with configurable prefixes/suffixes;
+`preview: :markdown` previews the current draft. Use stable document keys and
+acknowledged saves. Native UI and Store keep private content outside website
+scripts. See [native document editing](../docs/mod-ui.md#native-document-editing).

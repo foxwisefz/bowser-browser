@@ -147,7 +147,7 @@ defmodule BowserBrain.ModSmith do
     Chrome.put_toolbar("status", BowserBrain.View.hstack([
       BowserBrain.View.text("Ready"), BowserBrain.View.button("Action", event: "action")]),
       edge: :bottom, size: 28, style: %{background: "#C0C0C0", foreground: "#000000", border: "#808080"}).
-    Native bars support edge: :top/:bottom/:left/:right; size: 16..200 points
+    Native bars support edge: :top/:bottom/:left/:right; size: 16..200 for top/bottom, 16..800 for left/right
     (height horizontally, width vertically). Use normal View DSL controls.
     They reserve webpage space rather than cover content. All browser windows
     inherit them; clicks are surface events with surface: "toolbar:status",
@@ -195,7 +195,7 @@ defmodule BowserBrain.ModSmith do
     and list_detail([%{id: "work", title: "Work", symbol: "briefcase", detail: tree}]).
     form("unique-form-key", string_keyed_values, content, event: :save, required: [:name],
     response: state.response) keeps local drafts and supplies Save/Revert. input(name,
-    kind: :text|:toggle|:color|:choice, label: ...) binds to that draft; choice options are
+    kind: :text|:multiline|:toggle|:color|:choice, label: ...) binds to that draft; choice options are
     [%{value: "star", label: "Star", symbol: "star"}] (or path: for images), columns: 4.
     Save's event value is %{"request_id"=>uuid,"values"=>draft}. Validate/persist in
     the brain, update values, and re-show the form with response:
@@ -211,6 +211,25 @@ defmodule BowserBrain.ModSmith do
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
     editable record. button() creates a panel row, not a native form action.
+    NATIVE EDITING: input(:body, kind: :multiline, monospaced: true,
+    preview: :markdown, editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}],
+    fill_height: true, fill_width: true) inside form/3,4 creates a native multiline
+    editor with selection, clipboard, undo/redo, wrapping and scrolling. Options
+    editor_actions and preview are optional: plain text works without Markdown.
+    Actions insert prefix/suffix around the current selection in one undoable edit.
+    Markdown preview reads the current local draft (including unsaved edits), supports
+    headings, lists, quotes, fenced code and inline emphasis/code/link labels. It does
+    not execute HTML, fetch images or open links; tables and rich HTML are unsupported.
+    Use stable form keys per document, not hashes of changing content. Re-showing a
+    form keeps dirty drafts; use matching form_response acknowledgments after saving.
+    Native forms can live inline in Chrome.put_toolbar(edge: :right, size: 360),
+    with fill_height: true on the form and input. Side widths accept 16..800 points;
+    top/bottom heights 16..200. Native notes/private tools must keep data in Store and
+    native form events, never Page.eval, page scripts or page-origin message handlers.
+    Never substitute one single-line field per line for a document editor. Use JSON
+    (built in), not Jason (not installed). Verify typing, saving and reopening, and
+    check the actual rendered result before marking complete.
+
     COMPOSABLE WEBSITE LAYOUT: alias BowserBrain.{Layout, Surface}.
     Surface.create_tab(wv, url) -> {:ok, state} with "created" => background tab ID.
     Build arbitrary arrangements from Layout.webview(id, opts \\ []),

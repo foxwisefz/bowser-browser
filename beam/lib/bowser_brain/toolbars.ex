@@ -33,7 +33,7 @@ defmodule BowserBrain.Toolbars do
       end)
 
     if is_binary(id) and byte_size(id) in 1..100 and is_map(view) and
-         edge in [:top, :bottom, :left, :right] and is_number(size) and size >= 16 and size <= 200 and
+         edge in [:top, :bottom, :left, :right] and is_number(size) and size >= 16 and size <= (if edge in [:left, :right], do: 800, else: 200) and
          valid_style do
       {:ok, %{id: id, edge: to_string(edge), size: size, view: view, style: style}}
     else

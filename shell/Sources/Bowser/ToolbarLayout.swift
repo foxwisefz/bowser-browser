@@ -12,7 +12,7 @@ struct ModToolbar {
         guard let id = json["id"] as? String, !id.isEmpty, id.utf8.count <= 100,
               let edge = json["edge"] as? String, ["top", "bottom", "left", "right"].contains(edge),
               let size = json["size"] as? NSNumber, CFGetTypeID(size) != CFBooleanGetTypeID(),
-              size.doubleValue.isFinite, (16...200).contains(size.doubleValue),
+              size.doubleValue.isFinite, (16...(edge == "left" || edge == "right" ? 800.0 : 200.0)).contains(size.doubleValue),
               let view = json["view"] as? [String: Any],
               let style = ShellTheme(json: json["style"] as? [String: Any] ?? [:]) else { return nil }
         self.id = id; self.edge = edge; self.size = size.doubleValue
@@ -92,7 +92,7 @@ final class ToolbarContainerView: NSView {
             let root = AnyView(SurfaceTreeView(surfaceId: "toolbar:\(bar.id)", node: bar.view, eventWebview: webview)
                 .padding(4)
                 .foregroundStyle(Color(nsColor: bar.style.color("foreground") ?? .labelColor))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bar.edge == "left" || bar.edge == "right" ? .topLeading : .leading)
                 .background(Color(nsColor: bar.style.color("background") ?? .windowBackgroundColor))
                 .overlay(Rectangle().strokeBorder(Color(nsColor: bar.style.color("border") ?? .clear), lineWidth: 1)))
             if let host = hosts[bar.id] { host.rootView = root }

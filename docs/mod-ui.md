@@ -52,7 +52,7 @@ form("edit-work", %{"name" => "Work", "color" => "#3e63dd"},
   response: state.response)
 ```
 
-`input` binds to the nearest form. Kinds are `:text`, `:toggle`, `:color`, and
+`input` binds to the nearest form. Kinds are `:text`, `:multiline`, `:toggle`, `:color`, and
 `:choice`. Choice inputs accept `columns` and options containing string `value`,
 `label`, and optional image `path` or SF `symbol`. Images keep their aspect ratio.
 Color values are hex strings; toggles are booleans. Use string keys in values.
@@ -85,6 +85,44 @@ external resources. A late reply after timeout cannot acknowledge a later reques
 Other validation belongs in the brain. Revert restores the last accepted baseline.
 `require_changes: false` enables initial submission for creation forms.
 `submit_label` and `cancel_label` customize the action labels.
+
+## Native document editing
+
+Use `input(:body, kind: :multiline)` inside a form for a native, scrollable,
+wrapping text editor with selection, clipboard and undo/redo. Newlines remain
+part of one string. Add `fill_height: true` to the input, form and enclosing
+vertical layout to fill a sidebar. Side toolbars accept widths of 16–800 points;
+top/bottom bars accept heights of 16–200. Bars shrink to preserve page space in
+small windows. Sidebar content aligns at the top.
+
+```elixir
+form("document-42", %{"body" => saved_text},
+  input(:body, kind: :multiline, monospaced: true,
+    preview: :markdown, placeholder: "Start writing…",
+    editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}],
+    fill_width: true, fill_height: true),
+  event: :save, response: state.response, fill_height: true)
+```
+
+`input/1,2` accepts optional `monospaced:` (default false), `preview: :markdown`
+and `editor_actions:` (default empty). Each action has a `label`, optional `help`,
+`prefix` and `suffix`; it wraps the selected text in one undoable edit. With no
+selection it inserts the delimiters and places the caret between them. These
+options work with arbitrary text; actions are not tied to notes or Markdown.
+
+The optional Write/Preview control renders the current unsaved draft natively.
+Preview supports headings, bullet lists, quotes, fenced code and inline
+emphasis/code/link labels. It does not execute HTML, fetch images or activate
+links; tables and rich HTML are unsupported. Plain multiline editing needs no
+preview or formatting actions. Editor state is local until form submission;
+matching `form_response/2` acknowledges persistence. Keep form keys stable per
+document so tree refreshes preserve drafts; disabling a surface removes drafts.
+
+Private tools must store content through `Store` and use native form events.
+Do not send private text through page evaluation/scripts or expose it to
+page-origin messages. See `beam/example_mods/page_notes.ex` for an inline native
+sidebar example with URL-bound saves and a 500 KB note limit. That limit belongs
+to the example; general editor inputs inherit the surface transport limits.
 
 ## Sheets, popovers, and actions
 

@@ -23,6 +23,13 @@ defmodule ToolbarsTest do
     await_empty()
   end
 
+  test "sidebar widths support document editors while horizontal bars remain bounded" do
+    assert :ok = Chrome.put_toolbar("editor", %{}, edge: :right, size: 360)
+    assert {:error, :invalid_toolbar} = Chrome.put_toolbar("tall", %{}, edge: :top, size: 360)
+    assert {:error, :invalid_toolbar} = Chrome.put_toolbar("huge", %{}, edge: :right, size: 801)
+    Toolbars.release(self())
+  end
+
   test "hot reload release removes bars and reconnect preserves definitions" do
     Chrome.put_toolbar("left", %{t: "text", text: "Tools"}, edge: :left, size: 100)
     send(Toolbars, {:browser_event, %{"event" => "hello"}})

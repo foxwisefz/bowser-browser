@@ -158,6 +158,8 @@ private struct SurfaceBoundInput: View {
     }
     @ViewBuilder private var control: some View {
         switch node["kind"] as? String ?? "text" {
+        case "multiline":
+            SurfaceMultilineInput(node: node, text: string)
         case "toggle":
             Toggle(label, isOn: Binding(get: { model.values[field] as? Bool ?? false }, set: { model.values[field] = $0 }))
         case "color":
@@ -209,7 +211,9 @@ struct SurfacePresentation: View {
     private var content: some View {
         SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:])
             .environment(\.surfaceForm, form)
+            .foregroundStyle(Color.primary)
             .padding(24)
+            .background(Color(nsColor: .windowBackgroundColor))
             .frame(width: max(240, min(1000, (node["content_width"] as? Double).map { CGFloat($0) } ?? 480)))
     }
 }

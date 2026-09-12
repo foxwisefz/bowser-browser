@@ -233,11 +233,13 @@ defmodule BowserBrain.View do
   def form_response(request_id, {:error, message}),
     do: %{request_id: request_id, ok: false, error: to_string(message)}
 
-  @doc "Form-bound input. kind: :text/:toggle/:color/:choice. Choice options: %{value: string, label: string, path: image_path or symbol: sf_symbol}."
+  @doc "Form-bound input. kind: :text/:multiline/:toggle/:color/:choice. Multiline accepts monospaced:, preview: :markdown, editor_actions: [%{label: string, prefix: string, suffix: string}]. Choice options: %{value: string, label: string, path: image_path or symbol: sf_symbol}."
   def input(name, opts \\ []) do
     %{t: "input", key: to_string(name), field: to_string(name), kind: Keyword.get(opts, :kind, :text),
       label: Keyword.get(opts, :label, to_string(name)), placeholder: Keyword.get(opts, :placeholder),
-      columns: Keyword.get(opts, :columns, 4), options: Keyword.get(opts, :options, [])} |> ui(opts)
+      columns: Keyword.get(opts, :columns, 4), options: Keyword.get(opts, :options, []),
+      monospaced: Keyword.get(opts, :monospaced, false), preview: Keyword.get(opts, :preview),
+      editor_actions: Keyword.get(opts, :editor_actions, [])} |> ui(opts)
   end
 
   @doc "Native sheet opened by a button; content is another tree. Include action(..., action: :dismiss) to close."
