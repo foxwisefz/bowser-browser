@@ -230,6 +230,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    static var orderedTabIDs: [UInt64] { all.flatMap { $0.tabs.map(\.webviewId) } }
+
     // MARK: - Tabs
 
     /// Create a webview owned by this window. It starts DETACHED — the state
@@ -238,14 +240,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func openTab(
         configuration: WKWebViewConfiguration? = nil,
         opener: UInt64? = nil,
-        activate shouldActivate: Bool = true
+        activate shouldActivate: Bool = true,
+        append: Bool = false
     ) -> EngineView {
         // Born at the mount size so a background tab lays out for the real
         // viewport instead of loading into a 0×0 window.
         let view = EngineView(frame: container.pageArea.bounds, configuration: configuration, profile: profile)
         view.autoresizingMask = [.width, .height]
         wire(view)
-        tabs.append(view)
+        let anchor = activeTab.flatMap { active in tabs.firstIndex { $0 === active } }
+        tabs.insert(view, at: append ? tabs.count : anchor.map { $0 + 1 } ?? tabs.count)
 
         // Emit BEFORE it can be mounted: consumers must see tab_opened
         // before the first tab_activated for this webview.
@@ -254,6 +258,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         ]
         if let opener { opened["opener"] = opener } else { opened["opener"] = NSNull() }
         opened["profile"] = profile.id
+        opened["order"] = Self.orderedTabIDs
         BrainBridge.shared.send(opened)
 
         if shouldActivate { activate(view) }

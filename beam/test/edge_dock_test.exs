@@ -5,6 +5,13 @@ defmodule EdgeDockTabsTest do
 
   defp ev(state, map), do: BowserBrain.TabDeck.handle_event(map, state)
 
+  test "native insertion order overrides event arrival order" do
+    state = base()
+      |> ev(%{"event" => "hello", "tabs" => [%{"id" => 1}, %{"id" => 2}], "active" => 1})
+      |> ev(%{"event" => "tab_opened", "webview" => 3, "order" => [1, 3, 2]})
+    assert state.order == [1, 3, 2]
+  end
+
   test "closed tabs leave the dock — no phantom icons (bowser-browser-55l)" do
     state =
       base()

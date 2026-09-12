@@ -185,7 +185,8 @@ final class BrainBridge {
     // MARK: - Protocol (main actor)
 
     private func sendHello() {
-        let ids = EngineView.live.keys.sorted()
+        let ordered = BrowserWindowController.orderedTabIDs
+        let ids = ordered + EngineView.live.keys.filter { !ordered.contains($0) }.sorted()
         let tabs: [[String: Any]] = ids.map { id in
             var tab: [String: Any] = ["id": id]
             // Never box an Optional into JSON — JSONSerialization rejects it

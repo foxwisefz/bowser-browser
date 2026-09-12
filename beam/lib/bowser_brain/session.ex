@@ -19,7 +19,7 @@ defmodule BowserBrain.Session do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
-  @doc "Currently remembered tabs, ordered by webview id."
+  @doc "Currently remembered tabs, in native tab order."
   def tabs, do: GenServer.call(__MODULE__, {:tabs, BowserBrain.ModScope.current()})
 
   @doc "The mirrored URL of one webview (nil when unknown). Cheap call; used by host-scoped mods."
@@ -48,11 +48,11 @@ defmodule BowserBrain.Session do
   @impl true
   def handle_call({:tabs, profile}, _from, state) do
     tabs = if is_nil(profile), do: state.tabs, else: Map.filter(state.tabs, fn {id, _} -> Map.get(state.profiles, id, "default") == profile end)
-    {:reply, ordered_urls(tabs), state}
+    {:reply, ordered_urls(tabs, Map.get(state, :order, [])), state}
   end
 
   def handle_call(:tabs, _from, state) do
-    {:reply, ordered_urls(state.tabs), state}
+    {:reply, ordered_urls(state.tabs, Map.get(state, :order, [])), state}
   end
 
   def handle_call({:url_of, webview}, _from, state) do
@@ -86,9 +86,9 @@ defmodule BowserBrain.Session do
   # A restore is in flight: each tab_opened is one of our open_tab casts
   # Launch URLs remain open; seed restored URLs immediately so an interrupted
   # load or quit cannot replace the saved session with a partial restore.
-  def handle_info({:browser_event, %{"event" => "tab_opened", "webview" => wv}},
+  def handle_info({:browser_event, %{"event" => "tab_opened", "webview" => wv} = ev},
                   %{pending_restore: [entry | rest]} = state) do
-    state = state |> note_profile(wv, entry.profile)
+    state = state |> note_profile(wv, entry.profile) |> note_order(ev)
     {:noreply, persist(%{state | tabs: Map.put(state.tabs, wv, entry.url), pending_restore: rest})}
   end
 
@@ -98,7 +98,7 @@ defmodule BowserBrain.Session do
         {:browser_event, %{"event" => "tab_opened", "webview" => wv} = ev},
         %{restore: %{remaining: n}} = state
       ) do
-    state = note_profile(state, wv, ev["profile"])
+    state = state |> note_profile(wv, ev["profile"]) |> note_order(ev)
 
     case n - 1 do
       0 ->
@@ -116,7 +116,7 @@ defmodule BowserBrain.Session do
   end
 
   def handle_info({:browser_event, %{"event" => "tab_opened", "webview" => wv} = ev}, state) do
-    {:noreply, note_profile(state, wv, ev["profile"])}
+    {:noreply, state |> note_profile(wv, ev["profile"]) |> note_order(ev) |> persist()}
   end
 
   # Page finished loading: snapshot its origin's cookie jar.
@@ -133,12 +133,15 @@ defmodule BowserBrain.Session do
   def handle_info({:browser_event, %{"event" => "hello"} = hello}, state) do
     engine_tabs = Map.get(hello, "tabs", [])
     engine_urls = for %{"url" => u} <- engine_tabs, real_url?(u), do: u
-    remembered = ordered_urls(state.tabs)
+    remembered = ordered_urls(state.tabs, Map.get(state, :order, []))
+    saved_active = active_index(state.tabs, state.active, Map.get(state, :order, []))
     engine_id = hello["engine_session_id"]
     previous_id = Map.get(state, :engine_session_id) || Map.get(state.disk, :engine_session_id)
     fresh_engine = is_binary(engine_id) and engine_id != previous_id
     saved = if remembered == [], do: disk_entries(state.disk), else: entries(state)
     state = if is_binary(engine_id), do: Map.put(state, :engine_session_id, engine_id), else: state
+
+    state = Map.put(state, :order, Enum.map(engine_tabs, & &1["id"]))
 
     cond do
       fresh_engine and engine_urls != [] and saved != [] ->
@@ -152,7 +155,7 @@ defmodule BowserBrain.Session do
         state = persist(state)
         BowserBrain.UserContent.push_now()
         for entry <- missing do
-          Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: entry.url, profile: entry.profile})
+          Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: entry.url, profile: entry.profile, append: true})
         end
         Bridge.cast_msg(%{op: "restore_done", webview: hello["active"] || 0})
         {:noreply, state}
@@ -194,7 +197,7 @@ defmodule BowserBrain.Session do
             cookie <- cookies,
             do: Bridge.set_cookie(url, cookie, profile)
 
-        restore = rebuild(entries(state), active_index(state.tabs, state.active), engine_tabs)
+        restore = rebuild(saved, saved_active, engine_tabs)
         # Old ids are meaningless now; url_changed events rebuild the map.
         {:noreply, %{state | tabs: %{}, active: nil, restore: restore} |> Map.put(:profiles, %{})}
 
@@ -218,7 +221,7 @@ defmodule BowserBrain.Session do
     if first, do: Browser.navigate(first, first_webview)
 
     for %{url: url, profile: profile} <- rest do
-      Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url, profile: profile})
+      Bridge.cast_msg(%{op: "chrome", chrome: "open_tab", url: url, profile: profile, append: true})
     end
 
     case remaining do
@@ -275,35 +278,40 @@ defmodule BowserBrain.Session do
   defp normalize_entry(%{url: u, profile: p}), do: %{url: u, profile: p || "default"}
   defp normalize_entry(%{"url" => u} = e), do: %{url: u, profile: e["profile"] || "default"}
 
+  defp note_order(state, %{"order" => order}) when is_list(order),
+    do: Map.put(state, :order, Enum.uniq(order))
+  defp note_order(state, _), do: state
+
   defp note_profile(state, wv, profile) when is_binary(profile),
     do: Map.put(state, :profiles, Map.put(Map.get(state, :profiles, %{}), wv, profile))
 
   defp note_profile(state, _wv, _none), do: state
 
-  # Remembered tabs as %{url, profile} entries, ordered by webview id.
+  # Remembered tabs as %{url, profile} entries, in native tab order.
   defp entries(state) do
     profiles = Map.get(state, :profiles, %{})
-    for {id, url} <- real_tabs(state.tabs), do: %{url: url, profile: Map.get(profiles, id, "default")}
+    for {id, url} <- real_tabs(state.tabs, Map.get(state, :order, [])), do: %{url: url, profile: Map.get(profiles, id, "default")}
   end
 
-  defp ordered_urls(tabs) do
+  defp ordered_urls(tabs, order) do
     tabs
-    |> real_tabs()
+    |> real_tabs(order)
     |> Enum.map(fn {_id, url} -> url end)
   end
 
   # Position of the active webview in the remembered ordering — what an
   # `open_tab` countdown and the on-disk index both mean by "active".
-  defp active_index(tabs, active) do
+  defp active_index(tabs, active, order) do
     tabs
-    |> real_tabs()
+    |> real_tabs(order)
     |> Enum.find_index(fn {id, _url} -> id == active end)
     |> Kernel.||(0)
   end
 
-  defp real_tabs(tabs) do
-    tabs
-    |> Enum.sort()
+  defp real_tabs(tabs, order) do
+    ids = Enum.uniq(order ++ Enum.sort(Map.keys(tabs)))
+    ids
+    |> Enum.map(&{&1, tabs[&1]})
     |> Enum.filter(fn {_id, url} -> real_url?(url) end)
   end
 
@@ -349,7 +357,7 @@ defmodule BowserBrain.Session do
     if urls != [] do
       path = disk_path()
       temporary = path <> ".tmp"
-      File.write!(temporary, JSON.encode!(%{tabs: tabs, active: active_index(state.tabs, state.active),
+      File.write!(temporary, JSON.encode!(%{tabs: tabs, active: active_index(state.tabs, state.active, Map.get(state, :order, [])),
                                           engine_session_id: Map.get(state, :engine_session_id)}))
       File.rename!(temporary, path)
     end

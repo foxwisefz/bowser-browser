@@ -205,7 +205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activate: Bool = true,
         configuration: WKWebViewConfiguration? = nil,
         opener explicitOpener: UInt64? = nil,
-        profile requestedProfile: String? = nil
+        profile requestedProfile: String? = nil,
+        append: Bool = false
     ) -> EngineView {
         if let site = SiteAppConfiguration.current {
             // App popups get visible windows, never hidden tabs with no strip.
@@ -219,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let requestedProfile, explicitOpener == nil {
             let target = Profile.find(requestedProfile)
             if let controller = BrowserWindowController.all.last(where: { $0.profile.id == target.id }) {
-                let view = controller.openTab(configuration: configuration, opener: nil, activate: activate)
+                let view = controller.openTab(configuration: configuration, opener: nil, activate: activate, append: append)
                 if let url { view.load(urlString: url) }
                 return view
             }
@@ -237,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return controller.activeTab
         }
         let view = controller.openTab(
-            configuration: configuration, opener: opener, activate: activate
+            configuration: configuration, opener: opener, activate: activate, append: append
         )
         if let url { view.load(urlString: url) }
         return view

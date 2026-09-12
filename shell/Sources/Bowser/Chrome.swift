@@ -122,7 +122,8 @@ enum ChromeSurface {
             delegate.openTab(
                 url: object["url"] as? String,
                 activate: object["activate"] as? Bool ?? false,
-                profile: object["profile"] as? String
+                profile: object["profile"] as? String,
+                append: object["append"] as? Bool ?? false
             )
             return
         case "open_window":

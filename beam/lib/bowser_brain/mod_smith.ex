@@ -135,7 +135,7 @@ defmodule BowserBrain.ModSmith do
     end
     Events: "url_changed"(url,webview) "title_changed"(title) "load_status"(status 0|2)
     "chrome_click"(id) "omnibar_command"(text) "store_changed"(mod,key) "page"(payload via window.bowser.emit in
-    injected JS) "tab_opened"(webview,opener) "tab_activated"(webview) "hello" "mod_reloaded".
+    injected JS) "tab_opened"(webview,opener,profile,order — native tab IDs in display order) "tab_activated"(webview) "hello" "mod_reloaded".
     HOT RELOAD KEEPS OLD PROCESS STATE: init_mod is NOT called again. When
     adding state keys, normalize at the start of EVERY event before reading
     them: state = Map.merge(%{view: :welcome, keyword: ""}, state), using YOUR

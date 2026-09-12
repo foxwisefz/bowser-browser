@@ -33,6 +33,20 @@ defmodule BowserBrain.SessionTest do
     state
   end
 
+  test "native insertion order persists and reconnect preserves it", %{path: path} do
+    state = base_state()
+      |> event(%{"event" => "hello", "tabs" => [
+        %{"id" => 1, "url" => "https://a.example/"},
+        %{"id" => 2, "url" => "https://b.example/"}], "active" => 1})
+      |> event(%{"event" => "tab_opened", "webview" => 3, "order" => [1, 3, 2]})
+      |> event(%{"event" => "url_changed", "webview" => 3, "url" => "https://c.example/"})
+      |> event(%{"event" => "tab_activated", "webview" => 3})
+    assert {:reply, ["https://a.example/", "https://c.example/", "https://b.example/"], _} = Session.handle_call(:tabs, nil, state)
+    stored = JSON.decode!(File.read!(path))
+    assert stored["active"] == 1
+    assert Enum.map(stored["tabs"], & &1["url"]) == ["https://a.example/", "https://c.example/", "https://b.example/"]
+  end
+
   test "quit freezes the full session before window teardown", %{path: path} do
     state = base_state(%{tabs: %{1 => "https://a.example/", 2 => "https://b.example/"}, active: 2,
                          profiles: %{1 => "default", 2 => "work"}})

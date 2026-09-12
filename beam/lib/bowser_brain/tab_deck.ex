@@ -35,7 +35,7 @@ defmodule BowserBrain.TabDeck do
   end
 
   def handle_event(%{"event" => "tab_opened", "webview" => wv} = ev, state) do
-    state |> put_tab(wv, profile: ev["profile"]) |> render()
+    state |> put_tab(wv, profile: ev["profile"]) |> apply_order(ev["order"]) |> render()
   end
 
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
@@ -121,6 +121,12 @@ defmodule BowserBrain.TabDeck do
     order = if wv in state.order, do: state.order, else: state.order ++ [wv]
     %{state | tabs: Map.put(state.tabs, wv, tab), order: order}
   end
+
+  defp apply_order(state, order) when is_list(order) do
+    known = Enum.filter(Enum.uniq(order), &Map.has_key?(state.tabs, &1))
+    %{state | order: known ++ (state.order -- known)}
+  end
+  defp apply_order(state, _), do: state
 
   defp render(state) do
     # The header identifies the active profile; tab artwork needs no repeated badge.
