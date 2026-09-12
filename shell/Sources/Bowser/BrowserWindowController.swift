@@ -3,7 +3,7 @@ import SwiftUI
 import WebKit
 
 /// One window owns live tabs. Mods can mount selected tabs together in a
-/// resizable row or column; detached tabs retain their DOM and navigation state.
+/// nested layout tree; detached tabs retain their DOM and navigation state.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Every live window, in creation order. Strong: this is what owns them.
@@ -296,19 +296,17 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Commands act only on this window; no tab moves between profiles/windows.
-    func applyWebsiteLayout(ids: [UInt64], axis: String, weights: [Double]) throws {
-        guard (2...4).contains(ids.count), Set(ids).count == ids.count,
-              ["horizontal", "vertical"].contains(axis), weights.count == ids.count,
-              weights.allSatisfy({ $0.isFinite && $0 >= 0.1 && $0 <= 1 }),
-              weights.reduce(0, +).isFinite,
-              ids.allSatisfy({ id in tabs.contains { $0.webviewId == id } }) else {
-            throw layoutError("Use 2–4 distinct tabs from this window, horizontal/vertical axis, and weights from 0.1 to 1")
+    func applyWebsiteLayout(tree: [String: Any]) throws {
+        let node = try WebsiteLayoutNode.parse(tree)
+        let byID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.webviewId, $0) })
+        guard node.ids.allSatisfy({ byID[$0] != nil }) else {
+            throw layoutError("Layout leaves must reference tabs from this window")
         }
-        let selected = ids.map { id in tabs.first { $0.webviewId == id }! }
+        let selected = node.ids.map { byID[$0]! }
         let focused = selected.first { $0 === activeTab } ?? selected[0]
         detachWebsiteLayout()
         activeTab?.removeFromSuperview()
-        let layout = WebsiteLayout(frame: container.pageArea.bounds, views: selected, axis: axis, weights: weights)
+        let layout = WebsiteLayout(frame: container.pageArea.bounds, node: node, views: byID)
         container.pageArea.addSubview(layout)
         websiteLayout = layout
         activeTab = nil
@@ -348,8 +346,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     func websiteLayoutState() -> [String: Any] {
         ["tabs": tabs.map { ["webview": $0.webviewId, "url": $0.webView.url?.absoluteString ?? ""] },
          "panes": websiteLayout?.ids ?? activeTab.map { [$0.webviewId] } ?? [],
-         "axis": websiteLayout.map { $0.isVertical ? "horizontal" : "vertical" } ?? "single",
-         "weights": websiteLayout?.fractions ?? [1.0], "active": activeTab?.webviewId ?? 0]
+         "tree": websiteLayout?.tree ?? activeTab.map { ["type": "webview", "webview": $0.webviewId] } ?? [:],
+         "active": activeTab?.webviewId ?? 0]
     }
 
     func websiteLayoutCommand(_ message: [String: Any]) throws -> [String: Any] {
@@ -360,14 +358,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         case "get": break
         case "reset": resetWebsiteLayout()
         case "set":
-            guard let ids = message["tabs"] as? [UInt64], let axis = message["axis"] as? String else {
-                throw layoutError("Provide tab IDs and axis")
-            }
-            if message["weights"] != nil && message["weights"] as? [Double] == nil {
-                throw layoutError("Weights must be numbers")
-            }
-            let weights = message["weights"] as? [Double] ?? Array(repeating: 1.0, count: ids.count)
-            try applyWebsiteLayout(ids: ids, axis: axis, weights: weights)
+            guard let tree = message["tree"] as? [String: Any] else { throw layoutError("Provide a layout tree") }
+            try applyWebsiteLayout(tree: tree)
         case "create_tab":
             guard let value = message["url"] as? String, let url = URL(string: value),
                   ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
@@ -440,12 +432,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Close one tab. The window goes with the last one.
     func closeTab(_ view: EngineView) {
         guard let index = tabs.firstIndex(where: { $0 === view }) else { return }
-        if let layout = websiteLayout, layout.ids.contains(view.webviewId) {
-            let survivor = layout.views.first { $0 !== view }!
-            detachWebsiteLayout()
-            activeTab = nil
-            activate(survivor)
-        }
+        let wasPane = websiteLayout?.ids.contains(view.webviewId) == true
+        let remainingTree = wasPane ? (try? WebsiteLayoutNode.parse(websiteLayout!.tree))?.removing(view.webviewId) : nil
+        if wasPane { detachWebsiteLayout() }
         tabs.remove(at: index)
         view.removeFromSuperview()
         view.tearDown()
@@ -454,9 +443,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             window?.close()
             return
         }
-        if activeTab === view {
+        if let remainingTree {
+            // The remaining IDs still belong to this window. Recompose without
+            // reloading their pages, retaining dragged sizes from the snapshot.
+            do { try applyWebsiteLayout(tree: remainingTree.json); return }
+            catch { NSLog("Bowser: layout recomposition failed: %@", error.localizedDescription) }
+        }
+        if wasPane || activeTab == nil || activeTab === view {
+            let selected = activeTab.flatMap { active in tabs.first { $0 === active } } ?? tabs[min(index, tabs.count - 1)]
             activeTab = nil
-            activate(tabs[min(index, tabs.count - 1)])
+            activate(selected)
         }
     }
 

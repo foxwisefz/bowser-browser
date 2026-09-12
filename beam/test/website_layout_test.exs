@@ -1,6 +1,6 @@
 defmodule BowserBrain.WebsiteLayoutTest do
   use ExUnit.Case, async: false
-  alias BowserBrain.{Surface, Bridge, AgentPort}
+  alias BowserBrain.{Surface, Bridge, AgentPort, Layout}
 
   test "layout API sends correlated native commands and returns tab IDs" do
     path = Path.join(System.tmp_dir!(), "layout-#{System.unique_integer([:positive])}.sock")
@@ -27,8 +27,13 @@ defmodule BowserBrain.WebsiteLayoutTest do
     end)
     assert {:ok, %{"created" => 32}} = Surface.create_tab(31, "https://example.test/")
     assert_receive {:request, %{"action" => "create_tab", "webview" => 31, "profile" => "default", "url" => "https://example.test/"}}
-    assert {:ok, _} = Surface.layout_tabs(31, [31, 32], axis: :vertical, weights: [0.3, 0.7])
-    assert_receive {:request, %{"op" => "website_layout", "axis" => "vertical", "tabs" => [31, 32], "weights" => [0.3, 0.7]}}
+    tree = Layout.row([Layout.webview(31, weight: 2),
+      Layout.column([Layout.webview(32), Layout.webview(33, min_height: 180)], resizable: false)])
+    assert {:ok, _} = Surface.layout(31, tree)
+    assert_receive {:request, %{"op" => "website_layout", "tree" => %{"type" => "row", "children" => [
+      %{"type" => "webview", "webview" => 31, "weight" => 2},
+      %{"type" => "column", "resizable" => false, "children" => [_, %{"webview" => 33, "min_height" => 180}]}
+    ]}}}
     assert %{"ok" => true} = AgentPort.dispatch(%{"tool" => "website_layout", "args" => %{"webview" => 31, "action" => "get", "profile" => "injected"}})
     assert_receive {:request, %{"action" => "get", "profile" => "default"}}
     assert {:ok, _} = Surface.reset_layout(31)
@@ -39,12 +44,9 @@ defmodule BowserBrain.WebsiteLayoutTest do
   test "layout primitives reject invalid and foreign-profile targets" do
     assert {:error, :invalid_webview} = Surface.tab_layout(0)
     assert {:error, :invalid_url} = Surface.create_tab(31, nil)
-    assert {:error, :invalid_layout} = Surface.layout_tabs(31, nil)
-    assert {:error, :invalid_layout} = Surface.layout_tabs(31, [31, 31])
-    assert {:error, :invalid_layout} = Surface.layout_tabs(31, [31, 32], weights: [0, 1])
-    assert {:error, :invalid_layout} = Surface.layout_tabs(31, [31, 32], axis: :diagonal)
+    assert {:error, :invalid_layout} = Surface.layout(31, nil)
     Process.put(:bowser_profile, "work")
     assert {:error, :wrong_profile} = Surface.create_tab(31, "https://example.test/")
-    assert {:error, :wrong_profile} = Surface.layout_tabs(31, [31, 32])
+    assert {:error, :wrong_profile} = Surface.layout(31, Layout.row([Layout.webview(31), Layout.webview(32)]))
   end
 end

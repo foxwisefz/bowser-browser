@@ -3,18 +3,112 @@ let toolCatalogJSON = #"""
 [
   {
     "name": "website_layout",
-    "description": "Compose live website panes in the selected browser tab's window. get lists same-window tabs and visible panes/axis/weights/active; create_tab opens a background http(s) page and returns created ID; set arranges 2–4 existing IDs with draggable dividers; reset retains all tabs and shows the active page. Horizontal is side-by-side, vertical is stacked. No cross-window/profile tabs, nesting or saved apps. Runtime layout changes are not recorded in file Undo; durable mods should provide apply/reset controls using BowserBrain.Surface APIs.",
+    "description": "Compose a tree of live website views in the selected browser window. get returns same-window tabs, visible panes, active tab, and tree with current divider weights. create_tab opens a background http(s) page and returns created ID. set applies tree atomically: nest row/column containers with webview leaves, relative weights, minimum sizes and per-container resizable dividers. reset retains all tabs and shows the active page. IDs must be unique and belong to this window/profile. Structural budget: 16 levels, 256 total nodes. No saved apps. Runtime changes are not file Undo; durable mods provide apply/reset controls using Surface.layout and Layout builders.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "action": {"type": "string", "enum": ["get", "create_tab", "set", "reset"]},
-        "url": {"type": "string", "description": "Required for create_tab: http(s) URL."},
-        "tabs": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 4, "uniqueItems": true, "description": "Required for set; use IDs from get/create_tab."},
-        "axis": {"type": "string", "enum": ["horizontal", "vertical"], "description": "Required for set."},
-        "weights": {"type": "array", "items": {"type": "number", "minimum": 0.1, "maximum": 1}, "minItems": 2, "maxItems": 4, "description": "Optional relative pane sizes, one per tab; defaults to equal sizes."}
+        "action": {
+          "type": "string",
+          "enum": [
+            "get",
+            "create_tab",
+            "set",
+            "reset"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "description": "Required for create_tab: http(s) URL."
+        },
+        "tree": {
+          "$ref": "#/$defs/node",
+          "description": "Required for set. A container tree or a single webview leaf."
+        }
       },
-      "required": ["action"],
-      "additionalProperties": false
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "node": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "webview"
+                },
+                "webview": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "weight": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Relative size within the parent; default 1."
+                },
+                "min_width": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Minimum width in window points; default 0."
+                },
+                "min_height": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Minimum height in window points; default 0."
+                }
+              },
+              "required": [
+                "type",
+                "webview"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "enum": [
+                    "row",
+                    "column"
+                  ]
+                },
+                "children": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/node"
+                  }
+                },
+                "resizable": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "weight": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Relative size within the parent; default 1."
+                },
+                "min_width": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Minimum width in window points; default 0."
+                },
+                "min_height": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Minimum height in window points; default 0."
+                }
+              },
+              "required": [
+                "type",
+                "children"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
     }
   },
   {

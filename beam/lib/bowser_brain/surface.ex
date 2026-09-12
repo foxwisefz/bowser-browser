@@ -87,27 +87,11 @@ defmodule BowserBrain.Surface do
   def create_tab(webview, url) when is_binary(url), do: website_layout(webview, "create_tab", %{"url" => url})
   def create_tab(_, _), do: {:error, :invalid_url}
 
-  @doc "Arrange 2–4 existing same-window tabs. Options: axis: :horizontal | :vertical, weights: list of 0.1..1 numbers."
-  def layout_tabs(webview, tabs, opts \\ [])
-  def layout_tabs(webview, tabs, opts) when is_list(tabs) and is_list(opts) do
-    if Keyword.keyword?(opts) do
-      axis = Keyword.get(opts, :axis, :horizontal)
-      weights = Keyword.get(opts, :weights, Enum.map(tabs, fn _ -> 1.0 end))
-      if length(tabs) in 2..4 and Enum.all?(tabs, &(is_integer(&1) and &1 > 0)) and
-           length(Enum.uniq(tabs)) == length(tabs) and axis in [:horizontal, :vertical] and
-           is_list(weights) and length(weights) == length(tabs) and
-           Enum.all?(weights, &(is_number(&1) and &1 >= 0.1 and &1 <= 1)) do
-        website_layout(webview, "set", %{"tabs" => tabs, "axis" => to_string(axis), "weights" => weights})
-      else
-        {:error, :invalid_layout}
-      end
-    else
-      {:error, :invalid_layout}
-    end
-  end
-  def layout_tabs(_, _, _), do: {:error, :invalid_layout}
+  @doc "Apply a composable BowserBrain.Layout tree to a tab's window. Returns {:ok, state} or {:error, reason}."
+  def layout(webview, tree) when is_map(tree), do: website_layout(webview, "set", %{"tree" => tree})
+  def layout(_, _), do: {:error, :invalid_layout}
 
-  @doc "Inspect window tabs, visible panes, axis, current divider weights and active tab."
+  @doc "Inspect window tabs, visible panes, the layout tree with current sizes, and active tab."
   def tab_layout(webview), do: website_layout(webview, "get", %{})
 
   @doc "Restore one visible page, retaining all tabs and their navigation state."
@@ -120,7 +104,7 @@ defmodule BowserBrain.Surface do
     if owner != nil and owner != profile do
       {:error, :wrong_profile}
     else
-      message = args |> Map.take(["tabs", "axis", "weights", "url"])
+      message = args |> Map.take(["tree", "url"])
         |> Map.merge(%{"webview" => webview, "profile" => profile, "action" => action})
       GenServer.call(Bridge, {:native_verify, "website_layout", message}, 5_000)
     end

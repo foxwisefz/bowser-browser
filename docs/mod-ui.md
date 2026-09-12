@@ -143,42 +143,65 @@ by mod code; the MCP tool catalog does not expose a separate view-node schema.
 
 ## Live website layouts
 
-Mods can compose actual website tabs into native resizable rows and columns.
-These are live `WKWebView` instances, so embedding restrictions on iframes do
-not apply. Each tab retains its own navigation, storage and page state.
+Mods compose native layout trees from live website views. A `row` places its
+children left to right; a `column` places them top to bottom. Either can contain
+website leaves or more containers, and a single website leaf is also a valid tree.
 
 ```elixir
-alias BowserBrain.Surface
-# wv is a webview ID from the mod's browser event, in its own profile.
-{:ok, state} = Surface.create_tab(wv, "https://example.com")
-right = state["created"]
-{:ok, _} = Surface.layout_tabs(wv, [wv, right], axis: :horizontal, weights: [0.4, 0.6])
-{:ok, layout} = Surface.tab_layout(wv)
-# layout["tabs"] lists same-window tab IDs/URLs; "panes", "axis", "weights",
-# and "active" describe the current arrangement, including dragged dividers.
+alias BowserBrain.{Layout, Surface}
+# wv is a webview ID in the mod's profile.
+{:ok, created} = Surface.create_tab(wv, "https://example.com")
+second = created["created"]
+{:ok, created} = Surface.create_tab(wv, "https://example.org")
+third = created["created"]
+
+tree = Layout.row([
+  Layout.webview(wv, weight: 2, min_width: 240),
+  Layout.column([
+    Layout.webview(second),
+    Layout.webview(third, min_height: 180)
+  ], resizable: true)
+])
+{:ok, _} = Surface.layout(wv, tree)
+{:ok, state} = Surface.tab_layout(wv)
+# state["tree"] includes the current nested divider proportions.
 {:ok, _} = Surface.reset_layout(wv)
 ```
 
-`create_tab/2` creates a background http(s) tab in the target window and returns
-its ID. `layout_tabs/2,3` arranges **2–4 distinct existing tabs from that same
-window**. `axis: :horizontal` means side-by-side; `:vertical` means stacked.
-Optional weights are relative numbers from 0.1 to 1, one per tab; defaults
-are equal. Users can drag the native dividers. Nested layouts are unsupported.
-Every call returns `{:ok, state}` or `{:error, reason}`; handle errors instead
-of assuming the native shell accepted the layout.
+`Layout.webview/1,2`, `Layout.row/1,2`, and `Layout.column/1,2` construct ordinary
+maps. All nodes accept `weight:` (any positive relative value, default 1),
+`min_width:` and `min_height:` (nonnegative window points, default 0). Containers
+also accept `resizable:` (default true). False fixes that container's dividers;
+its children still resize with the window. Weights apply within each parent.
+Minimum sizes propagate through the tree; when the window is too small, minimum
+sizes compress proportionally to keep the layout within its bounds.
 
-Clicking a pane focuses it for navigation controls. Activating a tab outside
-the arrangement or closing a pane returns to a single visible page. Other tabs
-remain open. `reset_layout/1` also retains the tabs. Tabs cannot move across
-windows or profiles through this API, and saved apps do not support it.
+`Surface.create_tab/2` creates a background http(s) tab in the target window and
+returns its ID. `Surface.layout/2` validates and applies a tree atomically.
+`Surface.tab_layout/1` returns `"tabs"` (same-window IDs and URLs), `"panes"`
+(visible leaf IDs), `"active"`, and `"tree"`. The returned tree records current
+sizes after divider dragging and can be reapplied. `Surface.reset_layout/1`
+retains all tabs and displays the active one. Surface calls return
+`{:ok, state}` or `{:error, reason}`.
 
-The arrangement belongs to the native window's lifetime. Build mod controls to
-apply/reset it, reuse existing IDs from `tab_layout/1`, and refresh IDs after
-`hello`. Avoid creating tabs on every activation or initialization. File Undo
-tracks mod source, not runtime layout or tab creation; a mod's reset/cleanup
-logic should handle its runtime changes.
+Leaves must reference unique existing tabs in the same window/profile. There
+is no flat pane-count restriction. Validation bounds complexity at 16 levels
+and 256 total nodes. Invalid trees leave the current arrangement untouched.
+Saved apps do not expose this API.
 
-ModSmith's `website_layout` MCP tool provides `get`, `create_tab`, `set`, and
-`reset` actions scoped to the selected tab's window. It returns layout state so
-the agent can verify IDs, orientation and divider proportions. Screenshots
-remain the way to verify appearance.
+The leaves are real `WKWebView` instances, not iframes; rearranging them retains
+page, login and navigation state. Clicking a leaf focuses it for browser controls.
+Closing a tab removes that leaf and simplifies empty/single-child containers,
+keeping other pages mounted. Selecting a tab outside the tree returns to a
+single page. The arrangement ends when the native window closes.
+
+Build mod controls to apply/reset the tree, reuse IDs from `tab_layout/1`, and
+refresh IDs after `hello`. Avoid creating tabs on every activation or initialization.
+File Undo tracks mod source, not runtime layout/tab creation; a mod's cleanup
+logic handles its runtime changes.
+
+ModSmith's `website_layout` tool has `get`, `create_tab`, `set`, and `reset` actions.
+`set` takes a `tree` using the same keys with string types: `"row"`, `"column"`,
+`"webview"`, `"children"`, `"webview"` (tab ID), `"weight"`, `"min_width"`,
+`"min_height"`, and `"resizable"`. Nested state verifies structure and sizes;
+screenshots verify appearance.

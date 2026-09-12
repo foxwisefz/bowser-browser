@@ -211,25 +211,36 @@ defmodule BowserBrain.ModSmith do
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
     editable record. button() creates a panel row, not a native form action.
-    WEBSITE LAYOUT: Compose live websites using Surface.create_tab(wv, url),
-    Surface.layout_tabs(wv, [left, right], axis: :horizontal, weights: [0.5, 0.5]),
-    Surface.tab_layout(wv), and Surface.reset_layout(wv). Each returns {:ok, state}
-    or {:error, reason}; create_tab state has "created" => new webview ID.
-    layout_tabs/2,3 mounts 2–4 distinct tabs from that SAME window/profile in a
-    resizable row (:horizontal) or column (:vertical). Weights are relative
-    numbers in 0.1..1; omitted weights are equal. Users drag native dividers.
-    These are actual WKWebViews, not iframes: sites retain logins and navigation.
-    Clicking a pane selects it for address bar/back/reload. Activating a tab
-    outside the layout or closing a pane resets to one page without closing
-    other tabs. Reset only resets layout. No nested layouts. Saved apps excluded.
-    Use website_layout MCP action get to discover same-window IDs; create_tab
-    to obtain a new ID, set with tabs/axis/weights, reset to undo the arrangement.
-    Calls apply immediately; runtime layout is not part of file Undo. Durable
-    mods provide controls to apply/reset; do not create tabs in every init or
-    tab_activated callback. Layouts disappear with the native window. Handle
-    errors, refresh IDs after hello, and inspect state to verify arrangement.
-    Resizable website panes ARE supported: do not defer these requests to the
-    resident agent. Build the user's desired controls using these primitives.
+    COMPOSABLE WEBSITE LAYOUT: alias BowserBrain.{Layout, Surface}.
+    Surface.create_tab(wv, url) -> {:ok, state} with "created" => background tab ID.
+    Build arbitrary arrangements from Layout.webview(id, opts \\ []),
+    Layout.row(children, opts \\ []), and Layout.column(children, opts \\ []).
+    Nest rows (left-to-right) and columns (top-to-bottom) as needed. Every node
+    accepts weight: (any positive relative value, default 1), min_width: and
+    min_height: (nonnegative points, default 0). Containers additionally accept
+    resizable: true/false (default true) to enable/fix their native dividers.
+    Example: Layout.row([Layout.webview(a, weight: 2),
+      Layout.column([Layout.webview(b), Layout.webview(c, min_height: 180)])]).
+    Surface.layout(wv, tree) applies the tree atomically; Surface.tab_layout(wv)
+    returns "tabs", "panes", "active", and "tree" with CURRENT divider weights;
+    Surface.reset_layout(wv) returns to the active page without closing tabs.
+    Surface calls return {:ok, state} or {:error, reason}; handle errors.
+    Leaves are unique existing tab IDs in the same window/profile. The structural
+    budget is 16 levels and 256 nodes, not a prescribed pane count or template.
+    Website views keep DOM/navigation/login state. Minimum sizes are honored
+    when they fit; an undersized window compresses them proportionally.
+    Clicking a leaf selects it for navigation. Closing a tab prunes only that
+    leaf and simplifies single-child containers. Selecting a tab outside the
+    tree resets layout. Saved apps excluded. Layout ends with the native window.
+    Use website_layout MCP actions get/create_tab/set/reset. set takes JSON tree:
+    {"type":"row","children":[{"type":"webview","webview":a},
+      {"type":"column","children":[{"type":"webview","webview":b},
+        {"type":"webview","webview":c,"min_height":180}]}]}.
+    All node options use the same snake_case keys. Runtime layout/tab creation
+    is not file Undo. Build apply/reset controls, reuse IDs from get, refresh IDs
+    after hello, and avoid creating tabs on every init/activation event.
+    Compose the user's requested layout with these primitives; do not defer
+    resizable website-layout requests to a resident agent.
 
     NATIVE VERIFICATION: native_screenshot captures the selected visible browser
     window, including native toolbar pixels, and returns an image and window id.
