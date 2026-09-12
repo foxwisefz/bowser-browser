@@ -11,10 +11,9 @@ The image contains `Bowser.app` and an Applications shortcut. The app includes
 its BEAM release and native helpers in `Contents/Resources/runtime`; clean
 machines do not need Elixir, Python, developer tools, or a preinstalled runtime.
 User data remains under `~/.bowser`. Mobile experiments are rejected by the
-packaging script. Existing external development installations still work.
+packaging script.
 
-By default this creates an ad-hoc-signed local testing artifact. It is not a
-publicly distributable notarized release. `BOWSER_SIGN_IDENTITY` selects a
+By default, local packaging uses ad-hoc signing without notarization. `BOWSER_SIGN_IDENTITY` selects a
 Developer ID Application identity. Set `BOWSER_NOTARIZE=1` and
 `BOWSER_NOTARY_PROFILE` to require Apple acceptance and stapling. Optional
 `BOWSER_SIGN_KEYCHAIN` selects a dedicated keychain. Signed builds enable hardened
@@ -30,7 +29,7 @@ once daily, and from **Check for Updates…**. It verifies an Ed25519 signature
 against the public key embedded in the installed app, checks build ordering,
 macOS compatibility and expiry, then asks before downloading. It verifies the
 DMG's signed length and SHA-256 before mounting it read-only and checking the
-bundle signature/build. The existing updater stages the complete app/runtime;
+bundle signature/build. The updater stages the complete app/runtime;
 activation waits until Bowser and saved apps quit. Current browsing is preserved.
 
 Create a signing key **once on the release signing machine**, outside the repo:
@@ -43,8 +42,8 @@ bin/package-dmg /path/to/updates/build.ABC123 /tmp/Bowser.dmg
 bin/sign-update /secure/path/bowser-update.key /tmp/Bowser.dmg VERSION BUILD 15 /tmp/stable.json
 ```
 
-Use the exact version and build in the packaged app's Info.plist. The initial
-installed release must already contain the public key. Builds without that key
+Use the exact version and build in the packaged app's Info.plist. The installed
+app must contain the public key to verify updates. Builds without that key
 skip background checks and show an unavailable message for manual checks.
 Never place the private key in an image, app, server directory or repository.
 A replacement key must be delivered through an already trusted release.
@@ -60,9 +59,7 @@ Restart only the Bowser server after configuration changes. Publish the DMG
 before atomically replacing the manifest; a client fetching during replacement
 may retry, but a mismatched image cannot install. Manifests expire after 30 days;
 re-sign the current release before expiry. Rollbacks require a **higher build
-number** signed release. Existing staged updater `.previous` copies remain local
-recovery artifacts. Public DNS/server deployment and production signing credential
-provisioning remain activation steps.
+number** signed release. The updater keeps `.previous` copies for local recovery.
 
 Validation: `swift test --package-path shell --filter UpdateTests` covers signed
 metadata, wrong-key/tamper rejection, expiry, downgrade prevention and image
@@ -108,9 +105,8 @@ updater's origin and redirect restrictions.
 
 ## Apple credentials
 
-Bowser uses bundle ID `com.foxwiseai.bowser`; new saved apps use
-`com.foxwiseai.bowser.site.<id>`. This is a pre-release namespace change, with no
-migration from the former development identifiers.
+Bowser uses bundle ID `com.foxwiseai.bowser`; saved apps use
+`com.foxwiseai.bowser.site.<id>`.
 
 In the same GitHub `release` environment, configure:
 
@@ -126,7 +122,7 @@ In the same GitHub `release` environment, configure:
 Apple Developer Program membership and a Developer ID Application certificate
 are required. The displayed signing name comes from that certificate; setting
 a company bundle ID alone does not change Apple's displayed developer name.
-Do not paste credentials into chat or commit them. The setup script imports into
+Keep credentials in GitHub secrets. The setup script imports into
 a temporary keychain, grants codesign access, stores the notarization profile
 there, and deletes the keychain and certificate file after the job. It does not
 use or modify the login keychain.
@@ -138,9 +134,7 @@ the final DMG and update metadata to Bowser. Neither replaces the other.
 A notary submission waits up to 25 minutes. On timeout Apple may continue working;
 inspect the submission with `xcrun notarytool info`/`log` using the same account,
 then rerun the workflow after resolving any errors. A timeout never publishes
-an unverified release. Actual Developer ID signing and Apple acceptance must be
-validated by the first credentialed GitHub run; local fixture checks do not prove
-Apple acceptance.
+an unverified release.
 
 References: [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
 [custom notarization workflows](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow),

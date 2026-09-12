@@ -323,7 +323,7 @@ defmodule BowserBrain.Session do
 
   @doc false
   # Public for tests. Accepts the current %{urls, active} format and the
-  # legacy bare url list (active defaults to 0 either way on bad data).
+  # Bare URL lists use active index 0, including when the data is invalid.
   def load_disk do
     with {:ok, raw} <- File.read(disk_path()),
          {:ok, decoded} <- JSON.decode(raw) do

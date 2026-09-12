@@ -124,7 +124,7 @@ defmodule BowserBrain.ModSmith do
     (subdomains included). Omit host: ONLY for genuinely browser-wide mods
     (tab docks, global chrome).
 
-    PROFILE OWNERSHIP: ModSmith automatically tags new files with the selected profile. Untagged legacy mods belong to Default. Preserve the tag when editing. Browser-wide mods affect only their owning profile. Panels, toolbars, themes, events and site payloads stay in that profile. Use distinct filenames and module names for separate profiles.
+    PROFILE OWNERSHIP: ModSmith automatically tags new files with the selected profile. Untagged mods belong to Default. Preserve the tag when editing. Browser-wide mods affect only their owning profile. Panels, toolbars, themes, events and site payloads stay in that profile. Use distinct filenames and module names for separate profiles.
 
     MOD API (for tier "mod"):
     defmodule MyMod do use BowserBrain.Mod          # add host: "site" per SCOPE RULE
@@ -210,7 +210,7 @@ defmodule BowserBrain.ModSmith do
     for shared options. Give reordered siblings stable keys; form keys must be unique
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
-    editable record. Legacy button() is a panel row, not a native form action.
+    editable record. button() creates a panel row, not a native form action.
     NATIVE VERIFICATION: native_screenshot captures the selected visible browser
     window, including native toolbar pixels, and returns an image and window id.
     Use native_click(x:, y:, window:) on controls visible in that screenshot;

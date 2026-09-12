@@ -1,5 +1,5 @@
 defmodule BowserBrain.LegacyMods do
-  @moduledoc "Legacy sources superseded by built-in features; retained on disk for older installations."
+  @moduledoc "Identifies mod sources whose functionality is provided by built-in features."
   @names ["MediaWarmMod", "EdgeDockTabs", "ModSwitchMod", "PanelsMod"]
   def superseded?(path) do
     case File.read(path) do

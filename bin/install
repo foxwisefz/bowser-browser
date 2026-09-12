@@ -47,7 +47,7 @@ say "runtime: compiling native helpers"
 RUNTIME_TOOL="$REPO/shell/.build/debug/BowserRuntimeTool"
 BACKEND_HOST="$REPO/shell/.build/debug/BowserBackendHost"
 
-# Never replace a running bundle/runtime: older brains still watch mtime.
+# Stage the bundle/runtime so file watchers cannot restart an active browser.
 DEST_APP_DIR="$APP_DIR"
 DEST_BUNDLE="$BUNDLE"
 UPDATE_ROOT="${BOWSER_HOME:-$HOME/.bowser}/updates"
@@ -61,8 +61,8 @@ ACTIVE_RUNTIME="${BOWSER_HOME:-$HOME/.bowser}/backend/active.json"
 if [ -f "$ACTIVE_RUNTIME" ]; then
   BASE_RUNTIME="$("$RUNTIME_TOOL" active-runtime "$ACTIVE_RUNTIME")"
 fi
-# A new host cannot boot an older checkpoint schema. Promote a partial
-# shell install to a complete pair rather than publishing incompatible helpers.
+# The host requires a matching checkpoint schema. Promote a partial shell
+# install to a complete pair when the installed runtime schema differs.
 if [ "$SHELL_ONLY" = 1 ] && ! grep -Eq '"state_schema"[[:space:]]*:[[:space:]]*5' "$BASE_RUNTIME/HANDOFF.json" 2>/dev/null; then
   say "upgrading the backend too: owner-migrating host requires state schema 5"
   SHELL_ONLY=0
