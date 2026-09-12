@@ -160,40 +160,7 @@ defmodule BowserBrain.IconJobs do
 
   defp candidate_data(%{"png" => png}, _), do: Base.decode64(png)
 
-  defp candidate_data(%{"url" => url}, opts) do
-    directory = Path.join(opts.root, "favicons/downloads")
-    File.mkdir_p!(directory)
-    input = Path.join(directory, Integer.to_string(System.unique_integer([:positive])))
-
-    try do
-      with :ok <-
-             run_worker(
-               "/usr/bin/curl",
-               [
-                 "--fail",
-                 "--silent",
-                 "--location",
-                 "--proto",
-                 "=http,https",
-                 "--proto-redir",
-                 "=http,https",
-                 "--max-time",
-                 "3",
-                 "--max-filesize",
-                 "4000000",
-                 "--output",
-                 input,
-                 url
-               ],
-               4_000
-             ),
-           {:ok, %{size: size}} when size <= 4_000_000 <- File.stat(input),
-           {:ok, data} <- File.read(input),
-           do: {:ok, data}
-    after
-      File.rm(input)
-    end
-  end
+  defp candidate_data(%{"url" => url}, _opts), do: BowserBrain.IconFetch.fetch(url)
 
   defp badge_data(event) do
     case event["profile_badge"] do
@@ -202,7 +169,9 @@ defmodule BowserBrain.IconJobs do
           {:ok, data} -> data
           _ -> ""
         end
-      _ -> ""
+
+      _ ->
+        ""
     end
   end
 
