@@ -93,11 +93,16 @@ defmodule BowserBrain.UserContent do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   def put_scripts(owner, scripts, opts \\ []) when is_list(scripts) do
+    opts = Keyword.put(opts, :host, BowserBrain.ScriptPolicy.owner_host(owner))
+    scripts = Enum.map(scripts, &BowserBrain.ScriptPolicy.normalize(&1, opts))
     GenServer.call(__MODULE__, {:put, :scripts, {owner, Keyword.get(opts, :profile, BowserBrain.ModScope.current())}, scripts, Keyword.get(opts, :reload, true)})
   end
 
   def put_styles(owner, styles, opts \\ []) when is_list(styles) do
-    GenServer.call(__MODULE__, {:put, :styles, {owner, Keyword.get(opts, :profile, BowserBrain.ModScope.current())}, styles, Keyword.get(opts, :reload, true)})
+    unless Enum.all?(styles, &is_binary/1), do: raise(ArgumentError, "styles must be strings")
+    profile = Keyword.get(opts, :profile, BowserBrain.ModScope.current())
+    GenServer.call(__MODULE__, {:put_styles, {owner, profile}, styles,
+      BowserBrain.ScriptPolicy.owner_host(owner), Keyword.get(opts, :reload, true)})
   end
 
   @doc """
@@ -121,6 +126,30 @@ defmodule BowserBrain.UserContent do
   @impl true
   def handle_call(:push_now, _from, state) do
     push(state, false)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:put_styles, {owner, profile} = key, styles, host, reload}, _from, state) do
+    script_key = {{:scoped_styles, owner}, profile}
+    # Always clear both representations: a declaration may change host or
+    # become global on reload. Styles never share their owner's JS bucket.
+    state = %{state | styles: Map.delete(state.styles, key), scripts: Map.delete(state.scripts, script_key)}
+    state = cond do
+      styles == [] -> state
+      is_nil(host) -> %{state | styles: Map.put(state.styles, key, styles)}
+      true ->
+        scripts = Enum.map(styles, fn css ->
+          %{host: host, world: "isolated", source: """
+          (function () {
+            var style = document.createElement("style");
+            style.textContent = #{JSON.encode!(css)};
+            (document.head || document.documentElement).appendChild(style);
+          })();
+          """}
+        end)
+        %{state | scripts: Map.put(state.scripts, script_key, scripts)}
+    end
+    push(state, reload)
     {:reply, :ok, state}
   end
 
@@ -152,7 +181,7 @@ defmodule BowserBrain.UserContent do
     Process.put(:published_profiles, profiles)
     for profile <- profiles do
       Bridge.cast_msg(%{op: "set_user_content", webview: 0, profile: profile,
-        scripts: (if is_nil(profile), do: [@std_preserve], else: []) ++ flatten(state.scripts, profile),
+        scripts: (if is_nil(profile), do: [%{source: @std_preserve, world: "page"}], else: []) ++ flatten(state.scripts, profile),
         styles: flatten(state.styles, profile), reload: reload})
     end
   end

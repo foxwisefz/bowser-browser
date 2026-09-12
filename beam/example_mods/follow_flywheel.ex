@@ -1,6 +1,8 @@
 defmodule FollowFlywheel do
   @moduledoc """
   Follow Flywheel — brain half (pairs with sites/x.com/follow-flywheel.js).
+  That payload must declare `// bowser-world: page`: its API hooks and the
+  `window.__ffApi` calls below intentionally share the website's JS world.
 
   Engage with a post (like / bookmark / retweet / reply) whose author has
   fewer than 5k followers -> auto-follow them. If they follow back within
@@ -148,7 +150,7 @@ defmodule FollowFlywheel do
         }
 
         put_rec(id, rec)
-        Page.eval("window.__ffApi('follow','#{id}','follow:#{id}')", webview: state.wv || 0)
+        Page.eval("window.__ffApi('follow','#{id}','follow:#{id}')", webview: state.wv || 0, world: :page)
     end
   end
 
@@ -221,7 +223,7 @@ defmodule FollowFlywheel do
 
     if check_ids != [] do
       Page.eval("window.__ffApi('lookup','#{Enum.join(check_ids, ",")}','check')",
-        webview: state.wv)
+        webview: state.wv, world: :page)
     end
 
     # unfollow calls that never came back -> requeue
@@ -246,7 +248,7 @@ defmodule FollowFlywheel do
 
       _ ->
         set_status(id, "unfollowing", %{"acted_at" => now()})
-        Page.eval("window.__ffApi('unfollow','#{id}','unfollow:#{id}')", webview: state.wv || 0)
+        Page.eval("window.__ffApi('unfollow','#{id}','unfollow:#{id}')", webview: state.wv || 0, world: :page)
     end
   end
 

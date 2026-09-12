@@ -25,6 +25,24 @@ defmodule BowserBrain.UserContentTest do
     assert state.scripts == %{{:b, "work"} => ["keep"]}
     assert state.styles == %{{:a, "work"} => ["css"]}
   end
+  test "scoped styles replace independently of scripts and clear on host changes" do
+    key = {:owner, "work"}
+    scoped = {{:scoped_styles, :owner}, "work"}
+    state = %{scripts: %{key => ["keep JS"]}, styles: %{key => ["old global CSS"]}}
+    {:reply, :ok, state} = UserContent.handle_call({:put_styles, key, ["body{}"], "one.test", false}, nil, state)
+    assert state.scripts[key] == ["keep JS"]
+    assert [%{host: "one.test", world: "isolated"}] = state.scripts[scoped]
+    refute Map.has_key?(state.styles, key)
+    {:reply, :ok, state} = UserContent.handle_call({:put_styles, key, ["p{}"], "two.test", false}, nil, state)
+    assert [%{host: "two.test"}] = state.scripts[scoped]
+    {:reply, :ok, state} = UserContent.handle_call({:put_styles, key, ["global{}"], nil, false}, nil, state)
+    refute Map.has_key?(state.scripts, scoped)
+    assert state.styles[key] == ["global{}"]
+    {:reply, :ok, state} = UserContent.handle_call({:put_styles, key, [], nil, false}, nil, state)
+    assert state.styles == %{}
+    assert state.scripts == %{key => ["keep JS"]}
+  end
+
   @tag skip: if(System.find_executable("node"), do: false, else: "Node.js is required to execute the preservation script")
   test "preservation deletes field snapshots without reading them and only saves scroll" do
     harness = ~S"""

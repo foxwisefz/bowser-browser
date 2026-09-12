@@ -46,12 +46,11 @@ final class SiteAppTests: XCTestCase {
         try "globalThis.bad=true;".write(to: directory.appendingPathComponent("ignored.tmp"), atomically: true, encoding: .utf8)
         let scripts = SiteAppRuntime.modScripts(configuration: config, root: root)
         XCTAssertEqual(scripts.count, 1)
+        XCTAssertFalse(scripts[0].matches(URL(string: "https://accounts.example.com")!))
+        XCTAssertTrue(scripts[0].matches(URL(string: "https://example.com")!))
+        XCTAssertEqual(scripts[0].world, "isolated")
         let context = JSContext()!
-        context.evaluateScript("var location={origin:'https://accounts.example.com'};")
-        context.evaluateScript(scripts[0])
-        XCTAssertTrue(context.evaluateScript("typeof fixture==='undefined'")!.toBool())
-        context.evaluateScript("location.origin='https://example.com'")
-        context.evaluateScript(scripts[0])
+        context.evaluateScript(scripts[0].source)
         XCTAssertEqual(context.evaluateScript("fixture")?.toString(), "only this app")
         let other = SiteAppConfiguration(url: config.url, profile: "work",
             identifier: "com.foxwiseai.bowser.site.fedcba9876543210", mainApp: config.mainApp)

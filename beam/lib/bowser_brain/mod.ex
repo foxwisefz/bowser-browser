@@ -59,6 +59,7 @@ defmodule BowserBrain.Mod do
       @bowser_mod_host unquote(Keyword.get(opts, :host))
 
       def __bowser_mod__, do: true
+      def __bowser_host__, do: @bowser_mod_host
       def __bowser_handoff__, do: unquote(Keyword.get(opts, :handoff, false))
 
       def start_link(opts) do

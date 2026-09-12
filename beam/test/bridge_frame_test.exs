@@ -18,10 +18,10 @@ defmodule BowserBrain.BridgeFrameTest do
 
     tag = make_ref()
     state = %{sock: sock, pending: %{}, next_id: 1}
-    {:noreply, state} = Bridge.handle_call({:eval_js, 7, "'hello'"}, {self(), tag}, state)
+    {:noreply, state} = Bridge.handle_call({:eval_js, 7, "'hello'", :isolated}, {self(), tag}, state)
     assert {:ok, <<size::32>>} = :gen_tcp.recv(peer, 4, 1_000)
     assert {:ok, bytes} = :gen_tcp.recv(peer, size, 1_000)
-    assert %{"op" => "eval_js", "id" => 1, "webview" => 7} = JSON.decode!(bytes)
+    assert %{"op" => "eval_js", "id" => 1, "webview" => 7, "world" => "isolated"} = JSON.decode!(bytes)
     reply = JSON.encode!(%{op: "js_result", id: 1, ok: true, value: "héllo"})
     frame = <<byte_size(reply)::32, reply::binary>>
     for <<byte <- frame>>, do: :gen_tcp.send(peer, <<byte>>)

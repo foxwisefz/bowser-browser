@@ -287,42 +287,27 @@ final class BrainBridge {
                 send(["op": "js_result", "id": id, "ok": false, "value": "no webview"])
                 return
             }
+            let world = message["world"] as? String ?? "page"
+            guard ["isolated", "page"].contains(world) else {
+                send(["op": "js_result", "id": id, "ok": false, "value": "invalid script world"])
+                return
+            }
             let webviewId = view.webviewId
-            view.webView.evaluateJavaScript(code) { [weak self] value, error in
-                MainActor.assumeIsolated {
-                    if let error, error.localizedDescription.contains("unsupported type") {
-                        // A Promise came back (async IIFE / fetch): await it.
-                        // Agents lost minutes to "async eval isn't supported".
-                        EngineView.live[webviewId]?.webView.callAsyncJavaScript(
-                            "return (\(code));", arguments: [:], in: nil, in: .page
-                        ) { result in
-                            MainActor.assumeIsolated {
-                                switch result {
-                                case .success(let awaited):
-                                    self?.send([
-                                        "op": "js_result", "id": id, "webview": webviewId,
-                                        "ok": true, "value": Self.jsonify(awaited),
-                                    ])
-                                case .failure(let asyncError):
-                                    self?.send([
-                                        "op": "js_result", "id": id, "webview": webviewId,
-                                        "ok": false, "value": asyncError.localizedDescription,
-                                    ])
-                                }
+            let contentWorld = world == "page" ? WKContentWorld.page : ModScript.isolatedWorld
+            view.webView.evaluateJavaScript(code, in: nil, in: contentWorld) { [weak self] result in
+                switch result {
+                case .success(let value):
+                    self?.send(["op": "js_result", "id": id, "webview": webviewId, "ok": true, "value": Self.jsonify(value)])
+                case .failure(let error):
+                    if error.localizedDescription.contains("unsupported type") {
+                        view.webView.callAsyncJavaScript("return (\(code));", arguments: [:], in: nil, in: contentWorld) { result in
+                            switch result {
+                            case .success(let value): self?.send(["op": "js_result", "id": id, "webview": webviewId, "ok": true, "value": Self.jsonify(value)])
+                            case .failure(let error): self?.send(["op": "js_result", "id": id, "webview": webviewId, "ok": false, "value": error.localizedDescription])
                             }
                         }
-                        return
-                    }
-                    if let error {
-                        self?.send([
-                            "op": "js_result", "id": id, "webview": webviewId,
-                            "ok": false, "value": error.localizedDescription,
-                        ])
                     } else {
-                        self?.send([
-                            "op": "js_result", "id": id, "webview": webviewId,
-                            "ok": true, "value": Self.jsonify(value),
-                        ])
+                        self?.send(["op": "js_result", "id": id, "webview": webviewId, "ok": false, "value": error.localizedDescription])
                     }
                 }
             }
@@ -375,7 +360,7 @@ final class BrainBridge {
                 return
             }
             if SiteAppConfiguration.current == nil, requested == 0 { SiteAppHub.shared.broadcastContent(message) }
-            let scripts = message["scripts"] as? [String]
+            let scripts = ModScript.parseList(message["scripts"])
             let styles = message["styles"] as? [String]
             let reload = message["reload"] as? Bool ?? true
             // Remember for webviews that don't exist yet — new tabs seed

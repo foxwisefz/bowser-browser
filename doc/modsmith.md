@@ -57,6 +57,22 @@ mismatched live module owners are rejected. Saved-app runs keep their separate
 payload scope and cannot use Store tools. These tool checks do not sandbox
 Elixir code running inside the BEAM process.
 
+Site JavaScript runs in Bowser's isolated mod world by default. It shares the
+page DOM, but not website JavaScript globals. Native code selects only payloads
+matching the loaded frame's host/profile (saved-app payloads match the exact
+saved origin). A URL recheck before evaluation rejects navigation races.
+Unrelated site source is not registered as a WebKit user script in every tab.
+
+`Page.set_scripts(scripts, opts)` and `Page.eval(code, opts)` default to
+`world: :isolated`; explicitly request `world: :page` when the feature must
+access page globals or patch page functions. Persistent site/saved-app `.js`
+payloads declare that capability with `// bowser-world: page` as their first
+nonblank line, after the optional profile tag. CSS stays isolated. Each injected payload has its own function scope; use
+`globalThis` for state shared with later `Page.eval` calls in the same world. A mod's
+literal declared host constrains both injected scripts and styles. Explicit
+page-world code is visible to/tamperable by that website; do not put secrets
+in it. DOM content is shared in either world.
+
 ## Persistence and undo
 
 `BOWSER_HOME/modsmith-workspace.json` stores projects, turns, selections and

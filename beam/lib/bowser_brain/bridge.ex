@@ -20,10 +20,10 @@ defmodule BowserBrain.Bridge do
   def cast_msg(map) when is_map(map), do: GenServer.cast(__MODULE__, {:send, BowserBrain.ModScope.outgoing(map)})
 
   @doc "Evaluate JS in a webview and wait for the result."
-  def eval_js(webview, code, timeout \\ 5_000) do
+  def eval_js(webview, code, timeout \\ 5_000, world \\ :page) do
     profile = BowserBrain.ModScope.current()
-    if is_nil(profile) or profile == BowserBrain.ModScope.profile_of(webview) do
-      GenServer.call(__MODULE__, {:eval_js, webview, code}, timeout)
+    if world in [:isolated, :page, "isolated", "page"] and (is_nil(profile) or profile == BowserBrain.ModScope.profile_of(webview)) do
+      GenServer.call(__MODULE__, {:eval_js, webview, code, world}, timeout)
     else
       {:error, :wrong_profile}
     end
@@ -190,10 +190,10 @@ defmodule BowserBrain.Bridge do
 
   def handle_call(:connected?, _from, state), do: {:reply, state.sock != nil, state}
 
-  def handle_call({:eval_js, webview, code}, from, state) do
+  def handle_call({:eval_js, webview, code, world}, from, state) do
     id = state.next_id
 
-    case send_frame(state.sock, %{op: "eval_js", id: id, webview: webview, code: code}) do
+    case send_frame(state.sock, %{op: "eval_js", id: id, webview: webview, code: code, world: world}) do
       :ok ->
         {:noreply, %{state | next_id: id + 1, pending: Map.put(state.pending, id, from)}}
 

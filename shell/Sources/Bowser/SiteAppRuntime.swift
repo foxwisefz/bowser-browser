@@ -29,11 +29,11 @@ struct SiteAppConfiguration: Codable, Equatable {
 final class SiteAppRuntime {
     static let shared = SiteAppRuntime()
     private var contentTimer: Timer?
-    private var inheritedScripts: [String] = []
-    private var profileScripts: [String] = []
+    private var inheritedScripts: [ModScript] = []
+    private var profileScripts: [ModScript] = []
     private var profileStyles: [String] = []
     private var inheritedStyles: [String] = []
-    private var appScripts: [String] = []
+    private var appScripts: [ModScript] = []
     var modCount: Int { appScripts.count }
     private var loaded = false
     private var receivedBootstrap = false
@@ -93,14 +93,14 @@ final class SiteAppRuntime {
     func updateContent(_ message: [String: Any], reload: Bool) {
         if let profile = message["profile"] as? String {
             guard profile == SiteAppConfiguration.current?.profile else { return }
-            if let scripts = message["scripts"] as? [String] { profileScripts = scripts }
+            if let scripts = ModScript.parseList(message["scripts"]) { profileScripts = scripts }
             if let styles = message["styles"] as? [String] { profileStyles = styles }
             applyContent(reload: reload)
             return
         }
-        if let scripts = message["profile_scripts"] as? [String] { profileScripts = scripts }
+        if let scripts = ModScript.parseList(message["profile_scripts"]) { profileScripts = scripts }
         if let styles = message["profile_styles"] as? [String] { profileStyles = styles }
-        if let scripts = message["scripts"] as? [String] { inheritedScripts = scripts }
+        if let scripts = ModScript.parseList(message["scripts"]) { inheritedScripts = scripts }
         if let styles = message["styles"] as? [String] { inheritedStyles = styles }
         applyContent(reload: reload)
     }
@@ -124,7 +124,7 @@ final class SiteAppRuntime {
 
     /// App files are never placed in the browser's global sites directory.
     /// Guard the saved origin as well, so OAuth and external pages stay clean.
-    nonisolated static func modScripts(configuration: SiteAppConfiguration, root: URL) -> [String] {
+    nonisolated static func modScripts(configuration: SiteAppConfiguration, root: URL) -> [ModScript] {
         let directory = root.appendingPathComponent(configuration.identifier)
         let files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
             .filter { ["css", "js"].contains($0.pathExtension) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -139,7 +139,8 @@ final class SiteAppRuntime {
             let body = file.pathExtension == "css"
                 ? "const add=()=>{const s=document.createElement('style');s.textContent=\(literal(content));(document.head||document.documentElement).appendChild(s);};if(document.documentElement)add();else document.addEventListener('DOMContentLoaded',add,{once:true});"
                 : content
-            return "(function(){if(location.origin!==\(literal(origin)))return;\n\(body)\n})();"
+            guard let world = file.pathExtension == "css" ? "isolated" : ModScript.declaredWorld(content) else { return nil }
+            return ModScript(source: body, world: world, origin: origin)
         }
     }
 
@@ -277,8 +278,8 @@ final class SiteAppHub {
                 }
                 let send: (String?) -> Void = { storage in
                     connection.send(["op": "site_bootstrap", "cookies": properties,
-                                     "scripts": EngineView.sharedScripts, "styles": EngineView.sharedStyles,
-                                     "profile_scripts": Array(EngineView.content(for: profile.id).scripts.dropFirst(EngineView.sharedScripts.count)),
+                                     "scripts": EngineView.sharedScripts.map(\.wire), "styles": EngineView.sharedStyles,
+                                     "profile_scripts": Array(EngineView.content(for: profile.id).scripts.dropFirst(EngineView.sharedScripts.count)).map(\.wire),
                                      "profile_styles": Array(EngineView.content(for: profile.id).styles.dropFirst(EngineView.sharedStyles.count)),
                                      "local_storage": storage ?? "{}"])
                 }

@@ -244,7 +244,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "put_payload",
-    "description": "Install (or overwrite) a persistent site payload at sites/<host>/<name>.css|.js \u2014 applies within ~1s after a page reload. Use to TEST a draft live, then verify with page_eval.",
+    "description": "Install (or overwrite) a persistent site payload at sites/<host>/<name>.css|.js \u2014 applies within ~1s after a page reload. JavaScript defaults to an isolated world; declare // bowser-world: page as the first nonblank line (after optional profile tag) only for required website-global access. Native code enforces host targeting. Use to TEST a draft live, then verify with page_eval; page_eval inspects the page world, so isolated mod globals are not visible there.",
     "inputSchema": {
       "type": "object",
       "properties": {

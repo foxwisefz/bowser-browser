@@ -21,6 +21,11 @@ private final class PageRelay: NSObject, WKScriptMessageHandler {
                 ?? view?.webviewId
             else { return }
             switch name {
+            case "bowserScriptsReady":
+                guard message.frameInfo.isMainFrame, let engine = EngineView.live[id],
+                      let expected = body as? String, let url = message.frameInfo.request.url,
+                      url.absoluteString == expected else { return }
+                engine.dispatchModScripts(frame: message.frameInfo, url: url)
             case "bowserConsole":
                 guard let dict = body as? [String: Any] else { return }
                 BrainBridge.shared.send([
@@ -76,24 +81,24 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     fileprivate var didWarmMediaRecovery = false
     private var urlObservation: NSKeyValueObservation?
     private var titleObservation: NSKeyValueObservation?
-    private var currentScripts: [String] = []
+    private var currentScripts: [ModScript] = []
     private var currentStyles: [String] = []
 
     // The brain's last-pushed user content. set_user_content only reaches
     // webviews alive at push time — a tab opened later was born UNMODDED
     // (no site payloads, no mod scripts) until the next push
     // (bowser-browser-1af). New views seed from here instead.
-    private(set) static var sharedScripts: [String] = []
+    private(set) static var sharedScripts: [ModScript] = []
     private(set) static var sharedStyles: [String] = []
-    private static var profileScripts: [String: [String]] = [:]
+    private static var profileScripts: [String: [ModScript]] = [:]
     private static var profileStyles: [String: [String]] = [:]
-    static func content(for profile: String) -> (scripts: [String], styles: [String]) {
+    static func content(for profile: String) -> (scripts: [ModScript], styles: [String]) {
         (sharedScripts + (profileScripts[profile] ?? []), sharedStyles + (profileStyles[profile] ?? []))
     }
 
     /// Same nil/[] semantics as applyUserContent: nil leaves that kind
     /// untouched, [] clears it.
-    static func rememberUserContent(scripts: [String]?, styles: [String]?, profile: String? = nil) {
+    static func rememberUserContent(scripts: [ModScript]?, styles: [String]?, profile: String? = nil) {
         if let profile {
             if let scripts { profileScripts[profile] = scripts }
             if let styles { profileStyles[profile] = styles }
@@ -299,12 +304,24 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     }
 
     /// nil = leave that kind untouched; [] = clear. Applies on reload.
-    func applyUserContent(scripts: [String]?, styles: [String]?, reload: Bool) {
+    func applyUserContent(scripts: [ModScript]?, styles: [String]?, reload: Bool) {
         let changed = (scripts != nil && scripts != currentScripts) || (styles != nil && styles != currentStyles)
         if let scripts { currentScripts = scripts }
         if let styles { currentStyles = styles }
         rebuildUserScripts()
         if reload && changed { webView.reload() }
+    }
+
+    fileprivate func dispatchModScripts(frame: WKFrameInfo, url: URL) {
+        // Verify the WebKit-supplied security origin as well as the request URL.
+        let origin = frame.securityOrigin
+        guard origin.host.lowercased() == (url.host?.lowercased() ?? ""), origin.protocol == url.scheme else { return }
+        for script in currentScripts where script.matches(url) {
+            guard let code = ModScript.guardedSource(script.source) else { continue }
+            webView.callAsyncJavaScript(code,
+                arguments: ["expectedURL": url.absoluteString],
+                in: frame, in: script.contentWorld) { _ in }
+        }
     }
 
     // The chrome band is transparent and the page runs under it; a root
@@ -397,11 +414,12 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
                 source: injector, injectionTime: .atDocumentEnd, forMainFrameOnly: true
             ))
         }
-        for script in currentScripts {
-            controller.addUserScript(WKUserScript(
-                source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true
-            ))
-        }
+        // Only the dispatcher is registered with WebKit. Site source remains
+        // native until the loaded frame's origin has been checked.
+        controller.addUserScript(WKUserScript(source: ModScript.ready,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: ModScript.dispatchWorld))
+        controller.addUserScript(WKUserScript(source: Self.consoleHook,
+            injectionTime: .atDocumentStart, forMainFrameOnly: true, in: ModScript.isolatedWorld))
     }
 
     /// ITP partitions third-party iframe cookies, so embedded players
@@ -431,9 +449,15 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         controller.removeScriptMessageHandler(forName: "bowserConsole")
         controller.removeScriptMessageHandler(forName: "bowserEmit")
         controller.removeScriptMessageHandler(forName: "bowserMediaWarm")
+        controller.removeScriptMessageHandler(forName: "bowserScriptsReady", contentWorld: ModScript.dispatchWorld)
+        controller.removeScriptMessageHandler(forName: "bowserConsole", contentWorld: ModScript.isolatedWorld)
+        controller.removeScriptMessageHandler(forName: "bowserEmit", contentWorld: ModScript.isolatedWorld)
         controller.add(pageRelay, name: "bowserConsole")
         controller.add(pageRelay, name: "bowserEmit")
         controller.add(pageRelay, name: "bowserMediaWarm")
+        controller.add(pageRelay, contentWorld: ModScript.dispatchWorld, name: "bowserScriptsReady")
+        controller.add(pageRelay, contentWorld: ModScript.isolatedWorld, name: "bowserConsole")
+        controller.add(pageRelay, contentWorld: ModScript.isolatedWorld, name: "bowserEmit")
         if SiteAppConfiguration.current != nil {
             controller.removeScriptMessageHandler(forName: "bowserBadge", contentWorld: .page)
             controller.addScriptMessageHandler(SiteAppBadge.shared, contentWorld: .page, name: "bowserBadge")
@@ -454,6 +478,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         controller.removeScriptMessageHandler(forName: "bowserConsole")
         controller.removeScriptMessageHandler(forName: "bowserEmit")
         controller.removeScriptMessageHandler(forName: "bowserMediaWarm")
+        controller.removeScriptMessageHandler(forName: "bowserScriptsReady", contentWorld: ModScript.dispatchWorld)
+        controller.removeScriptMessageHandler(forName: "bowserConsole", contentWorld: ModScript.isolatedWorld)
+        controller.removeScriptMessageHandler(forName: "bowserEmit", contentWorld: ModScript.isolatedWorld)
         // A sibling sharing this controller (popup lineage) must keep
         // receiving page messages after this tab dies.
         EngineView.live.values

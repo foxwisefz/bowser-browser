@@ -143,6 +143,8 @@ defmodule BowserBrain.ModSmith do
     Preserve existing values; never assume state.new_key or %{state | new_key: x}
     is safe merely because the new init_mod defines it. Test mod_reloaded with
     the previous state shape (including %{}), not only a fresh process.
+    SCRIPT WORLDS: Page.set_scripts/1,2 and Page.eval/1,2 default to isolated JavaScript, sharing DOM but not page globals. Explicit world: :page opts into website globals/patching; scripts and eval must select the same world to share mod variables. Injected payloads have function scope; put shared state on globalThis. Persistent site/saved-app JS opts in with // bowser-world: page as first nonblank line after optional profile tag. CSS remains isolated. Native injection enforces the declared mod/site host (saved apps exact origin). No private DOM data: websites can read DOM changes in either world.
+
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
     BowserBrain.Chrome.add_button(id, title, symbol: "sfsymbol");

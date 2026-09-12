@@ -4,6 +4,8 @@ defmodule BowserBrain.SiteMods do
   ~/.bowser/sites/<host>/*.css|*.js, injected on every page of that host,
   forever — the "from now on" half of ModSmith, and hand-editable like
   everything else. 1s mtime polling; changes apply with a reload.
+  JS runs isolated unless its first declaration (after an optional profile
+  tag) is `// bowser-world: page`. The engine enforces each payload's host.
   """
   use GenServer
   require Logger
@@ -77,7 +79,8 @@ end
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp build_scripts(files) do
+  @doc false
+  def build_scripts(files) do
     for path <- Enum.sort(files) do
       host = path |> Path.dirname() |> Path.basename()
       content = File.read!(path)
@@ -96,13 +99,8 @@ end
             content
         end
 
-      """
-      (function () {
-        var h = location.hostname;
-        if (h !== #{JSON.encode!(host)} && !h.endsWith(#{JSON.encode!("." <> host)})) return;
-        #{body}
-      })();
-      """
+      world = if Path.extname(path) == ".js", do: BowserBrain.ScriptPolicy.source_world(content), else: "isolated"
+      %{source: body, world: world, host: host}
     end
   end
 
