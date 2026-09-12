@@ -18,6 +18,10 @@ try fm.createDirectory(at: mac, withIntermediateDirectories: true)
 try fm.createDirectory(at: home, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: root) }
 try fm.copyItem(at: binary, to: mac.appendingPathComponent("Bowser"))
+let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+try fm.createDirectory(at: frameworks, withIntermediateDirectories: true)
+try fm.copyItem(at: binary.deletingLastPathComponent().appendingPathComponent("libBowserSurfaceKit.dylib"),
+                to: frameworks.appendingPathComponent("libBowserSurfaceKit.dylib"))
 let template = try String(contentsOf: repo.appendingPathComponent("bin/Info.plist"), encoding: .utf8)
 let plist = template.replacingOccurrences(of: "__VERSION__", with: "test")
     .replacingOccurrences(of: "__BUILD__", with: "1")

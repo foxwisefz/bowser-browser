@@ -1,3 +1,4 @@
+import BowserSurfaceKit
 import AppKit
 import SwiftUI
 
@@ -59,6 +60,7 @@ final class ProfileSettingsModel: ObservableObject {
     func replaceProfiles(_ values: [Profile]) {
         let wasClean = !hasChanges
         profiles = values
+        SurfaceHostServices.profiles(values)
         if selectedProfile == nil {
             select(values.first?.id ?? "default")
         } else if wasClean && !isBusy, let selectedProfile {

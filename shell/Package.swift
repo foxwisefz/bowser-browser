@@ -6,6 +6,7 @@ import PackageDescription
 let package = Package(
     name: "Bowser",
     platforms: [.macOS(.v15)],
+    dependencies: [.package(path: "SurfaceKit")],
     targets: [
         .target(name: "BackendRuntime", swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(name: "BowserBackendHost", dependencies: ["BackendRuntime"], swiftSettings: [.swiftLanguageMode(.v5)]),
@@ -14,8 +15,10 @@ let package = Package(
         .executableTarget(name: "BowserIconWorker", dependencies: ["IconRendering"]),
         .executableTarget(
             name: "Bowser",
+            dependencies: [.product(name: "BowserSurfaceKit", package: "SurfaceKit")],
             path: "Sources/Bowser",
-            resources: [.copy("Resources/ProfileCharacters")]
+            resources: [.copy("Resources/ProfileCharacters")],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(
             name: "BowserTests",

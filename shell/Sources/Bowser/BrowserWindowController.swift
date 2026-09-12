@@ -1,3 +1,4 @@
+import BowserSurfaceKit
 import AppKit
 import SwiftUI
 import WebKit
@@ -25,7 +26,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private var paneFocusMonitor: Any?
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
-    private var nativeToolbar: NativeToolbarSlot?
+    private var nativeToolbar: NativeModuleSlot?
     private let titleLabel = NSTextField(labelWithString: "")
     /// The profile every tab of this window belongs to. Set once, right
     /// after the window exists and before its first tab is born.
@@ -92,7 +93,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // nothing ever collides. The band still takes the page's theme tint.
         if !isSiteApp {
         let fallback = NSHostingView(rootView: AnyView(clusterView()))
-        let hosting = NativeToolbarSlot(fallback: fallback)
+        let hosting = NativeModuleSlot(fallback: fallback)
         hosting.interactionInProgress = { TabDragPreview.shared.source != nil }
         hosting.onAction = { [weak self] event in self?.nativeToolbarAction(event) }
         nativeToolbar = hosting
@@ -699,8 +700,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    func windowDidFailToEnterFullScreen(_ window: NSWindow) { NativeToolbarRuntime.shared.clearTransition(window) }
-    func windowDidFailToExitFullScreen(_ window: NSWindow) { NativeToolbarRuntime.shared.clearTransition(window) }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { NativeModuleRuntime.toolbar.clearTransition(window); NativeModuleRuntime.surfaces.clearTransition(window) }
+    func windowDidFailToExitFullScreen(_ window: NSWindow) { NativeModuleRuntime.toolbar.clearTransition(window); NativeModuleRuntime.surfaces.clearTransition(window) }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         UserDefaults.standard.set(true, forKey: Self.fullscreenKey(for: profile))

@@ -1,63 +1,6 @@
+import BowserSurfaceKit
 import AppKit
 import SwiftUI
-
-private struct SurfaceStateNamespaceKey: EnvironmentKey { static let defaultValue = "" }
-private struct SurfaceEventWebviewKey: EnvironmentKey { static let defaultValue: UInt64? = nil }
-extension EnvironmentValues {
-    var surfaceStateNamespace: String {
-        get { self[SurfaceStateNamespaceKey.self] }
-        set { self[SurfaceStateNamespaceKey.self] = newValue }
-    }
-    var surfaceEventWebview: UInt64? {
-        get { self[SurfaceEventWebviewKey.self] }
-        set { self[SurfaceEventWebviewKey.self] = newValue }
-    }
-}
-
-/// Commands target only the nearest local model, never a global editor ID.
-extension SurfaceFormModel {
-    @discardableResult
-    func perform(_ command: [String: Any]) -> [String: Any]? {
-        guard !busy, let op = command["op"] as? String else { return nil }
-        let field = command["field"] as? String ?? ""
-        switch op {
-        case "set":
-            if !field.isEmpty, let value = command["value"] { values[field] = value }
-        case "toggle":
-            if !field.isEmpty { values[field] = !(values[field] as? Bool ?? false) }
-        case "reset": reset()
-        case "discard": return confirmDiscard() ? [:] : nil
-        case "submit": return begin(required: command["required"] as? [String] ?? [], labels: command["labels"] as? [String: String] ?? [:])
-        case "snapshot":
-            let fields = command["fields"] as? [String] ?? []
-            var selections: [String: Any] = [:]
-            for key in fields {
-                if let view = editor(key).textView {
-                    let range = view.selectedRange()
-                    selections[key] = ["location": range.location, "length": range.length]
-                }
-            }
-            return ["values": values.filter { fields.contains($0.key) }, "selections": selections]
-        case "wrap": editor(field).insert(prefix: command["prefix"] as? String ?? "", suffix: command["suffix"] as? String ?? "")
-        case "insert", "select", "undo", "redo":
-            guard let view = editor(field).textView, view.isEditable else { return nil }
-            switch op {
-            case "insert": view.insertText(command["text"] as? String ?? "", replacementRange: view.selectedRange())
-            case "select":
-                let length = (view.string as NSString).length
-                let start = max(0, min(length, command["location"] as? Int ?? 0))
-                let count = max(0, min(length - start, command["length"] as? Int ?? 0))
-                view.setSelectedRange(NSRange(location: start, length: count))
-            case "undo": if view.undoManager?.canUndo == true { view.undoManager?.undo() }
-            default: if view.undoManager?.canRedo == true { view.undoManager?.redo() }
-            }
-            view.window?.makeFirstResponder(view)
-        default: break
-        }
-        return nil
-    }
-}
-
 struct SurfaceModelScope: View {
     let surfaceId: String
     let node: [String: Any]

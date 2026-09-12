@@ -13,22 +13,22 @@ import AppKit
     }
     func testMalformedMachORejected() {
         for data in [Data(), Data(repeating: 0, count: 64), Data([0xcf,0xfa,0xed,0xfe])] {
-            XCTAssertThrowsError(try NativeToolbarLibrary.validateMachO(data))
+            XCTAssertThrowsError(try NativeModuleLibrary.validateMachO(data))
         }
     }
     func testSignatureIdentityAndSymlinkRejection() throws {
         let url = try fixture()
-        _ = try NativeToolbarLibrary.validate(url, team: "V7W5LP47U9", bundled: false)
-        XCTAssertThrowsError(try NativeToolbarLibrary.validate(url, team: "WRONGTEAM", bundled: false))
-        XCTAssertThrowsError(try NativeToolbarLibrary.validate(url, team: nil, bundled: false))
+        _ = try NativeModuleLibrary.validate(url, team: "V7W5LP47U9", bundled: false)
+        XCTAssertThrowsError(try NativeModuleLibrary.validate(url, team: "WRONGTEAM", bundled: false))
+        XCTAssertThrowsError(try NativeModuleLibrary.validate(url, team: nil, bundled: false))
         let link = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
         defer { try? FileManager.default.removeItem(at: link) }
-        XCTAssertThrowsError(try NativeToolbarLibrary.validate(link, team: "V7W5LP47U9", bundled: false))
+        XCTAssertThrowsError(try NativeModuleLibrary.validate(link, team: "V7W5LP47U9", bundled: false))
     }
     func testDragDefersReplacementWithoutDiscardingCandidate() throws {
-        let library = try NativeToolbarLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
-        let slot = NativeToolbarSlot(fallback: NSView())
+        let library = try NativeModuleLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
+        let slot = NativeModuleSlot(fallback: NSView())
         slot.setSnapshot(snapshot)
         slot.interactionInProgress = { true }
         XCTAssertFalse(slot.install(library)); XCTAssertNil(slot.build)
@@ -44,12 +44,12 @@ import AppKit
         let executable = copy.appendingPathComponent("Contents/MacOS/CommandToolbar")
         let file = try FileHandle(forWritingTo: executable)
         try file.seek(toOffset: 4096); try file.write(contentsOf: Data([0xff, 0xff, 0xff, 0xff])); try file.close()
-        XCTAssertThrowsError(try NativeToolbarLibrary.validate(copy, team: "V7W5LP47U9", bundled: false))
+        XCTAssertThrowsError(try NativeModuleLibrary.validate(copy, team: "V7W5LP47U9", bundled: false))
     }
     func testRealModuleKeepsHostSnapshotAndRetiresView() async throws {
-        let library = try NativeToolbarLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
+        let library = try NativeModuleLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
         let fallback = NSView()
-        let slot = NativeToolbarSlot(fallback: fallback)
+        let slot = NativeModuleSlot(fallback: fallback)
         slot.frame = NSRect(x: 0, y: 0, width: 340, height: 24)
         let saved = snapshot
         slot.setSnapshot(saved)
@@ -69,16 +69,16 @@ import AppKit
         XCTAssertNil(slot.build)
     }
     func testInvalidStateLeavesFallbackIntact() throws {
-        let library = try NativeToolbarLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
+        let library = try NativeModuleLibrary(bundle: fixture(), team: "V7W5LP47U9", bundled: false)
         let fallback = NSView()
-        let target = NativeToolbarSlot(fallback: fallback)
+        let target = NativeModuleSlot(fallback: fallback)
         target.setSnapshot(Data("{}".utf8))
         XCTAssertFalse(target.install(library))
         XCTAssertTrue(fallback.superview === target)
         XCTAssertNil(target.build)
     }
     func testRetiredGenerationCannotDispatchCommands() {
-        let slot = NativeToolbarSlot(fallback: NSView()), runtime = NativeToolbarRuntime.shared
+        let slot = NativeModuleSlot(fallback: NSView()), runtime = NativeModuleRuntime.toolbar
         var actions: [String] = []
         slot.onAction = { actions.append($0) }
         let old = runtime.newGeneration(), next = runtime.newGeneration()

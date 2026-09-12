@@ -1,0 +1,14 @@
+Executable=/private/tmp/bowser-surfaces-check.fhJnxG/SurfaceCheck.app/Contents/MacOS/SurfaceCheck
+Identifier=com.foxwiseai.bowser.surfaces-check
+Format=bundle with Mach-O thin (arm64)
+CodeDirectory v=20500 size=3407 flags=0x10000(runtime) hashes=99+3 location=embedded
+Signature size=8983
+Authority=Developer ID Application: Foxwise AI FZ-LLC (V7W5LP47U9)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=Sep 13, 2026 at 01:52:11
+Info.plist entries=3
+TeamIdentifier=V7W5LP47U9
+Runtime Version=26.5.0
+Sealed Resources version=2 rules=13 files=4
+Internal requirements count=1 size=196

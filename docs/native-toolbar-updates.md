@@ -1,81 +1,96 @@
-# Live command-toolbar updates
+# Live native rendering updates
 
-The command/navigation cluster next to the traffic lights now has a versioned
-native module boundary. The module renders the existing SwiftUI ⌘K keycap,
-back/forward/reload buttons, profile tint, theme and mod buttons. The host owns
-the windows, WKWebViews, profiles, state snapshots and action dispatch. Module
-callbacks carry a generation token; retired generations cannot navigate or
-issue mod commands. Other native views, including Deck Tabs drag handling and
-sidebar rendering, remain in the executable.
+Bowser can replace two signed rendering modules while keeping its native host
+and WebKit views alive:
+
+- **CommandToolbar** renders the command/navigation cluster beside the traffic lights.
+- **SurfaceRenderer** renders Deck Tabs, mod sidebars/toolbars, floating surfaces,
+  and settings view trees. The built-in fallback uses the same rendering source.
+
+The executable owns windows, WebKit, profiles, IPC, action routing and drag
+sessions. `BowserSurfaceKit`, a library loaded with the host, owns surface models,
+form submissions, cursor/drag state, the image cache and native editor instances. Renderer changes
+reuse those objects. Changes to this state library or other host code require a
+normal host update.
 
 ## Install and update
 
-`bin/install` builds a signed toolbar bundle into the browser and publishes it
-independently alongside the normal pending host/backend update. It selects an
-available Developer ID Application certificate unless `BOWSER_SIGN_IDENTITY`
-is explicitly set. `BOWSER_SIGN_IDENTITY=-` produces an ad-hoc development host:
-it may use its bundled toolbar but rejects external live modules.
+`bin/install` embeds both modules and the state library in the staged browser,
+and publishes signed module generations independently of host/backend activation.
+It prefers an available Developer ID certificate; `BOWSER_SIGN_IDENTITY=-` builds
+an ad-hoc host that accepts bundled modules but rejects external live modules.
 
-The first installation of this host requires a normal quit/reopen. Once it is
-running, use `bin/install --native-only` for changes confined to
-`shell/NativeModules/CommandToolbar/Toolbar.swift`. This builds and publishes
-only the module. It does not rebuild the executable or restart the browser.
-Publishing is not an activation acknowledgement: a compatible signed running
-host checks the pointer every two seconds, loads it on a worker, and installs
-it when interactions permit. Rejections are logged as `Native toolbar update
-rejected`. Host ABI changes and changes elsewhere in the executable still
-require a normal host update. Saved apps currently do not show this cluster.
+Installing the expanded host requires a normal quit/reopen. After that,
+`bin/install --native-only` builds and publishes both renderers without restarting
+or rebuilding the browser executable. It also builds their state-library dependency;
+if that library changed, the running host rejects the incompatible surface module
+and continues using its current renderer. Use a normal install for that change.
+`--debug` selects debug host/state-library builds; otherwise installation uses release.
+The surface module must match the running state library exactly.
+
+Publishing is not an activation acknowledgement. A compatible signed host polls
+every two seconds, loads candidates on a worker, and swaps them when interactions
+permit. Rejections are logged as `Native module update rejected`. Saved site apps
+bundle their matching state library and use the built-in surface renderer.
+
+Renderer sources are `shell/NativeModules/CommandToolbar/Toolbar.swift` and
+`shell/Sources/Bowser/Surface{Renderer,Forms,Composition,TextEditor}.swift`.
+The surface bundle's C entry points are in `shell/NativeModules/Surfaces/Exports.swift`.
+The stable contracts live in `shell/SurfaceKit/`.
 
 ## Admission and lifetime
 
-Only a Developer ID module from the running host's Team ID, with identifier
-`com.foxwiseai.bowser.command-toolbar`, is admitted live. Its signed Info.plist
-pins host ABI 1, toolbar state schema 1 and backend protocol 1. The executable
-must be arm64, with only system framework/library/Swift-runtime dependencies.
-Unknown metadata, invalid signatures, wrong teams, symlinks and oversized
-packages reject before loading. No library-validation exception is added.
+A live module must have a valid Developer ID signature from the host's Team ID,
+the expected module identifier (`com.foxwiseai.bowser.command-toolbar` or
+`com.foxwiseai.bowser.surfaces`), host ABI 1, state schema 1 and backend protocol 1.
+The surface module additionally pins the Mach-O UUID of the already mapped state
+library. This identity check happens before `dlopen`; comparing against a newly
+replaced file on disk would be incorrect.
 
-The publisher atomically selects an immutable generation. The host copies it
-into a private per-process directory, makes files read-only and verifies the
-copy before `dlopen`. Each build has a unique Swift module name. These are
-first-party native components with full process privileges, not a way for
-ModSmith or website content to supply native libraries. Same-user processes
-already have the documented desktop trust relationship; filesystem permissions
-are not a sandbox against that user.
+Modules may depend on system libraries/frameworks/Swift runtime. SurfaceRenderer
+may also link the already loaded `@rpath/libBowserSurfaceKit.dylib`. It cannot supply
+its own copy or another writable-path dependency. Packages are limited to 16 MiB
+and 32 entries. Wrong signatures, metadata, identities, symlinks and unsupported
+Mach-O dependencies fail closed. Library validation remains enabled.
 
-All UI work remains on the main actor. The old toolbar stays authoritative
-while the worker loads. Mouse buttons, Deck Tabs dragging, menus, sheets, live
-resize, marked-text composition and fullscreen transitions defer admission.
-The toolbar has no independent text/editor state: the host supplies a bounded
-JSON snapshot, including reveal state, profile tint, theme and buttons. Prepared
-views cannot access page references. Preparation exceeding 16 ms is rejected;
-that detects a budget breach after it occurs, rather than preempting native code.
-The old view remains until creation and state validation succeed. Callbacks from
-candidates are ignored until commit. Invalid subsequent state restores fallback
-controls. SwiftUI render transactions may briefly retain retired views; further
-admission waits for those views to disappear.
+The publisher atomically selects an immutable generation. The loader verifies,
+copies to a private directory, makes the copy read-only, verifies again and loads
+on a worker. Builds have unique Swift module names. These are first-party native
+components with full process privileges; ModSmith and websites cannot publish them.
 
-Library mappings remain until process exit. Admission stops at 32 attempted
-paths or 64 MiB of admitted bundle bytes. These are bounded admission policies, not measured physical
-memory guarantees. Bad native code can still crash the process; in-process
-rollback is not crash isolation. No arbitrary Swift unloading is attempted.
+UI creation and attachment run on the main actor. Mouse buttons, tab dragging,
+menus, sheets/popovers, field-editor typing, marked-text composition, live resize
+and fullscreen transitions defer replacement. Candidate callbacks are ignored
+until commit; retired-generation callbacks are ignored afterward. Native editor
+mounts cannot move a live editor until their generation becomes authoritative.
+The same NSTextView, delegate, undo manager, text storage and selection then attach to the new
+renderer. Form values, validation errors and pending request IDs remain host-owned.
+
+Candidate creation exceeding 16 ms is rejected; this detects a breach after it
+occurs, not preemptive isolation. The old renderer remains until creation and
+initial state validation succeed. Invalid subsequent state restores the fallback.
+Retired SwiftUI views can survive briefly; further admission waits for their weak
+references to clear. Each module family allows at most 32 attempted paths and
+64 MiB of admitted bundle bytes per process. Mappings stay until exit; no `dlclose`
+or arbitrary Swift unloading is attempted. In-process rollback cannot contain a
+crash in signed native code.
 
 ## Verification
 
-`BOWSER_TEST_TOOLBAR=/absolute/path/CommandToolbar.bundle swift test` in `shell/`
-runs real signed-module admission and lifecycle tests alongside the native
-suite. Without that fixture, signing-specific tests skip explicitly.
+`bin/check-native-toolbar` and `bin/check-native-surfaces`, with
+`BOWSER_SIGN_IDENTITY='Developer ID Application: …'`, build real module generations
+and isolated hardened-runtime test apps. They use nonpersistent WebKit stores,
+AppKit input events and playing video without touching installed browser data.
+The surface check verifies native editor identity, unsaved text, selection, focus,
+typing/undo after replacement, drag deferral and a Deck Tabs action.
 
-`BOWSER_SIGN_IDENTITY='Developer ID Application: …' bin/check-native-toolbar`
-builds two real toolbar generations and a hardened-runtime host. It checks
-Developer ID admission with library validation enabled, actual AppKit mouse
-and key event dispatch, retained unsent text, page identity and advancing video.
-It uses an isolated nonpersistent WebKit store and never touches installed
-browser state. The recorded run is in
-`tests/native-toolbar/results/signed-replacement.json`.
+For native tests, set `BOWSER_TEST_TOOLBAR`, `BOWSER_TEST_SURFACES` and
+`BOWSER_TEST_SURFACES_SECOND` to the corresponding signed bundles before running
+`swift test` in `shell/`. Signing-specific tests skip when fixtures are absent.
+Recorded runs live under `tests/native-toolbar/results/` and
+`tests/native-surfaces/results/`.
 
-This delivers the command-toolbar boundary, not arbitrary native replacement.
-Notarization/quarantine qualification, audible/DRM/live-stream coverage, physical
-input latency and the 100-distinct-build/24-hour memory soak remain in
-`bowser-browser-29v.6` and `bowser-browser-u6x9.3`. Those gates are not established
-by the signed local test. The broader proposed design is ADR 0014.
+Notarization/quarantine qualification, audible/DRM/live streams, physical input
+latency and the 100-build/24-hour memory soak remain tracked in
+`bowser-browser-29v.6` and `bowser-browser-u6x9.3`. Signed local checks do not establish
+those broader gates. See ADR 0014.

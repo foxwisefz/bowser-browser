@@ -2,14 +2,14 @@ import AppKit
 import WebKit
 
 @MainActor func require(_ test: Bool, _ message: String) throws {
-    if !test { throw NativeToolbarFailure(message) }
+    if !test { throw NativeModuleFailure(message) }
 }
 @MainActor func waitFor(_ message: String, _ predicate: () async throws -> Bool) async throws {
     for _ in 0..<300 {
         if try await predicate() { return }
         try await Task.sleep(for: .milliseconds(50))
     }
-    throw NativeToolbarFailure(message + ": " + (NativeToolbarRuntime.shared.lastError ?? "no loader error"))
+    throw NativeModuleFailure(message + ": " + (NativeModuleRuntime.toolbar.lastError ?? "no loader error"))
 }
 @MainActor func clickCommand(_ slot: NSView, _ window: NSWindow) {
     let point = slot.convert(NSPoint(x: 25, y: 12), to: nil)
@@ -33,7 +33,7 @@ import WebKit
         window.isReleasedWhenClosed = false
         let content = NSView(frame: window.contentLayoutRect)
         window.contentView = content
-        let slot = NativeToolbarSlot(fallback: NSTextField(labelWithString: "Loading toolbar"))
+        let slot = NativeModuleSlot(fallback: NSTextField(labelWithString: "Loading toolbar"))
         slot.frame = NSRect(x: 0, y: 660, width: 500, height: 30)
         let state: [String: Any] = ["revealed": true,"tint": NSNull(),"colors": [:],"buttonStyle": "flat","cornerRadius": 6,"showNavigation": true,"buttons": [["id":"probe","title":"Probe action","symbol":"star"]]]
         slot.setSnapshot(try JSONSerialization.data(withJSONObject: state))
@@ -50,7 +50,7 @@ import WebKit
         _ = try await web.evaluateJavaScript("video.play();draft.focus();draft.value='unsent';draft.setSelectionRange(6,6);true")
         try await waitFor("signed module admission") { slot.build != nil }
         let initial = slot.build!
-        try require(NativeToolbarLibrary.runningTeam() == "V7W5LP47U9", "probe not Developer ID signed")
+        try require(NativeModuleLibrary.runningTeam() == "V7W5LP47U9", "probe not Developer ID signed")
         try await Task.sleep(for: .milliseconds(300))
         clickCommand(slot, window)
         try await waitFor("native command action") { actions.contains("command") }
@@ -68,7 +68,7 @@ import WebKit
         let publisher = root.appendingPathComponent("home/native-modules/command-toolbar")
         try FileManager.default.createDirectory(at: publisher, withIntermediateDirectories: true)
         let second = root.appendingPathComponent("Second.bundle")
-        let metadata = try NativeToolbarLibrary.validate(second, team: "V7W5LP47U9", bundled: false)
+        let metadata = try NativeModuleLibrary.validate(second, team: "V7W5LP47U9", bundled: false)
         try FileManager.default.copyItem(at: second, to: publisher.appendingPathComponent(metadata.0 + ".bundle"))
         try metadata.0.write(to: publisher.appendingPathComponent("current"), atomically: true, encoding: .utf8)
         type(" before")

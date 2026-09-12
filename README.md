@@ -187,7 +187,7 @@ This repo is tracked with [beads](https://github.com/gastownhall/beads)
 (`bd`) for issues and [jj](https://jj-vcs.github.io/) (colocated with
 git) for version control.
 
-Native command-toolbar changes can be published with `bin/install --native-only`
+Native command-toolbar, Deck Tabs and sidebar-renderer changes can be published with `bin/install --native-only`
 after the module-capable signed host is installed. See
-[the native-toolbar update boundary](docs/native-toolbar-updates.md) for signing,
+[the native rendering update boundary](docs/native-toolbar-updates.md) for signing,
 activation and restart behavior.

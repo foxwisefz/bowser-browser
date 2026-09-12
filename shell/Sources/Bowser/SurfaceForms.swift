@@ -1,97 +1,6 @@
+import BowserSurfaceKit
 import AppKit
 import SwiftUI
-
-/// Local form state survives tree refreshes; only a matching reply ends a submission.
-@MainActor
-final class SurfaceFormModel: ObservableObject {
-    @Published var values: [String: Any]
-    @Published private(set) var errors: [String: String] = [:]
-    @Published private(set) var pendingID: String?
-    private var baseline: [String: Any]
-    private var submitted: [String: Any] = [:]
-    private var editors: [String: SurfaceEditorController] = [:]
-    func editor(_ field: String) -> SurfaceEditorController {
-        if let existing = editors[field] { return existing }
-        let controller = SurfaceEditorController()
-        editors[field] = controller
-        return controller
-    }
-    private let trackedFields: Set<String>?
-    init(_ values: [String: Any], trackedFields: [String]? = nil) {
-        self.values = values; baseline = values; self.trackedFields = trackedFields.map(Set.init)
-    }
-    private func tracked(_ map: [String: Any]) -> [String: Any] {
-        guard let trackedFields else { return map }
-        return map.filter { trackedFields.contains($0.key) }
-    }
-    var dirty: Bool { !NSDictionary(dictionary: tracked(values)).isEqual(to: tracked(baseline)) }
-    var busy: Bool { pendingID != nil }
-
-    func refresh(_ initial: [String: Any], response: [String: Any]?) {
-        if let response, let pendingID, response["request_id"] as? String == pendingID {
-            self.pendingID = nil
-            if response["ok"] as? Bool == true {
-                values = response["values"] as? [String: Any] ?? submitted
-                baseline = values
-                errors = [:]
-            } else {
-                errors = response["errors"] as? [String: String] ?? [:]
-                errors["_form"] = response["error"] as? String ?? "Could not save. Check your changes and try again."
-            }
-        } else if !dirty && !busy {
-            // Keep untracked UI choices when the mod re-sends the same defaults.
-            for (key, value) in initial {
-                if !NSDictionary(dictionary: [key: value]).isEqual(to: baseline[key].map { [key: $0] } ?? [:]) {
-                    values[key] = value
-                }
-            }
-            for key in baseline.keys where initial[key] == nil { values.removeValue(forKey: key) }
-            baseline = initial
-        }
-    }
-
-    func begin(required: [String], labels: [String: String] = [:]) -> [String: Any]? {
-        guard !busy else { return nil }
-        errors = [:]
-        for key in required where (values[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors[key] = "Enter \(labels[key] ?? key)."
-        }
-        guard errors.isEmpty else { return nil }
-        let id = UUID().uuidString
-        pendingID = id
-        submitted = values
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in self?.expire(id) }
-        return ["request_id": id, "values": submitted]
-    }
-    func expire(_ id: String) {
-        guard pendingID == id else { return }
-        pendingID = nil
-        errors["_form"] = "No response received. Your changes are still here; try again."
-    }
-    func reset() { guard !busy else { return }; values = baseline; errors = [:] }
-    func confirmDiscard() -> Bool {
-        guard !busy else { return false }
-        guard dirty else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Discard unsaved changes?"
-        alert.informativeText = "Your changes have not been saved."
-        alert.addButton(withTitle: "Keep Editing")
-        alert.addButton(withTitle: "Discard Changes")
-        guard alert.runModal() == .alertSecondButtonReturn else { return false }
-        reset()
-        return true
-    }
-}
-
-private struct SurfaceFormKey: EnvironmentKey {
-    static let defaultValue: SurfaceFormModel? = nil
-}
-extension EnvironmentValues {
-    var surfaceForm: SurfaceFormModel? {
-        get { self[SurfaceFormKey.self] }
-        set { self[SurfaceFormKey.self] = newValue }
-    }
-}
 
 /// Keys are scoped to siblings. An explicit key preserves state when rows move.
 struct SurfaceNode: Identifiable {
@@ -109,6 +18,7 @@ struct SurfaceNode: Identifiable {
 }
 
 struct SurfaceFormView: View {
+    @Environment(\.surfaceDispatch) private var dispatch
     var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
@@ -138,7 +48,7 @@ struct SurfaceFormView: View {
                         var message: [String: Any] = ["op": "event", "event": "surface", "surface": surfaceId,
                                                       "id": node["event"] as? String ?? "submit", "value": payload]
                         if let webview { message["webview"] = webview }
-                        BrainBridge.shared.send(message)
+                        dispatch(message)
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -191,7 +101,7 @@ private struct SurfaceBoundInput: View {
             Toggle(label, isOn: Binding(get: { model.values[field] as? Bool ?? false }, set: { model.values[field] = $0 }))
         case "color":
             ColorPicker(label, selection: Binding(get: {
-                Color(nsColor: Profile.color(hex: model.values[field] as? String) ?? .systemGray)
+                Color(nsColor: SurfaceServices.color(hex: model.values[field] as? String) ?? .systemGray)
             }, set: { model.values[field] = SurfaceColorPickerHexBridge.hex(NSColor($0)) }), supportsOpacity: false)
         case "choice":
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: max(1, min(12, node["columns"] as? Int ?? 4))), spacing: 8) {
@@ -238,6 +148,8 @@ struct SurfacePresentation: View {
     }
     private var content: some View {
         SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:])
+            .onAppear { SurfaceServices.shared.presentations += 1 }
+            .onDisappear { SurfaceServices.shared.presentations = max(0, SurfaceServices.shared.presentations - 1) }
             .environment(\.surfaceForm, form)
             .environment(\.surfacePalette, colors.palette)
             .foregroundStyle(colors.color("text"))
@@ -294,7 +206,16 @@ private struct SurfaceShortcut: ViewModifier {
 struct SurfaceListDetail: View {
     let surfaceId: String
     let node: [String: Any]
-    @State private var selection: String?
+    @StateObject private var selectionModel: SurfaceFormModel
+    init(surfaceId: String, node: [String: Any]) {
+        self.surfaceId = surfaceId; self.node = node
+        _selectionModel = StateObject(wrappedValue: SurfaceFormStore.shared.model(surface: surfaceId,
+            key: "selection:" + (node["key"] as? String ?? "list_detail"), initial: [:]))
+    }
+    private var selection: String? {
+        get { selectionModel.values["selection"] as? String }
+        nonmutating set { selectionModel.values["selection"] = newValue }
+    }
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
     private var selected: String? {
         let candidate = selection ?? node["selection"] as? String
@@ -349,21 +270,6 @@ private struct SurfaceAccessibility: ViewModifier {
             content.accessibilityLabel(label).help(node["help"] as? String ?? "")
         } else { content.help(node["help"] as? String ?? "") }
     }
-}
-
-/// Form keys are unique within a surface, so changing categories or selected
-/// detail rows doesn't throw away local edits. Closing a surface releases them.
-@MainActor
-final class SurfaceFormStore {
-    static let shared = SurfaceFormStore()
-    private var surfaces: [String: [String: SurfaceFormModel]] = [:]
-    func model(surface: String, key: String, initial: [String: Any], trackedFields: [String]? = nil) -> SurfaceFormModel {
-        if let existing = surfaces[surface]?[key] { return existing }
-        let model = SurfaceFormModel(initial, trackedFields: trackedFields)
-        surfaces[surface, default: [:]][key] = model
-        return model
-    }
-    func remove(surface: String) { surfaces.removeValue(forKey: surface) }
 }
 
 private struct SurfaceForeground: ViewModifier {

@@ -155,7 +155,7 @@ struct SettingsRootView: View {
                         if section.id == "settings" {
                             DefaultBrowserSettingsView(model: .shared)
                         }
-                        SurfaceTreeView(surfaceId: section.id, node: section.tree)
+                        LiveSurfaceTree(surfaceId: section.id, node: section.tree)
                             .id(section.id)
                     }
                     .padding(32)

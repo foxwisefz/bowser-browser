@@ -59,9 +59,12 @@ while IFS= read -r -d '' file; do
     fi
   fi
 done < <(find "$root/image/Bowser.app/Contents/Resources/runtime" -type f -print0)
-if [ -d "$root/image/Bowser.app/Contents/Resources/CommandToolbar.bundle" ]; then
-  codesign "${sign_args[@]}" "$root/image/Bowser.app/Contents/Resources/CommandToolbar.bundle"
-fi
+codesign "${sign_args[@]}" "$root/image/Bowser.app/Contents/Frameworks/libBowserSurfaceKit.dylib"
+for module in CommandToolbar SurfaceRenderer; do
+  if [ -d "$root/image/Bowser.app/Contents/Resources/$module.bundle" ]; then
+    codesign "${sign_args[@]}" "$root/image/Bowser.app/Contents/Resources/$module.bundle"
+  fi
+done
 codesign "${sign_args[@]}" "$root/image/Bowser.app"
 codesign --verify --deep --strict "$root/image/Bowser.app"
 if [ "$notarize" = 1 ]; then

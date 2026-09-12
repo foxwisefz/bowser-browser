@@ -90,6 +90,10 @@ final class SiteAppTests: XCTestCase {
         let executable = browser.appendingPathComponent("Contents/MacOS/Bowser")
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: shell.appendingPathComponent(".build/debug/Bowser"), to: executable)
+        let frameworks = browser.appendingPathComponent("Contents/Frameworks")
+        try FileManager.default.createDirectory(at: frameworks, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: shell.appendingPathComponent(".build/debug/libBowserSurfaceKit.dylib"),
+                                         to: frameworks.appendingPathComponent("libBowserSurfaceKit.dylib"))
         let preparationStart = ProcessInfo.processInfo.systemUptime
         let server = try SiteIconFixtureServer()
         defer { server.stop() }

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingExternalURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SurfaceHostServices.configure()
         didFinishLaunching = true
         Task {
             let receipt = try? RegistrationStore(directory: BowserPaths.home).load()

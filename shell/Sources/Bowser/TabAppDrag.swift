@@ -1,3 +1,4 @@
+import BowserSurfaceKit
 import AppKit
 import CryptoKit
 import SwiftUI
@@ -24,6 +25,7 @@ enum TabAppBundle {
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: executable)
+        try copyStateLibrary(from: bowser, to: staging)
         let info: [String: Any] = [
             "CFBundleName": name, "CFBundleDisplayName": name,
             "CFBundleIdentifier": "com.foxwiseai.bowser.site.\(key)",
@@ -75,6 +77,7 @@ enum TabAppBundle {
             try? FileManager.default.removeItem(at: temp)
             try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: temp)
             _ = try FileManager.default.replaceItemAt(target, withItemAt: temp)
+            try copyStateLibrary(from: bowser, to: bundle)
             info["BowserAppVersion"] = 2
             info["CFBundleVersion"] = "2"
             info["BowserEngineBuild"] = build
@@ -97,6 +100,18 @@ enum TabAppBundle {
             do { try upgrade(bundle: bundle, bowser: Bundle.main.bundleURL) }
             catch { NSLog("Bowser: site app upgrade failed: %@", error.localizedDescription) }
         }
+    }
+
+    private static func copyStateLibrary(from browser: URL, to bundle: URL) throws {
+        let relative = "Contents/Frameworks/libBowserSurfaceKit.dylib"
+        let destination = bundle.appendingPathComponent(relative)
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let temp = destination.appendingPathExtension("new")
+        try? FileManager.default.removeItem(at: temp)
+        try FileManager.default.copyItem(at: browser.appendingPathComponent(relative), to: temp)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temp)
+        } else { try FileManager.default.moveItem(at: temp, to: destination) }
     }
 
     private static func signBundle(_ bundle: URL) throws {
@@ -148,22 +163,6 @@ final class TabAppPasteboardProvider: NSObject, NSPasteboardItemDataProvider {
             item.setString(bundle!.absoluteString, forType: .fileURL)
         } catch { failed = true; NSLog("Bowser: tab app drag failed: %@", error.localizedDescription) }
     }
-}
-
-@MainActor
-final class TabDragPreview: ObservableObject {
-    static let shared = TabDragPreview()
-    @Published var source: UInt64?
-    @Published var target: UInt64?
-    @Published var after = false
-
-    func gap(for id: UInt64, after edge: Bool, size: CGFloat) -> CGFloat {
-        target == id && after == edge ? size : 0
-    }
-    func clear(target id: UInt64) {
-        if target == id { target = nil }
-    }
-    func finish() { source = nil; target = nil }
 }
 
 final class TabAppDragView: NSView, NSDraggingSource {

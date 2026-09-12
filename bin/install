@@ -10,7 +10,7 @@
 #   bin/install --brain-only    stage only the brain and helpers
 #   bin/install --release       optimized shell build (default; isolated launch gate)
 #   bin/install --debug         explicit debug shell build
-#   bin/install --native-only  build/publish only the live command toolbar
+#   bin/install --native-only  build/publish live toolbar and surface renderers
 #   bin/install --stage-only   build a fresh pair; do not publish, install or register launch agents
 set -euo pipefail
 
@@ -30,12 +30,16 @@ if [ -z "${BOWSER_SIGN_IDENTITY:-}" ]; then
   BOWSER_SIGN_IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
   export BOWSER_SIGN_IDENTITY="${BOWSER_SIGN_IDENTITY:--}"
 fi
+export BOWSER_NATIVE_CONFIGURATION=release
+[ "$DEBUG" = 1 ] && export BOWSER_NATIVE_CONFIGURATION=debug
 if [ "$NATIVE_ONLY" = 1 ]; then
   [ "$STAGE_ONLY$SHELL_ONLY$BRAIN_ONLY" = 000 ] || { echo '--native-only cannot be combined with other partial/stage flags' >&2; exit 2; }
   [ "$BOWSER_SIGN_IDENTITY" != - ] || { echo 'Live native updates require Developer ID signing' >&2; exit 2; }
   native_stage="$(mktemp -d /tmp/bowser-native-build.XXXXXX)"
   trap 'rm -rf "$native_stage"' EXIT
   "$REPO/bin/build-native-toolbar" "$native_stage/CommandToolbar.bundle"
+  "$REPO/bin/build-native-surfaces" "$native_stage/SurfaceRenderer.bundle"
+  "$REPO/bin/publish-native-toolbar" "$native_stage/SurfaceRenderer.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
   "$REPO/bin/publish-native-toolbar" "$native_stage/CommandToolbar.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
   exit 0
 fi
@@ -112,9 +116,13 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   fi
   printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
   "$REPO/bin/build-native-toolbar" "$STAGE/Bowser.app/Contents/Resources/CommandToolbar.bundle"
+  "$REPO/bin/build-native-surfaces" "$STAGE/Bowser.app/Contents/Resources/SurfaceRenderer.bundle"
+  mkdir -p "$STAGE/Bowser.app/Contents/Frameworks"
+  cp -f "$REPO/shell/.build/$CONF/libBowserSurfaceKit.dylib" "$STAGE/Bowser.app/Contents/Frameworks/"
   native_sign=(--force --sign "$BOWSER_SIGN_IDENTITY")
   if [ "$BOWSER_SIGN_IDENTITY" != - ]; then native_sign+=(--options runtime); fi
   if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then native_sign+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
+  codesign "${native_sign[@]}" "$STAGE/Bowser.app/Contents/Frameworks/libBowserSurfaceKit.dylib"
   codesign "${native_sign[@]}" "$STAGE/Bowser.app"
   codesign --verify --deep --strict "$STAGE/Bowser.app"
   # Assemble inside the unpublished generation.
@@ -164,6 +172,7 @@ fi
 # Module delivery is independent of pending host/backend activation. Older
 # shells ignore this pointer; new shells validate compatibility and signing.
 if [ "$BRAIN_ONLY" = 0 ] && [ "$BOWSER_SIGN_IDENTITY" != - ]; then
+  "$REPO/bin/publish-native-toolbar" "$BUNDLE/Contents/Resources/SurfaceRenderer.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
   "$REPO/bin/publish-native-toolbar" "$BUNDLE/Contents/Resources/CommandToolbar.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
 fi
 

@@ -103,12 +103,16 @@ final class TabAppDragTests: XCTestCase {
         let source = browser.appendingPathComponent("Contents/MacOS/Bowser")
         try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("test executable".utf8).write(to: source)
+        let kit = browser.appendingPathComponent("Contents/Frameworks/libBowserSurfaceKit.dylib")
+        try FileManager.default.createDirectory(at: kit.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("state library".utf8).write(to: kit)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: source.path)
         let icon = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)!
         let start = ProcessInfo.processInfo.systemUptime
         let bundle = try TabAppBundle.create(url: page, profile: "work", iconData: IconRenderer.icns(icon.tiffRepresentation!), directory: root, bowser: browser, sign: false)
         print("Tab app preparation: \((ProcessInfo.processInfo.systemUptime - start) * 1000)ms")
         XCTAssertEqual(bundle.pathExtension, "app")
+        XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent("Contents/Frameworks/libBowserSurfaceKit.dylib")), try Data(contentsOf: kit))
         let app = try XCTUnwrap(Bundle(url: bundle))
         XCTAssertEqual(app.infoDictionary?["CFBundlePackageType"] as? String, "APPL")
         XCTAssertEqual(app.infoDictionary?["BowserSavedURL"] as? String, page.absoluteString)

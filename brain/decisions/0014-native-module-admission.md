@@ -65,7 +65,9 @@ Hardened runtime is also required for notarization.
 Current evidence: a Foxwise Developer ID identity is available. The integrated
 command-toolbar check passed in a Developer ID signed hardened-runtime host
 with library validation enabled on 2026-09-13. See
-`tests/native-toolbar/results/signed-replacement.json`. Notarization and
+`tests/native-toolbar/results/signed-replacement.json`. Deck Tabs and surface
+rendering now use the same admission path, with host-owned form/editor state in
+`BowserSurfaceKit` and tests under `tests/native-surfaces/`. Notarization and
 quarantine qualification remain separate gates; local signing does not prove them.
 
 ## ABI, preparation and state
@@ -73,7 +75,13 @@ quarantine qualification remain separate gates; local signing does not prove the
 Use a narrow versioned C function table with fixed-width scalars, length-delimited
 byte buffers and opaque owner handles. Define allocator/free responsibility for
 every buffer. Do not pass Swift objects, closures, generic values or enum layouts
-across the ABI. A module can return one retained NSView for its own content with
+across the C ABI. SurfaceRenderer imports the already mapped BowserSurfaceKit
+library to resolve an opaque context ID. That shared Swift contract is pinned to
+the library's exact Mach-O UUID, so changing it requires a host update. The
+renderer may link only that preloaded library in addition to system dependencies;
+it cannot package a replacement copy. Its host-owned contexts, form models and
+AppKit editor mounts have a single type identity and lifetime across generations.
+A module can return one retained NSView for its own content with
 an explicit release function; the host controls its placement and lifetime.
 Module callbacks are nonisolated C thunks that enqueue onto the owning actor.
 Every callback carries its generation and sequence number.

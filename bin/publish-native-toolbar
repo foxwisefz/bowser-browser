@@ -3,7 +3,14 @@
 # verifies the complete signature, Team ID, ABI and dependencies before loading.
 set -euo pipefail
 [ "$#" = 2 ] || { echo 'usage: bin/publish-native-toolbar MODULE.bundle BOWSER_HOME' >&2; exit 2; }
-source="$1"; root="$2/native-modules/command-toolbar"
+source="$1"
+identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$source/Contents/Info.plist")"
+case "$identifier" in
+  com.foxwiseai.bowser.command-toolbar) kind=command-toolbar;;
+  com.foxwiseai.bowser.surfaces) kind=surfaces;;
+  *) echo 'unknown native module identity' >&2; exit 1;;
+esac
+root="$2/native-modules/$kind"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source/Contents/Info.plist")"
 [[ "$build" =~ ^[0-9a-f]{32}$ ]] || { echo 'invalid module build' >&2; exit 1; }
 codesign --verify --strict "$source"
@@ -21,4 +28,4 @@ fi
 pointer="$(mktemp "$root/current.XXXXXX")"
 printf '%s\n' "$build" > "$pointer"
 chmod 600 "$pointer"; mv -f "$pointer" "$root/current"
-echo "Published command toolbar $build; compatible signed running hosts validate and apply it independently."
+echo "Published $kind $build; compatible signed running hosts validate and apply it independently."

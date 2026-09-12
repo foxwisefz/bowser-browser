@@ -1,0 +1,46 @@
+{
+  "activeBuild" : "8d44dcb09c48422883a724eeda70e84b",
+  "after" : {
+    "draft" : "",
+    "frames" : 69,
+    "fullscreen" : false,
+    "interruptions" : [
+      "waiting"
+    ],
+    "maxGapMS" : 256,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 0,
+    "selectionStart" : 0,
+    "ticks" : 14,
+    "time" : 7.7954929166749176,
+    "token" : "d3460909-3eb9-4d5c-b558-5608501526a8"
+  },
+  "before" : {
+    "draft" : "",
+    "frames" : 30,
+    "fullscreen" : false,
+    "interruptions" : [
+      "waiting"
+    ],
+    "maxGapMS" : 256,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 0,
+    "selectionStart" : 0,
+    "ticks" : 8,
+    "time" : 1.3739134996634361,
+    "token" : "d3460909-3eb9-4d5c-b558-5608501526a8"
+  },
+  "deckAction" : true,
+  "developerID" : true,
+  "draftAndSelectionRetained" : true,
+  "dragDeferred" : true,
+  "initialBuild" : "ef556ab3d51640f789866e6042241f2c",
+  "libraryValidationDisabled" : false,
+  "passed" : true,
+  "sameEditor" : true,
+  "typingAndUndoAfterSwap" : true
+}
