@@ -133,12 +133,37 @@ struct TabAppDragTarget: NSViewRepresentable {
     }
 }
 
+/// File export is lazy: moving within Bowser must not build/sign a saved app.
+final class TabAppPasteboardProvider: NSObject, NSPasteboardItemDataProvider {
+    var makeBundle: () throws -> URL
+    private var bundle: URL?
+    init(makeBundle: @escaping () throws -> URL) { self.makeBundle = makeBundle }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem,
+                    provideDataForType type: NSPasteboard.PasteboardType) {
+        guard type == .fileURL else { return }
+        do {
+            if bundle == nil { bundle = try makeBundle() }
+            item.setString(bundle!.absoluteString, forType: .fileURL)
+        } catch { NSLog("Bowser: tab app drag failed: %@", error.localizedDescription) }
+    }
+}
+
 final class TabAppDragView: NSView, NSDraggingSource {
+    static let tabType = NSPasteboard.PasteboardType("com.foxwiseai.bowser.tab")
     var webviewID: UInt64 = 0
     var select: () -> Void = {}
     private var down: NSEvent?
     private var dragged = false
+    private(set) var draggedID: UInt64?
+    private var provider: TabAppPasteboardProvider?
+    private var insertionAfter: Bool?
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes([Self.tabType])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { down = event; dragged = false }
@@ -150,32 +175,68 @@ final class TabAppDragView: NSView, NSDraggingSource {
         guard !dragged, let down,
               hypot(event.locationInWindow.x - down.locationInWindow.x,
                     event.locationInWindow.y - down.locationInWindow.y) >= 5,
-              let tab = EngineView.live[webviewID], let url = tab.webView.url else { return }
+              let tab = EngineView.live[webviewID] else { return }
         dragged = true
-        let start = ProcessInfo.processInfo.systemUptime
+        draggedID = webviewID
         let icon = tab.faviconPath.flatMap { NSImage(contentsOfFile: $0) }
             ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        do {
-            let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser Apps")
-            let bowser = Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundleURL
-                : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser.app")
-            let bundle = try TabAppBundle.create(url: url, profile: tab.profileId, iconData: tab.appIconData,
-                                                 directory: directory, bowser: bowser)
-            let item = NSDraggingItem(pasteboardWriter: bundle as NSURL)
-            item.setDraggingFrame(bounds, contents: icon)
-            let session = beginDraggingSession(with: [item], event: down, source: self)
-            session.animatesToStartingPositionsOnCancelOrFail = true
-            NSLog("Bowser: tab app drag prepared in %.1fms: %@", (ProcessInfo.processInfo.systemUptime - start) * 1000, bundle.path)
-        } catch {
-            NSLog("Bowser: tab app drag failed: %@", error.localizedDescription)
-            NSSound.beep()
+        let pasteboard = NSPasteboardItem()
+        pasteboard.setString(String(webviewID), forType: Self.tabType)
+        if let url = tab.webView.url, ["http", "https"].contains(url.scheme ?? "") {
+            let profile = tab.profileId, iconData = tab.appIconData
+            let provider = TabAppPasteboardProvider {
+                let bowser = Bundle.main.bundleURL.pathExtension == "app" ? Bundle.main.bundleURL
+                    : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Bowser.app")
+                return try TabAppBundle.create(url: url, profile: profile, iconData: iconData,
+                                               directory: TabAppBundle.directory, bowser: bowser)
+            }
+            self.provider = provider
+            pasteboard.setDataProvider(provider, forTypes: [.fileURL])
         }
+        let item = NSDraggingItem(pasteboardWriter: pasteboard)
+        item.setDraggingFrame(bounds, contents: icon)
+        SurfaceManager.shared.setEdgeDragging("edge_dock", true)
+        let session = beginDraggingSession(with: [item], event: down, source: self)
+        session.animatesToStartingPositionsOnCancelOrFail = true
     }
+
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        [.copy, .link, .generic]
+        context == .withinApplication ? [.move] : [.copy, .link, .generic]
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         down = nil
-        NSLog("Bowser: tab app drag ended operation=%lu", operation.rawValue)
+        draggedID = nil
+        provider = nil
+        SurfaceManager.shared.setEdgeDragging("edge_dock", false)
+    }
+
+    private func sourceID(_ sender: NSDraggingInfo) -> UInt64? {
+        guard let source = sender.draggingSource as? TabAppDragView,
+              let id = source.draggedID, id != webviewID,
+              let host = BrowserWindowController.host(of: id),
+              host === BrowserWindowController.host(of: webviewID) else { return nil }
+        return id
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sourceID(sender) != nil else { clearInsertion(); return [] }
+        // NSView's origin is bottom-left; the lower half inserts after this row.
+        insertionAfter = convert(sender.draggingLocation, from: nil).y < bounds.midY
+        needsDisplay = true
+        return .move
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { clearInsertion() }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { sourceID(sender) != nil }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { clearInsertion() }
+        guard let id = sourceID(sender), let after = insertionAfter else { return false }
+        return BrowserWindowController.host(of: id)?.moveTab(id: id, relativeTo: webviewID, after: after) == true
+    }
+    private func clearInsertion() { insertionAfter = nil; needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        guard let after = insertionAfter else { return }
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: 0, y: after ? 0 : bounds.height - 3,
+                                        width: bounds.width, height: 3), xRadius: 1.5, yRadius: 1.5).fill()
     }
 }

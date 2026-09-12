@@ -38,6 +38,9 @@ defmodule BowserBrain.TabDeck do
     state |> put_tab(wv, profile: ev["profile"]) |> apply_order(ev["order"]) |> render()
   end
 
+  def handle_event(%{"event" => "tabs_reordered", "order" => order}, state),
+    do: state |> apply_order(order) |> render()
+
   def handle_event(%{"event" => "tab_activated", "webview" => wv}, state) do
     %{state | active: wv} |> put_tab(wv, []) |> render()
   end

@@ -10,6 +10,9 @@ defmodule EdgeDockTabsTest do
       |> ev(%{"event" => "hello", "tabs" => [%{"id" => 1}, %{"id" => 2}], "active" => 1})
       |> ev(%{"event" => "tab_opened", "webview" => 3, "order" => [1, 3, 2]})
     assert state.order == [1, 3, 2]
+    state = ev(state, %{"event" => "tabs_reordered", "order" => [2, 1, 3]})
+    assert state.order == [2, 1, 3]
+    assert state.active == 1
   end
 
   test "closed tabs leave the dock — no phantom icons (bowser-browser-55l)" do

@@ -119,6 +119,9 @@ defmodule BowserBrain.Session do
     {:noreply, state |> note_profile(wv, ev["profile"]) |> note_order(ev) |> persist()}
   end
 
+  def handle_info({:browser_event, %{"event" => "tabs_reordered"} = event}, state),
+    do: {:noreply, state |> note_order(event) |> persist()}
+
   # Page finished loading: snapshot its origin's cookie jar.
   def handle_info({:browser_event, %{"event" => "load_status", "status" => 2, "webview" => wv}}, state) do
     with url when is_binary(url) <- state.tabs[wv],

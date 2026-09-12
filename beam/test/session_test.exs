@@ -44,6 +44,10 @@ defmodule BowserBrain.SessionTest do
     assert {:reply, ["https://a.example/", "https://c.example/", "https://b.example/"], _} = Session.handle_call(:tabs, nil, state)
     stored = JSON.decode!(File.read!(path))
     assert stored["active"] == 1
+    event(state, %{"event" => "tabs_reordered", "order" => [3, 2, 1]})
+    reordered = JSON.decode!(File.read!(path))
+    assert reordered["active"] == 0
+    assert Enum.map(reordered["tabs"], & &1["url"]) == ["https://c.example/", "https://b.example/", "https://a.example/"]
     assert Enum.map(stored["tabs"], & &1["url"]) == ["https://a.example/", "https://c.example/", "https://b.example/"]
   end
 

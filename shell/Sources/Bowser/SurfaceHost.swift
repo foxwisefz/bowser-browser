@@ -285,7 +285,15 @@ final class SurfaceManager {
         )
     }
 
+    private var draggingEdges: Set<String> = []
+
+    func setEdgeDragging(_ id: String, _ dragging: Bool) {
+        if dragging { draggingEdges.insert(id) } else { draggingEdges.remove(id) }
+        setEdgeRevealed(id, dragging)
+    }
+
     func setEdgeRevealed(_ id: String, _ revealed: Bool) {
+        if !revealed && draggingEdges.contains(id) { return }
         guard let panel = panels[id] else { return }
         if revealed { edgeRevealed.insert(id) } else { edgeRevealed.remove(id) }
         positionEdge(id: id, panel: panel, animated: true)
@@ -1053,6 +1061,15 @@ struct MagnifyStripView: View {
 
     private var items: [[String: Any]] { node["items"] as? [[String: Any]] ?? [] }
 
+    private struct StripItem: Identifiable {
+        let id: String
+        let index: Int
+        let value: [String: Any]
+    }
+    private var identifiedItems: [StripItem] {
+        items.enumerated().map { StripItem(id: $0.element["id"] as? String ?? "row-\($0.offset)", index: $0.offset, value: $0.element) }
+    }
+
     private var activeId: String? {
         items.first(where: { ($0["active"] as? Bool) == true })?["id"] as? String
     }
@@ -1113,7 +1130,9 @@ struct MagnifyStripView: View {
                         .offset(y: top + contentHeight)
                 }
                 VStack(spacing: spacing) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    ForEach(identifiedItems) { entry in
+                        let index = entry.index
+                        let item = entry.value
                         let s = scale(forRow: index, top: top)
                         let active = item["active"] as? Bool ?? false
                         Button(action: { emit(eventId, item["id"]) }) {

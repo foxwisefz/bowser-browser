@@ -4,6 +4,21 @@ import IconRendering
 @testable import Bowser
 
 final class TabAppDragTests: XCTestCase {
+    @MainActor func testSavedAppIsGeneratedOnlyWhenFileRepresentationIsRequested() {
+        var creations = 0
+        let url = URL(fileURLWithPath: "/tmp/test-saved-app.app")
+        let provider = TabAppPasteboardProvider { creations += 1; return url }
+        let item = NSPasteboardItem()
+        item.setString("42", forType: TabAppDragView.tabType)
+        item.setDataProvider(provider, forTypes: [.fileURL])
+        XCTAssertEqual(item.string(forType: TabAppDragView.tabType), "42")
+        XCTAssertEqual(creations, 0)
+        provider.pasteboard(nil, item: item, provideDataForType: .fileURL)
+        XCTAssertEqual(item.string(forType: .fileURL), url.absoluteString)
+        provider.pasteboard(nil, item: item, provideDataForType: .fileURL)
+        XCTAssertEqual(creations, 1)
+    }
+
     @MainActor
     func testCreatesReusableApplicationWithSafeLauncherAndIcon() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

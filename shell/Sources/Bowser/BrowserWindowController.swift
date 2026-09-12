@@ -434,6 +434,18 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
+    /// Reorder without activating, reloading, or detaching any live page.
+    @discardableResult
+    func moveTab(id: UInt64, relativeTo target: UInt64, after: Bool) -> Bool {
+        guard id != target, let source = tabs.firstIndex(where: { $0.webviewId == id }),
+              tabs.contains(where: { $0.webviewId == target }) else { return false }
+        let view = tabs.remove(at: source)
+        let destination = tabs.firstIndex(where: { $0.webviewId == target })!
+        tabs.insert(view, at: destination + (after ? 1 : 0))
+        BrainBridge.shared.send(["op": "event", "event": "tabs_reordered", "order": Self.orderedTabIDs])
+        return true
+    }
+
     /// Close one tab. The window goes with the last one.
     func closeTab(_ view: EngineView) {
         guard let index = tabs.firstIndex(where: { $0 === view }) else { return }
