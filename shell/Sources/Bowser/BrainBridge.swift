@@ -235,10 +235,23 @@ final class BrainBridge {
         case "reload":
             resolve(requested)?.webView.reload()
 
+        case "website_layout":
+            guard let id = message["id"] as? Int else { return }
+            do {
+                guard requested != 0, let controller = BrowserWindowController.host(of: requested) else {
+                    throw NSError(domain: "Bowser.WebsiteLayout", code: 1, userInfo: [NSLocalizedDescriptionKey: "Target tab is not in a browser window"])
+                }
+                let value = try controller.websiteLayoutCommand(message)
+                send(["op": "js_result", "id": id, "ok": true, "value": value])
+            } catch {
+                send(["op": "js_result", "id": id, "ok": false, "value": error.localizedDescription])
+            }
+
         case "native_screenshot", "native_click":
             guard let id = message["id"] as? Int else { return }
             guard requested != 0, let controller = BrowserWindowController.host(of: requested),
-                  controller.activeTab?.webviewId == requested, let window = controller.window else {
+                  (controller.activeTab?.webviewId == requested || controller.websiteLayout?.ids.contains(requested) == true),
+                  let window = controller.window else {
                 send(["op": "js_result", "id": id, "ok": false, "value": "Target tab must be visible in a browser window"])
                 return
             }

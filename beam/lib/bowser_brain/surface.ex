@@ -83,6 +83,52 @@ defmodule BowserBrain.Surface do
   @doc "Close a tab's window."
   def close_tab(webview), do: Bridge.cast_msg(%{op: "close_tab", webview: webview})
 
+  @doc "Create a background website tab in the target tab's window; returns {:ok, state} including created ID."
+  def create_tab(webview, url) when is_binary(url), do: website_layout(webview, "create_tab", %{"url" => url})
+  def create_tab(_, _), do: {:error, :invalid_url}
+
+  @doc "Arrange 2–4 existing same-window tabs. Options: axis: :horizontal | :vertical, weights: list of 0.1..1 numbers."
+  def layout_tabs(webview, tabs, opts \\ [])
+  def layout_tabs(webview, tabs, opts) when is_list(tabs) and is_list(opts) do
+    if Keyword.keyword?(opts) do
+      axis = Keyword.get(opts, :axis, :horizontal)
+      weights = Keyword.get(opts, :weights, Enum.map(tabs, fn _ -> 1.0 end))
+      if length(tabs) in 2..4 and Enum.all?(tabs, &(is_integer(&1) and &1 > 0)) and
+           length(Enum.uniq(tabs)) == length(tabs) and axis in [:horizontal, :vertical] and
+           is_list(weights) and length(weights) == length(tabs) and
+           Enum.all?(weights, &(is_number(&1) and &1 >= 0.1 and &1 <= 1)) do
+        website_layout(webview, "set", %{"tabs" => tabs, "axis" => to_string(axis), "weights" => weights})
+      else
+        {:error, :invalid_layout}
+      end
+    else
+      {:error, :invalid_layout}
+    end
+  end
+  def layout_tabs(_, _, _), do: {:error, :invalid_layout}
+
+  @doc "Inspect window tabs, visible panes, axis, current divider weights and active tab."
+  def tab_layout(webview), do: website_layout(webview, "get", %{})
+
+  @doc "Restore one visible page, retaining all tabs and their navigation state."
+  def reset_layout(webview), do: website_layout(webview, "reset", %{})
+
+  @doc false
+  def website_layout(webview, action, args) when is_integer(webview) and webview > 0 and is_map(args) do
+    profile = BowserBrain.ModScope.profile_of(webview)
+    owner = BowserBrain.ModScope.current()
+    if owner != nil and owner != profile do
+      {:error, :wrong_profile}
+    else
+      message = args |> Map.take(["tabs", "axis", "weights", "url"])
+        |> Map.merge(%{"webview" => webview, "profile" => profile, "action" => action})
+      GenServer.call(Bridge, {:native_verify, "website_layout", message}, 5_000)
+    end
+  catch
+    :exit, _ -> {:error, :layout_unavailable}
+  end
+  def website_layout(_, _, _), do: {:error, :invalid_webview}
+
   # ---------------------------------------------------------------------
 
   @impl true

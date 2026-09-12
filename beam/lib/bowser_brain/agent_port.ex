@@ -167,6 +167,14 @@ defmodule BowserBrain.AgentPort do
     %{ok: true, tabs: tabs, active: session.active}
   end
 
+  def dispatch(%{"tool" => "website_layout"} = request) do
+    args = Map.get(request, "args", %{})
+    case BowserBrain.Surface.website_layout(args["webview"], args["action"], args) do
+      {:ok, state} -> Map.put(state, "ok", true)
+      {:error, reason} -> %{ok: false, error: inspect(reason)}
+    end
+  end
+
   def dispatch(%{"tool" => "shell_theme"}) do
     %{ok: true, theme: BowserBrain.Chrome.theme()}
   end

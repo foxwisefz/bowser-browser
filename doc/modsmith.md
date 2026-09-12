@@ -173,3 +173,12 @@ background re-shows. It works without the optional Panels mod. The core adds
 `View > <title>` while dismissed; `Surface.reshow(id)` also restores it.
 Repeated dismissal is idempotent. Panel content is top-aligned and fitted at its
 actual width; explicit owner-resized frames remain respected.
+
+## Website layout tools
+
+ModSmith can compose live website panes using the `website_layout` tool and
+`BowserBrain.Surface.create_tab/2`, `layout_tabs/2,3`, `tab_layout/1`, and
+`reset_layout/1`. The native shell supplies resizable rows/columns; generated
+mods choose the websites, controls and behavior. See [live website layouts](../docs/mod-ui.md#live-website-layouts)
+for limits, lifecycle and examples. This capability does not require a resident
+agent to implement a particular layout feature.

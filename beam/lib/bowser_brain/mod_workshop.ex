@@ -27,7 +27,7 @@ defmodule BowserBrain.ModWorkshop do
               reply -> reply
             end
 
-          tool in ["native_screenshot", "native_click"] and run.app == nil ->
+          tool in ["native_screenshot", "native_click", "website_layout"] and run.app == nil ->
             BowserBrain.AgentPort.dispatch(%{"tool" => tool, "args" => Map.put(args, "webview", run.webview)})
 
           tool == "list_tabs" ->

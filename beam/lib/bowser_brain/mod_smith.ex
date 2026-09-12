@@ -211,6 +211,26 @@ defmodule BowserBrain.ModSmith do
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
     editable record. button() creates a panel row, not a native form action.
+    WEBSITE LAYOUT: Compose live websites using Surface.create_tab(wv, url),
+    Surface.layout_tabs(wv, [left, right], axis: :horizontal, weights: [0.5, 0.5]),
+    Surface.tab_layout(wv), and Surface.reset_layout(wv). Each returns {:ok, state}
+    or {:error, reason}; create_tab state has "created" => new webview ID.
+    layout_tabs/2,3 mounts 2–4 distinct tabs from that SAME window/profile in a
+    resizable row (:horizontal) or column (:vertical). Weights are relative
+    numbers in 0.1..1; omitted weights are equal. Users drag native dividers.
+    These are actual WKWebViews, not iframes: sites retain logins and navigation.
+    Clicking a pane selects it for address bar/back/reload. Activating a tab
+    outside the layout or closing a pane resets to one page without closing
+    other tabs. Reset only resets layout. No nested layouts. Saved apps excluded.
+    Use website_layout MCP action get to discover same-window IDs; create_tab
+    to obtain a new ID, set with tabs/axis/weights, reset to undo the arrangement.
+    Calls apply immediately; runtime layout is not part of file Undo. Durable
+    mods provide controls to apply/reset; do not create tabs in every init or
+    tab_activated callback. Layouts disappear with the native window. Handle
+    errors, refresh IDs after hello, and inspect state to verify arrangement.
+    Resizable website panes ARE supported: do not defer these requests to the
+    resident agent. Build the user's desired controls using these primitives.
+
     NATIVE VERIFICATION: native_screenshot captures the selected visible browser
     window, including native toolbar pixels, and returns an image and window id.
     Use native_click(x:, y:, window:) on controls visible in that screenshot;
@@ -286,7 +306,7 @@ defmodule BowserBrain.ModSmith do
     favicon updates: "favicon_changed" {webview, path}. Focus/close tabs with
     BowserBrain.Surface.activate_tab(wv) / Surface.close_tab(wv).
     There is NO native tab bar: one window holds N in-memory webviews and tab UI
-    is entirely mod-owned. Chrome.open_tab(url, activate: false) makes a tab;
+    is entirely mod-owned. Website layout primitives can mount several together. Chrome.open_tab(url, activate: false) makes a tab;
     Surface.activate_tab(wv) is what puts it on screen.
     IRON RULE: ALL engine/shell-side state (buttons, registered commands, hidden tab
     bar, surfaces, injected scripts) dies when the engine restarts — re-assert ALL of
@@ -665,7 +685,7 @@ defmodule BowserBrain.ModSmith do
   # The live-browser toolbox (bowser-browser-4uw): an MCP bridge relaying to
   # AgentPort at ~/.bowser/agent.sock, so the model can inspect the page,
   # install a draft, and verify — a dialog, not a blind one-shot.
-  @mcp_tools "mcp__bowser__native_screenshot,mcp__bowser__native_click,mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
+  @mcp_tools "mcp__bowser__website_layout,mcp__bowser__native_screenshot,mcp__bowser__native_click,mcp__bowser__put_asset,mcp__bowser__toolbars,mcp__bowser__put_mod,mcp__bowser__shell_theme,mcp__bowser__list_tabs,mcp__bowser__page_eval," <>
                "mcp__bowser__page_html,mcp__bowser__put_payload,mcp__bowser__list_mods,mcp__bowser__read_mod,mcp__bowser__store_get,mcp__bowser__store_put"
 
   defp mcp_args(app) do

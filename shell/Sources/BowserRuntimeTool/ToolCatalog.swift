@@ -2,6 +2,22 @@ import Foundation
 let toolCatalogJSON = #"""
 [
   {
+    "name": "website_layout",
+    "description": "Compose live website panes in the selected browser tab's window. get lists same-window tabs and visible panes/axis/weights/active; create_tab opens a background http(s) page and returns created ID; set arranges 2–4 existing IDs with draggable dividers; reset retains all tabs and shows the active page. Horizontal is side-by-side, vertical is stacked. No cross-window/profile tabs, nesting or saved apps. Runtime layout changes are not recorded in file Undo; durable mods should provide apply/reset controls using BowserBrain.Surface APIs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["get", "create_tab", "set", "reset"]},
+        "url": {"type": "string", "description": "Required for create_tab: http(s) URL."},
+        "tabs": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 4, "uniqueItems": true, "description": "Required for set; use IDs from get/create_tab."},
+        "axis": {"type": "string", "enum": ["horizontal", "vertical"], "description": "Required for set."},
+        "weights": {"type": "array", "items": {"type": "number", "minimum": 0.1, "maximum": 1}, "minItems": 2, "maxItems": 4, "description": "Optional relative pane sizes, one per tab; defaults to equal sizes."}
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "native_screenshot",
     "description": "Capture the selected visible browser window including native toolbars. Returns an image and window id; coordinates are points from top-left. Requires macOS screen capture permission; errors are not visual verification.",
     "inputSchema": {

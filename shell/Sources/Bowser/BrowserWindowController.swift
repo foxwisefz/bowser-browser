@@ -2,14 +2,8 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// One window, N in-memory webviews (bowser-browser-cdd). There is no native
-/// tab mechanism anywhere: no tab groups, no `addTabbedWindow`, no tab bar to
-/// hide. Every tab is an `EngineView` living in `tabs`; exactly one is mounted
-/// in the content container at a time and the rest sit DETACHED — full DOM,
-/// history and JS state in memory, just not in the view hierarchy. Switching a
-/// tab is a subview swap. The dock (a mod-owned edge surface) is the only tab
-/// UI, and the tab_opened/tab_activated/webview_closed events it consumes are
-/// unchanged.
+/// One window owns live tabs. Mods can mount selected tabs together in a
+/// resizable row or column; detached tabs retain their DOM and navigation state.
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Every live window, in creation order. Strong: this is what owns them.
@@ -22,11 +16,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     /// Every webview this window owns, in open order — mounted or not.
     private(set) var tabs: [EngineView] = []
-    /// The mounted one. A window always has a tab: closing the last closes it.
+    /// The focused tab; other panes may also be mounted. Closing the last tab closes the window.
     private(set) var activeTab: EngineView!
 
-    /// The mount point. The active tab fills it; the chrome band rides on top.
+    /// The page area hosts one tab or a mod-defined website layout.
     private let container = ToolbarContainerView()
+    private(set) var websiteLayout: WebsiteLayout?
+    private var paneFocusMonitor: Any?
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
     private let titleLabel = NSTextField(labelWithString: "")
@@ -264,19 +260,24 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         return view
     }
 
-    /// Mount a tab as the visible content: unmount the old one (it keeps
-    /// living, detached), mount this one under the band.
-    func activate(_ view: EngineView) {
+    /// Focus a visible pane, or mount a tab and leave the current arrangement.
+    func activate(_ view: EngineView, focusPage: Bool = true) {
         guard tabs.contains(where: { $0 === view }) else { return }
+        if let layout = websiteLayout, !layout.ids.contains(view.webviewId) {
+            detachWebsiteLayout()
+            activeTab = nil
+        }
         if activeTab !== view {
-            activeTab?.removeFromSuperview()
-            view.frame = container.pageArea.bounds
-            container.pageArea.addSubview(view)
+            if websiteLayout == nil {
+                activeTab?.removeFromSuperview()
+                view.frame = container.pageArea.bounds
+                container.pageArea.addSubview(view)
+            }
             activeTab = view
             container.webview = view.webviewId
             // The old first responder just left the hierarchy — hand the
             // keyboard to the page that's actually on screen.
-            window?.makeFirstResponder(view.webView)
+            if focusPage { window?.makeFirstResponder(view.webView) }
             adoptChrome(from: view)
             // Show the dock's reaction: collapsed edge surfaces slide out
             // for a beat so the active-icon bounce is visible.
@@ -294,6 +295,98 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         ])
     }
 
+    /// Commands act only on this window; no tab moves between profiles/windows.
+    func applyWebsiteLayout(ids: [UInt64], axis: String, weights: [Double]) throws {
+        guard (2...4).contains(ids.count), Set(ids).count == ids.count,
+              ["horizontal", "vertical"].contains(axis), weights.count == ids.count,
+              weights.allSatisfy({ $0.isFinite && $0 >= 0.1 && $0 <= 1 }),
+              weights.reduce(0, +).isFinite,
+              ids.allSatisfy({ id in tabs.contains { $0.webviewId == id } }) else {
+            throw layoutError("Use 2–4 distinct tabs from this window, horizontal/vertical axis, and weights from 0.1 to 1")
+        }
+        let selected = ids.map { id in tabs.first { $0.webviewId == id }! }
+        let focused = selected.first { $0 === activeTab } ?? selected[0]
+        detachWebsiteLayout()
+        activeTab?.removeFromSuperview()
+        let layout = WebsiteLayout(frame: container.pageArea.bounds, views: selected, axis: axis, weights: weights)
+        container.pageArea.addSubview(layout)
+        websiteLayout = layout
+        activeTab = nil
+        activate(focused)
+        paneFocusMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                if let self, event.window === self.window { self.focusPane(at: event.locationInWindow) }
+            }
+            return event
+        }
+    }
+
+    func focusPane(at point: NSPoint) {
+        guard let layout = websiteLayout, let root = window?.contentView,
+              let hit = root.hitTest(root.convert(point, from: nil)),
+              let view = layout.views.first(where: { hit === $0 || hit.isDescendant(of: $0) }),
+              activeTab !== view else { return }
+        activate(view, focusPage: false)
+    }
+
+    private func detachWebsiteLayout() {
+        if let paneFocusMonitor { NSEvent.removeMonitor(paneFocusMonitor) }
+        paneFocusMonitor = nil
+        guard let layout = websiteLayout else { return }
+        for view in layout.views { view.removeFromSuperview() }
+        layout.removeFromSuperview()
+        websiteLayout = nil
+    }
+
+    func resetWebsiteLayout() {
+        guard websiteLayout != nil, let active = activeTab else { return }
+        detachWebsiteLayout()
+        activeTab = nil
+        activate(active)
+    }
+
+    func websiteLayoutState() -> [String: Any] {
+        ["tabs": tabs.map { ["webview": $0.webviewId, "url": $0.webView.url?.absoluteString ?? ""] },
+         "panes": websiteLayout?.ids ?? activeTab.map { [$0.webviewId] } ?? [],
+         "axis": websiteLayout.map { $0.isVertical ? "horizontal" : "vertical" } ?? "single",
+         "weights": websiteLayout?.fractions ?? [1.0], "active": activeTab?.webviewId ?? 0]
+    }
+
+    func websiteLayoutCommand(_ message: [String: Any]) throws -> [String: Any] {
+        guard SiteAppConfiguration.current == nil, message["profile"] as? String == profile.id else {
+            throw layoutError("Website layouts require a browser window in the requesting profile")
+        }
+        switch message["action"] as? String {
+        case "get": break
+        case "reset": resetWebsiteLayout()
+        case "set":
+            guard let ids = message["tabs"] as? [UInt64], let axis = message["axis"] as? String else {
+                throw layoutError("Provide tab IDs and axis")
+            }
+            if message["weights"] != nil && message["weights"] as? [Double] == nil {
+                throw layoutError("Weights must be numbers")
+            }
+            let weights = message["weights"] as? [Double] ?? Array(repeating: 1.0, count: ids.count)
+            try applyWebsiteLayout(ids: ids, axis: axis, weights: weights)
+        case "create_tab":
+            guard let value = message["url"] as? String, let url = URL(string: value),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                throw layoutError("Provide an http or https website URL")
+            }
+            let view = openTab(opener: activeTab?.webviewId, activate: false)
+            view.load(urlString: value)
+            var state = websiteLayoutState()
+            state["created"] = view.webviewId
+            return state
+        default: throw layoutError("Unknown website layout action")
+        }
+        return websiteLayoutState()
+    }
+
+    private func layoutError(_ message: String) -> NSError {
+        NSError(domain: "Bowser.WebsiteLayout", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     /// Mount a background tab UNDER the active one for a short window, then
     /// unmount. Invisible to the user (the active tab fully covers it), but
     /// WebKit tracks view-in-window — not sibling occlusion — so the page
@@ -308,12 +401,13 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         if let active = activeTab, active.superview === container.pageArea {
             container.pageArea.addSubview(view, positioned: .below, relativeTo: active)
         } else {
-            container.pageArea.addSubview(view)
+            container.pageArea.addSubview(view, positioned: .below, relativeTo: websiteLayout)
         }
         let duration = Self.warmDuration(ms)
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(duration)) {
             [weak self, weak view] in
-            guard let self, let view, view !== self.activeTab else { return }
+            guard let self, let view, view !== self.activeTab,
+                  self.websiteLayout?.ids.contains(view.webviewId) != true else { return }
             view.removeFromSuperview()
         }
     }
@@ -346,6 +440,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Close one tab. The window goes with the last one.
     func closeTab(_ view: EngineView) {
         guard let index = tabs.firstIndex(where: { $0 === view }) else { return }
+        if let layout = websiteLayout, layout.ids.contains(view.webviewId) {
+            let survivor = layout.views.first { $0 !== view }!
+            detachWebsiteLayout()
+            activeTab = nil
+            activate(survivor)
+        }
         tabs.remove(at: index)
         view.removeFromSuperview()
         view.tearDown()
@@ -509,6 +609,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        detachWebsiteLayout()
         ChromeSurface.unregister(self)
         Self.all.removeAll { $0 === self }
         for tab in tabs { tab.tearDown() }
