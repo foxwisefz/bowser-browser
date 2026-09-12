@@ -21,6 +21,28 @@ defmodule YoutubeDlModTest do
     assert out =~ ".youtube.com\tTRUE\t/\tFALSE\t2147483647\tX\t1"
   end
 
+  test "cookie file is private during download and removed after success or failure" do
+    cookies = [%{"name" => "SID", "value" => "secret"}]
+    path = YoutubeDlMod.with_cookie_file(cookies, fn path ->
+      assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
+      assert Bitwise.band(File.stat!(Path.dirname(path)).mode, 0o777) == 0o700
+      assert File.read!(path) =~ "secret"
+      path
+    end)
+    refute File.exists?(Path.dirname(path))
+
+    parent = self()
+    assert_raise RuntimeError, "download failed", fn ->
+      YoutubeDlMod.with_cookie_file(cookies, fn path ->
+        send(parent, {:cookie_path, path})
+        raise "download failed"
+      end)
+    end
+    assert_receive {:cookie_path, failed_path}
+    refute File.exists?(Path.dirname(failed_path))
+    refute path == failed_path
+  end
+
   test "final_path pulls the saved file from yt-dlp output" do
     merge = ~s([download] Destination: /x/a.f137.mp4\n[Merger] Merging formats into "/Users/g/Downloads/Cool [abc].mp4")
     assert YoutubeDlMod.final_path(merge) == "/Users/g/Downloads/Cool [abc].mp4"

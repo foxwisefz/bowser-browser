@@ -36,10 +36,18 @@ defmodule YoutubeDlMod do
 
       true ->
         ModLog.log("yt-dl", "downloading #{video_id(url)} (with your browser cookies)…")
-        cookies = write_cookie_file()
-        parent_log = self()
-        _ = parent_log
-        Task.start(fn -> run(url, cookies) end)
+        # Capture cookies/profile in the mod process. Tasks do not inherit
+        # its process dictionary, and no credential file should outlive a
+        # failed Task.start.
+        cookies = case safe_cookies() do {:ok, list} -> list; _ -> [] end
+        profile = Process.get(:bowser_profile)
+        case Task.start(fn ->
+          Process.put(:bowser_profile, profile)
+          with_cookie_file(cookies, fn path -> run(url, path) end)
+        end) do
+          {:ok, _pid} -> :ok
+          {:error, _reason} -> ModLog.log("yt-dl", "could not start download")
+        end
     end
 
     state
@@ -84,20 +92,27 @@ defmodule YoutubeDlMod do
 
         ModLog.log("yt-dl", "✗ failed (#{code}): #{hint}")
     end
-  after
-    File.rm(cookies)
   end
 
-  defp write_cookie_file do
-    cookies =
-      case safe_cookies() do
-        {:ok, list} -> list
-        _ -> []
+  @doc false
+  def with_cookie_file(cookies, callback) do
+    dir = Path.join(System.tmp_dir!(), "bowser-yt-" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false))
+    File.mkdir!(dir)
+    try do
+      File.chmod!(dir, 0o700)
+      path = Path.join(dir, "cookies.txt")
+      # Exclusive creation, then mode0600 before writing any token bytes.
+      {:ok, file} = File.open(path, [:write, :exclusive, :binary])
+      try do
+        File.chmod!(path, 0o600)
+        :ok = IO.binwrite(file, netscape_cookies(cookies))
+      after
+        File.close(file)
       end
-
-    path = Path.join(System.tmp_dir!(), "bowser-yt-cookies-#{System.unique_integer([:positive])}.txt")
-    File.write!(path, netscape_cookies(cookies))
-    path
+      callback.(path)
+    after
+      File.rm_rf!(dir)
+    end
   end
 
   defp safe_cookies do
