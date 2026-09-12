@@ -150,6 +150,22 @@ final class TabAppPasteboardProvider: NSObject, NSPasteboardItemDataProvider {
     }
 }
 
+@MainActor
+final class TabDragPreview: ObservableObject {
+    static let shared = TabDragPreview()
+    @Published var source: UInt64?
+    @Published var target: UInt64?
+    @Published var after = false
+
+    func gap(for id: UInt64, after edge: Bool, size: CGFloat) -> CGFloat {
+        target == id && after == edge ? size : 0
+    }
+    func clear(target id: UInt64) {
+        if target == id { target = nil }
+    }
+    func finish() { source = nil; target = nil }
+}
+
 final class TabAppDragView: NSView, NSDraggingSource {
     static let tabType = NSPasteboard.PasteboardType("com.foxwiseai.bowser.tab")
     var webviewID: UInt64 = 0
@@ -190,6 +206,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
               let tab = EngineView.live[webviewID] else { return }
         dragged = true
         draggedID = webviewID
+        TabDragPreview.shared.source = webviewID
         dragFrame = window?.frame
         cancelled = false
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -230,6 +247,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
         escapeMonitor = nil
         down = nil
         draggedID = nil
+        TabDragPreview.shared.finish()
         provider = nil
         dragFrame = nil
         SurfaceManager.shared.setEdgeDragging("edge_dock", false)
@@ -251,8 +269,12 @@ final class TabAppDragView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard sourceID(sender) != nil else { clearInsertion(); return [] }
         // NSView's origin is bottom-left; the lower half inserts after this row.
-        insertionAfter = convert(sender.draggingLocation, from: nil).y < bounds.midY
-        needsDisplay = true
+        // Keep the chosen edge stable while its expanded drop gap is hovered.
+        if insertionAfter == nil {
+            insertionAfter = convert(sender.draggingLocation, from: nil).y < bounds.midY
+            TabDragPreview.shared.after = insertionAfter == true
+            TabDragPreview.shared.target = webviewID
+        }
         return .move
     }
     override func draggingExited(_ sender: NSDraggingInfo?) { clearInsertion() }
@@ -262,11 +284,8 @@ final class TabAppDragView: NSView, NSDraggingSource {
         guard let id = sourceID(sender), let after = insertionAfter else { return false }
         return BrowserWindowController.host(of: id)?.moveTab(id: id, relativeTo: webviewID, after: after) == true
     }
-    private func clearInsertion() { insertionAfter = nil; needsDisplay = true }
-    override func draw(_ dirtyRect: NSRect) {
-        guard let after = insertionAfter else { return }
-        NSColor.controlAccentColor.setFill()
-        NSBezierPath(roundedRect: NSRect(x: 0, y: after ? 0 : bounds.height - 3,
-                                        width: bounds.width, height: 3), xRadius: 1.5, yRadius: 1.5).fill()
+    private func clearInsertion() {
+        insertionAfter = nil
+        TabDragPreview.shared.clear(target: webviewID)
     }
 }

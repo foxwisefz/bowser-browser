@@ -4,6 +4,20 @@ import IconRendering
 @testable import Bowser
 
 final class TabAppDragTests: XCTestCase {
+    @MainActor func testInsertionPreviewReservesOneFullSlotAndClearsOnlyItsTarget() {
+        let preview = TabDragPreview()
+        preview.source = 1
+        preview.target = 3
+        preview.after = false
+        XCTAssertEqual(preview.gap(for: 3, after: false, size: 40), 40)
+        XCTAssertEqual(preview.gap(for: 3, after: true, size: 40), 0)
+        preview.clear(target: 2)
+        XCTAssertEqual(preview.target, 3)
+        preview.finish()
+        XCTAssertNil(preview.source)
+        XCTAssertEqual(preview.gap(for: 3, after: false, size: 40), 0)
+    }
+
     @MainActor func testDragOutRequiresUnacceptedMouseReleaseFarFromDock() {
         let dock = NSRect(x: 0, y: 20, width: 48, height: 900)
         let outside = NSPoint(x: 220, y: 450)

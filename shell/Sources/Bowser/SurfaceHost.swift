@@ -1051,6 +1051,7 @@ struct MagnifyStripView: View {
     // trigger; inactive items are guarded to zero offset so losing
     // activation never twitches.
     @State private var bounceStamp = 0
+    @ObservedObject private var dragPreview = TabDragPreview.shared
     // Slots are ordinary live surface trees; the strip only reserves geometry.
     private var header: [String: Any]? { node["header"] as? [String: Any] }
     private var footer: [String: Any]? { node["footer"] as? [String: Any] }
@@ -1093,6 +1094,7 @@ struct MagnifyStripView: View {
     }
 
     private func scale(forRow index: Int, top: CGFloat) -> CGFloat {
+        if surfaceId == "edge_dock", dragPreview.source != nil { return 1 }
         guard let point = cursor.point else { return 1 }
         let slot = baseSize + spacing
         let center = top + CGFloat(index) * slot + baseSize / 2
@@ -1115,7 +1117,7 @@ struct MagnifyStripView: View {
                 if notch, !items.isEmpty {
                     DockNotchShape()
                         .fill(Profile.color(hex: node["background"] as? String).map { Color(nsColor: $0) } ?? .black)
-                        .frame(width: geo.size.width, height: contentHeight + (headerOutside ? 0 : headerHeight) + footerHeight + 64)
+                        .frame(width: geo.size.width, height: contentHeight + (surfaceId == "edge_dock" && dragPreview.target != nil ? baseSize + spacing : 0) + (headerOutside ? 0 : headerHeight) + footerHeight + 64)
                         .offset(y: top - (headerOutside ? 0 : headerHeight) - 32)
                         .allowsHitTesting(false)
                 }
@@ -1157,6 +1159,10 @@ struct MagnifyStripView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .opacity(surfaceId == "edge_dock" && UInt64(entry.id) == dragPreview.source && dragPreview.source != nil ? 0.25 : 1)
+                        .padding(.top, surfaceId == "edge_dock" ? dragPreview.gap(for: UInt64(entry.id) ?? 0, after: false, size: baseSize + spacing) : 0)
+                        .padding(.bottom, surfaceId == "edge_dock" ? dragPreview.gap(for: UInt64(entry.id) ?? 0, after: true, size: baseSize + spacing) : 0)
+                        .animation(.easeOut(duration: 0.16), value: dragPreview.target)
                         .overlay {
                             if surfaceId == "edge_dock", let id = item["id"] as? String,
                                let webviewID = UInt64(id) {
