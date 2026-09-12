@@ -27,7 +27,7 @@ defmodule BowserBrain.Settings do
   def path, do: Application.get_env(:bowser_brain, :settings_path, Path.join(BowserBrain.Paths.home(), "settings.json"))
 
   def all do
-    case File.read(path()) do
+    case BowserBrain.PrivateFiles.read(path()) do
       {:ok, raw} ->
         case JSON.decode(raw) do
           {:ok, %{} = map} -> map
@@ -44,13 +44,13 @@ defmodule BowserBrain.Settings do
   def put(key, value) do
     map = Map.put(all(), key, value)
     File.mkdir_p!(Path.dirname(path()))
-    File.write!(path(), JSON.encode!(map))
+    BowserBrain.PrivateFiles.write!(path(), JSON.encode!(map))
     :ok
   end
 
   def delete(key) do
     File.mkdir_p!(Path.dirname(path()))
-    File.write!(path(), JSON.encode!(Map.delete(all(), key)))
+    BowserBrain.PrivateFiles.write!(path(), JSON.encode!(Map.delete(all(), key)))
     :ok
   end
 

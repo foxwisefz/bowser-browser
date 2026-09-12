@@ -20,9 +20,11 @@ final class BrainBridge {
 
     func start() {
         let dir = SiteAppConfiguration.current?.home ?? BowserPaths.home
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if SiteAppConfiguration.current != nil {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        do {
+            try PrivateIPC.prepareDirectory(dir)
+        } catch {
+            NSLog("Bowser: refusing to start brain IPC in an insecure directory")
+            return
         }
         let path = dir.appendingPathComponent("brain.sock").path
 
@@ -104,6 +106,7 @@ final class BrainBridge {
         }
         guard copied else {
             NSLog("Bowser: socket path too long")
+            close(listenFD)
             return
         }
 
@@ -112,7 +115,7 @@ final class BrainBridge {
                 bind(listenFD, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bindResult == 0, listen(listenFD, 1) == 0 else {
+        guard bindResult == 0, chmod(path, 0o600) == 0, listen(listenFD, 1) == 0 else {
             NSLog("Bowser: brain socket bind/listen failed")
             close(listenFD)
             return
@@ -124,6 +127,10 @@ final class BrainBridge {
             guard fd >= 0 else {
                 NSLog("Bowser: brain accept failed")
                 break
+            }
+            guard PrivateIPC.permitsPeer(fd) else {
+                close(fd)
+                continue
             }
             // The main browser can quit while a site is emitting events.
             // A disconnected peer must not terminate that app with SIGPIPE.

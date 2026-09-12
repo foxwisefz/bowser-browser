@@ -46,6 +46,7 @@ defmodule BowserBrain.AgentPort do
 
   def handle_info(:listen, state) do
     path = socket_path()
+    BowserBrain.PrivateFiles.directory!(Path.dirname(path))
     File.rm(path)
 
     case :gen_tcp.listen(0, [
@@ -56,6 +57,13 @@ defmodule BowserBrain.AgentPort do
            reuseaddr: true
          ]) do
       {:ok, listener} ->
+        # Parent is already 0700, including during bind/chmod. Fail closed.
+        case File.chmod(path, 0o600) do
+          :ok -> :ok
+          {:error, reason} ->
+            :gen_tcp.close(listener)
+            raise File.Error, reason: reason, action: "secure agent socket", path: path
+        end
         Logger.info("agent_port: listening at #{path}")
         {:noreply, start_acceptor(%{state | listener: listener})}
 
