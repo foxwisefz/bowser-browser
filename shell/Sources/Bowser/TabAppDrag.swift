@@ -177,12 +177,14 @@ final class TabAppDragView: NSView, NSDraggingSource {
     private var insertionAfter: Bool?
     private var dragFrame: NSRect?
     private var cancelled = false
+    private var closeGesture = false
+    private var closeCue: NSPanel?
     private var escapeMonitor: Any?
 
     /// A failed/cancelled drag is not automatically a request to close a tab.
-    static func shouldRemove(operation: NSDragOperation, cancelled: Bool, mouseButtons: Int,
+    static func shouldRemove(closing: Bool, operation: NSDragOperation, cancelled: Bool, mouseButtons: Int,
                              exportFailed: Bool, point: NSPoint, dock: NSRect?) -> Bool {
-        guard operation.isEmpty, !cancelled, mouseButtons & 1 == 0, !exportFailed,
+        guard closing, operation.isEmpty, !cancelled, mouseButtons & 1 == 0, !exportFailed,
               let dock else { return false }
         return !dock.insetBy(dx: -64, dy: -32).contains(point)
     }
@@ -197,9 +199,23 @@ final class TabAppDragView: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { down = event; dragged = false }
     override func mouseUp(with event: NSEvent) {
         defer { down = nil }
-        if !dragged, down != nil, bounds.contains(convert(event.locationInWindow, from: nil)) { select() }
+        if dragged && closeGesture {
+            let point = window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+            let remove = Self.shouldRemove(closing: true, operation: [], cancelled: cancelled,
+                mouseButtons: 0, exportFailed: false, point: point, dock: dragFrame)
+            let id = draggedID
+            finishDrag()
+            if remove, let id, let host = BrowserWindowController.host(of: id) {
+                TabDustEffect.show(at: point)
+                host.closeTab(id: id)
+            }
+        } else if !dragged, down != nil, bounds.contains(convert(event.locationInWindow, from: nil)) { select() }
     }
     override func mouseDragged(with event: NSEvent) {
+        if dragged && closeGesture {
+            updateCloseCue(at: window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
+            return
+        }
         guard !dragged, let down,
               hypot(event.locationInWindow.x - down.locationInWindow.x,
                     event.locationInWindow.y - down.locationInWindow.y) >= 5,
@@ -209,12 +225,20 @@ final class TabAppDragView: NSView, NSDraggingSource {
         TabDragPreview.shared.source = webviewID
         dragFrame = window?.frame
         cancelled = false
+        closeGesture = event.modifierFlags.contains(.option)
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { self?.cancelled = true }
+            if event.keyCode == 53 { self?.cancelOperation(nil) }
             return event
         }
         let icon = tab.faviconPath.flatMap { NSImage(contentsOfFile: $0) }
             ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+        if closeGesture {
+            // Keep this entirely in AppKit mouse tracking: no drag pasteboard,
+            // file promise, URL or drop operation is offered to another app.
+            SurfaceManager.shared.setEdgeDragging("edge_dock", true)
+            updateCloseCue(at: window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation)
+            return
+        }
         let pasteboard = NSPasteboardItem()
         pasteboard.setString(String(webviewID), forType: Self.tabType)
         if let url = tab.webView.url, ["http", "https"].contains(url.scheme ?? "") {
@@ -239,23 +263,49 @@ final class TabAppDragView: NSView, NSDraggingSource {
         context == .withinApplication ? [.move] : [.copy, .link, .generic]
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        let remove = Self.shouldRemove(operation: operation, cancelled: cancelled,
-            mouseButtons: NSEvent.pressedMouseButtons, exportFailed: provider?.failed == true,
-            point: screenPoint, dock: dragFrame)
-        let id = draggedID
+        finishDrag()
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancelled = true
+        closeCue?.orderOut(nil)
+    }
+
+    private func finishDrag() {
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         escapeMonitor = nil
+        closeCue?.close()
+        closeCue = nil
         down = nil
         draggedID = nil
+        closeGesture = false
         TabDragPreview.shared.finish()
         provider = nil
         dragFrame = nil
         SurfaceManager.shared.setEdgeDragging("edge_dock", false)
-        if remove, let id, let host = BrowserWindowController.host(of: id) {
-            session.animatesToStartingPositionsOnCancelOrFail = false
-            TabDustEffect.show(at: screenPoint)
-            host.closeTab(id: id)
+    }
+
+    private func updateCloseCue(at point: NSPoint) {
+        guard !cancelled else { return }
+        let ready = Self.shouldRemove(closing: true, operation: [], cancelled: false,
+            mouseButtons: 0, exportFailed: false, point: point, dock: dragFrame)
+        let panel = closeCue ?? NSPanel(contentRect: NSRect(x: 0, y: 0, width: 190, height: 38),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        if closeCue == nil {
+            panel.isReleasedWhenClosed = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.ignoresMouseEvents = true
+            panel.level = .popUpMenu
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            closeCue = panel
         }
+        panel.contentView = NSHostingView(rootView:
+            Label(ready ? "Release to close" : "Drag out to close", systemImage: "xmark.circle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9)))
+        panel.setFrameOrigin(NSPoint(x: point.x + 18, y: point.y - 48))
+        panel.orderFrontRegardless()
     }
 
     private func sourceID(_ sender: NSDraggingInfo) -> UInt64? {

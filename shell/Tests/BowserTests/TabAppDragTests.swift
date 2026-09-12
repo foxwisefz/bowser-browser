@@ -4,6 +4,35 @@ import IconRendering
 @testable import Bowser
 
 final class TabAppDragTests: XCTestCase {
+    @MainActor func testOptionDragClosesWithoutPublishingPasteboardAndEscapeCancels() throws {
+        let host = BrowserWindowController(profile: .defaultProfile)
+        let target = host.openTab(activate: false)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 100, width: 48, height: 300),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let view = TabAppDragView(frame: NSRect(x: 0, y: 0, width: 32, height: 32))
+        panel.contentView = view
+        defer { panel.close(); host.window?.close() }
+        view.webviewID = target.webviewId
+        let pasteboard = NSPasteboard(name: .drag)
+        let changeCount = pasteboard.changeCount
+        func event(_ type: NSEvent.EventType, x: CGFloat) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 16),
+                modifierFlags: .option, timestamp: 0, windowNumber: panel.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        view.mouseDown(with: try event(.leftMouseDown, x: 16))
+        view.mouseDragged(with: try event(.leftMouseDragged, x: 180))
+        XCTAssertEqual(pasteboard.changeCount, changeCount)
+        view.cancelOperation(nil)
+        view.mouseUp(with: try event(.leftMouseUp, x: 180))
+        XCTAssertTrue(host.tabs.contains { $0 === target })
+        view.mouseDown(with: try event(.leftMouseDown, x: 16))
+        view.mouseDragged(with: try event(.leftMouseDragged, x: 180))
+        view.mouseUp(with: try event(.leftMouseUp, x: 180))
+        XCTAssertFalse(host.tabs.contains { $0 === target })
+        XCTAssertEqual(pasteboard.changeCount, changeCount)
+    }
+
     @MainActor func testInsertionPreviewReservesOneFullSlotAndClearsOnlyItsTarget() {
         let preview = TabDragPreview()
         preview.source = 1
@@ -22,18 +51,19 @@ final class TabAppDragTests: XCTestCase {
         let dock = NSRect(x: 0, y: 20, width: 48, height: 900)
         let outside = NSPoint(x: 220, y: 450)
         func removes(_ operation: NSDragOperation = [], cancelled: Bool = false, buttons: Int = 0,
-                     failed: Bool = false, point: NSPoint? = nil) -> Bool {
-            TabAppDragView.shouldRemove(operation: operation, cancelled: cancelled, mouseButtons: buttons,
+                     failed: Bool = false, point: NSPoint? = nil, closing: Bool = true) -> Bool {
+            TabAppDragView.shouldRemove(closing: closing, operation: operation, cancelled: cancelled, mouseButtons: buttons,
                 exportFailed: failed, point: point ?? outside, dock: dock)
         }
         XCTAssertTrue(removes())
+        XCTAssertFalse(removes(closing: false))
         for accepted: NSDragOperation in [.move, .copy, .link, .generic] { XCTAssertFalse(removes(accepted)) }
         XCTAssertFalse(removes(cancelled: true))
         XCTAssertFalse(removes(buttons: 1))
         XCTAssertFalse(removes(failed: true))
         XCTAssertFalse(removes(point: NSPoint(x: 75, y: 450)))
         XCTAssertFalse(removes(point: NSPoint(x: 24, y: 450)))
-        XCTAssertFalse(TabAppDragView.shouldRemove(operation: [], cancelled: false, mouseButtons: 0,
+        XCTAssertFalse(TabAppDragView.shouldRemove(closing: true, operation: [], cancelled: false, mouseButtons: 0,
             exportFailed: false, point: outside, dock: nil))
     }
 
