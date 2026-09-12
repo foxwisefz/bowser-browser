@@ -66,6 +66,8 @@ cd beam && iex -S mix
 A browser window appears. `⌘K` opens the command bar: type a URL, or a
 `:command`. Useful ones out of the box: `:settings`, `:panels`, `:do`.
 `⌘T` new tab, `⌘⇧[`/`⌘⇧]` cycle tabs, `⌘R` reload, `⌘0/+/-` zoom.
+**View → Picture in Picture** (`⌥⌘P`) toggles a floating player for a supported
+video on the current page. Some embedded players require their own PiP control.
 Open local HTML, images, PDFs or text with **File → Open File…** (`⌘O`),
 Finder’s **Open With → Bowser**, or a `file:///…`, `/…` or `~/…` path in `⌘K`.
 Local HTML can load assets from its containing directory.

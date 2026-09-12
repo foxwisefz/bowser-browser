@@ -198,6 +198,9 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         // enables it. Without this, a video's fullscreen button does nothing
         // (bowser-browser-cgt). Public API on macOS 12.3+.
         configuration.preferences.isElementFullscreenEnabled = true
+        // macOS exposes PiP through WebKit's preferences SPI (not the iOS
+        // configuration property). Guard the selector and avoid unsafe KVC.
+        Self.callPrivateSetter(configuration.preferences, "_setAllowsPictureInPictureMediaPlayback:", bool: true)
         webView = WKWebView(frame: .zero, configuration: configuration)
 
         super.init(frame: frameRect)

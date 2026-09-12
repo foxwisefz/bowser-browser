@@ -361,6 +361,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func previousTab(_ sender: Any?) { currentController?.activateAdjacentTab(offset: -1) }
     @objc func nextTabInOrder(_ sender: Any?) { currentController?.activateAdjacentTab(offset: 1) }
 
+    @objc func togglePictureInPicture(_ sender: Any?) {
+        guard let engine = currentController?.activeTab else { return }
+        PictureInPicture.toggle(engine)
+    }
+
     @objc func zoomIn(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 1) }
     @objc func zoomOut(_ sender: Any?) { currentController?.activeTab?.zoom(direction: -1) }
     @objc func actualSize(_ sender: Any?) { currentController?.activeTab?.zoom(direction: 0) }
@@ -468,6 +473,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "f"
         )
         fullScreen.keyEquivalentModifierMask = [.command, .control]
+        let pip = view.addItem(withTitle: "Picture in Picture", action: #selector(togglePictureInPicture(_:)), keyEquivalent: "p")
+        pip.target = self
+        pip.keyEquivalentModifierMask = [.command, .option]
         viewMenuItem.submenu = view
         mainMenu.addItem(viewMenuItem)
         viewMenu = view
