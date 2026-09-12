@@ -1,5 +1,6 @@
 <!doctype html><meta charset="utf-8"><style>body{margin:0;background:#112233;color:white;font:24px system-ui}video{width:100%}.space{height:1000px}</style>
 <video id="video" src="video.mp4" autoplay muted loop playsinline controls></video>
+<textarea id="draft" aria-label="Unsent draft"></textarea>
 <p>Isolated native module replacement · no browser session data</p><div class="space"></div>
 <script>
 const player=video, token=crypto.randomUUID(), closure=new Map([['ticks',0]]);
@@ -8,5 +9,5 @@ setInterval(()=>closure.set('ticks',closure.get('ticks')+1),20);
 for(const e of ['pause','waiting','seeking','emptied','ended']) player.addEventListener(e,()=>interruptions.push(e));
 function frame(now){frames++;if(last)maxGapMS=Math.max(maxGapMS,now-last);last=now;player.requestVideoFrameCallback(frame)}
 player.requestVideoFrameCallback(frame);
-window.probe={reset(){frames=0;last=0;maxGapMS=0;interruptions=[]},snapshot(){return {token,samePlayer:player===document.querySelector('video'),time:player.currentTime,paused:player.paused,fullscreen:document.fullscreenElement===player,ticks:closure.get('ticks'),frames,maxGapMS,interruptions,scrollY}}};
+window.probe={reset(){frames=0;last=0;maxGapMS=0;interruptions=[]},snapshot(){return {token,samePlayer:player===document.querySelector('video'),time:player.currentTime,paused:player.paused,fullscreen:document.fullscreenElement===player,ticks:closure.get('ticks'),frames,maxGapMS,interruptions,scrollY,draft:document.querySelector("#draft").value,selectionStart:draft.selectionStart,selectionEnd:draft.selectionEnd}}};
 </script>

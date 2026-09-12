@@ -1,0 +1,65 @@
+{
+  "after" : {
+    "draft" : "Unsent draft — keep every word\nSecond line",
+    "frames" : 129,
+    "fullscreen" : true,
+    "interruptions" : [
+
+    ],
+    "maxGapMS" : 51,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 12,
+    "selectionStart" : 7,
+    "ticks" : 304,
+    "time" : 7.2391021249825043,
+    "token" : "f26effd4-61f3-4449-8738-0d92bfda554d"
+  },
+  "before" : {
+    "draft" : "Unsent draft — keep every word\nSecond line",
+    "frames" : 0,
+    "fullscreen" : true,
+    "interruptions" : [
+
+    ],
+    "maxGapMS" : 0,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 12,
+    "selectionStart" : 7,
+    "ticks" : 61,
+    "time" : 1.4015084583342727,
+    "token" : "f26effd4-61f3-4449-8738-0d92bfda554d"
+  },
+  "counter" : 18,
+  "draftPreserved" : true,
+  "draftSelectionPreserved" : true,
+  "initialScroll" : 120,
+  "loadMS" : 1555.2835833223071,
+  "passed" : true,
+  "rejectedCandidates" : 24,
+  "replacements" : 12,
+  "restoredScroll" : 120,
+  "retiredViewsReleased" : 24,
+  "rollbacks" : 12,
+  "sameWindowAndWebView" : true,
+  "scope" : "Ad hoc signed isolated Swift modules; C ABI; retained dylib mappings; local muted HTML fullscreen video. No production updater integration.",
+  "staleEventsRejected" : 23,
+  "swapMS" : [
+    0.28012500843033195,
+    0.86999998893588781,
+    0.90208332403562963,
+    0.94008332234807312,
+    0.87254165555350482,
+    0.90058334171772003,
+    0.94716667081229389,
+    0.54833333706483245,
+    0.83050000830553472,
+    0.9466666670050472,
+    0.92050002422183752,
+    0.92874999972991645,
+    0.86454168194904923
+  ]
+}

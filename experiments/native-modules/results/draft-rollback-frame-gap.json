@@ -1,0 +1,4 @@
+{
+  "passed" : false,
+  "error" : "Error Domain=NativeModuleExperiment Code=1 \"Video frame gap >=250ms\" UserInfo={NSLocalizedDescription=Video frame gap >=250ms}"
+}

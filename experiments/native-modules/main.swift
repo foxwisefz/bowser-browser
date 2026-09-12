@@ -18,7 +18,7 @@ func receive(_ generation: Int64, _ counter: Int64) {
 }
 struct Module {
     let handle: UnsafeMutableRawPointer
-    let abi: ABI, create: Create, step: Step, read: Read, destroy: Destroy
+    let abi: ABI, healthy: ABI, create: Create, step: Step, read: Read, destroy: Destroy
     init(_ path: String) throws {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else { throw failure(String(cString: dlerror())) }
         self.handle = handle
@@ -27,6 +27,7 @@ struct Module {
             return unsafeBitCast(pointer, to: T.self)
         }
         abi = try symbol("module_abi", ABI.self)
+        healthy = try symbol("module_healthy", ABI.self)
         create = try symbol("module_create", Create.self)
         step = try symbol("module_step", Step.self)
         read = try symbol("module_read", Read.self)
@@ -39,6 +40,8 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
     let directory: URL
     var generation: Int64 = 0, counter: Int64 = 0
     var staleEvents = 0
+    var nextGeneration: Int64 = 0
+    var rollbacks = 0
     var active: (Module, UnsafeMutableRawPointer)?
     var retired: [WeakView] = []
     var swapMS: [Double] = []
@@ -72,14 +75,25 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
     @discardableResult func replace(_ module: Module) -> Bool {
         guard module.abi() == 1 else { return false }
         let saved = active.map { $0.0.read($0.1) } ?? counter
-        let next = generation + 1
+        nextGeneration += 1
+        let next = nextGeneration
         guard let pointer = module.create(saved, next, receive) else { return false }
         let start = ProcessInfo.processInfo.systemUptime
         let candidate = Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()
         // All preparation happens before authority transfers, on the main actor.
         container.addSubview(candidate)
-        let previous = active
+        let previous = active, previousGeneration = generation
         generation = next; counter = saved; active = (module, pointer)
+        if module.healthy() != 1 {
+            // Retain the previous objects until admission completes; never reuse
+            // a generation, even when restoring the previous authority.
+            module.step(pointer)
+            generation = previousGeneration; counter = saved; active = previous
+            retired.append(WeakView(candidate))
+            module.destroy(pointer)
+            rollbacks += 1
+            return false
+        }
         if let (old, pointer) = previous {
             retired.append(WeakView(Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()))
             old.destroy(pointer)
@@ -100,7 +114,7 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         try await until("page loaded") { (try? await self.web.evaluateJavaScript("!!window.probe")) as? Bool == true }
         _ = try await web.evaluateJavaScript("video.muted=true;video.play().catch(e=>window.playError=String(e));true")
         try await until("playing") { (try? await self.web.evaluateJavaScript("!!window.probe && !video.paused && video.currentTime>0.3")) as? Bool == true }
-        _ = try await web.evaluateJavaScript("scrollTo(0,120);true")
+        _ = try await web.evaluateJavaScript("draft.value='Unsent draft — keep every word\\nSecond line';draft.setSelectionRange(7,12);scrollTo(0,120);true")
         try await until("initial scroll") { (try? await self.web.evaluateJavaScript("scrollY")) as? Int == 120 }
         let initialScroll = try await web.evaluateJavaScript("scrollY") as! Int
         _ = try await web.evaluateJavaScript("video.requestFullscreen().catch(e=>window.fullscreenError=String(e));true")
@@ -113,6 +127,7 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         let v2 = try Module(directory.appendingPathComponent("V2.dylib").path)
         let bad = try Module(directory.appendingPathComponent("BAD_ABI.dylib").path)
         let failed = try Module(directory.appendingPathComponent("FAIL_CREATE.dylib").path)
+        let unhealthy = try Module(directory.appendingPathComponent("BAD_HEALTH.dylib").path)
         let loadMS = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000
         var expected: Int64 = 0
         for index in 0..<12 {
@@ -125,11 +140,15 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
             let pointer = active!.1, stamp = generation
             try check(!replace(bad), "Incompatible ABI accepted")
             try check(!replace(failed), "Failed preparation accepted")
+            try check(!replace(unhealthy), "Unhealthy activated candidate accepted")
             try check(active!.1 == pointer && generation == stamp && counter == expected, "Rejected candidate disturbed active module")
             try await Task.sleep(for: .milliseconds(50))
         }
         try await Task.sleep(for: .milliseconds(1100))
         let after = try await snapshot()
+        try JSONSerialization.data(withJSONObject: ["before": before, "after": after, "loadMS": loadMS, "swapMS": swapMS, "rollbacks": rollbacks], options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("measurements.json"))
+        try check(before["draft"] as? String == after["draft"] as? String && (after["draft"] as? String)?.contains("Second line") == true, "Unsent draft lost")
+        try check(after["selectionStart"] as? Int == 7 && after["selectionEnd"] as? Int == 12, "Draft selection lost")
         try check(before["token"] as? String == after["token"] as? String, "Page replaced")
         try check(after["samePlayer"] as? Bool == true && after["fullscreen"] as? Bool == true, "Player/fullscreen lost")
         try check(after["paused"] as? Bool == false, "Video paused")
@@ -146,6 +165,7 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         try await until("restore page scroll") { (try? await self.web.evaluateJavaScript("scrollY")) as? Int == initialScroll }
         let restoredScroll = try await web.evaluateJavaScript("scrollY") as! Int
         let result: [String: Any] = ["passed": true, "replacements": 12, "rejectedCandidates": 24,
+            "rollbacks": rollbacks, "draftPreserved": true, "draftSelectionPreserved": true,
             "counter": counter, "staleEventsRejected": staleEvents, "retiredViewsReleased": retired.count,
             "swapMS": swapMS, "loadMS": loadMS, "before": before, "after": after,
             "initialScroll": initialScroll, "restoredScroll": restoredScroll, "sameWindowAndWebView": true, "scope": "Ad hoc signed isolated Swift modules; C ABI; retained dylib mappings; local muted HTML fullscreen video. No production updater integration."]

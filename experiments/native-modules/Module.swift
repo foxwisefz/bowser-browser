@@ -64,3 +64,12 @@ let increment: Int64 = 1
         value.release()
     }
 }
+
+// Explicit health rejection after activation, not recovery from a process crash.
+@_cdecl("module_healthy") public func healthy() -> Int32 {
+#if BAD_HEALTH
+    return 0
+#else
+    return 1
+#endif
+}

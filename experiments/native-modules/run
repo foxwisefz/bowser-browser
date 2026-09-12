@@ -4,7 +4,7 @@ repo=${0:A:h:h:h}
 fixture=$(mktemp -d /tmp/bowser-native-modules.XXXXXX)
 app="$fixture/NativeModuleExperiment.app"
 mkdir -p "$app/Contents/MacOS"
-for variant in V1 V2 BAD_ABI FAIL_CREATE; do
+for variant in V1 V2 BAD_ABI FAIL_CREATE BAD_HEALTH; do
   swiftc -swift-version 6 -D "$variant" -module-name "Experiment_$variant" -emit-library "$repo/experiments/native-modules/Module.swift" -o "$fixture/$variant.dylib"
   codesign --force --sign - "$fixture/$variant.dylib"
 done

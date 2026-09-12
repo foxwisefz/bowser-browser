@@ -1,7 +1,7 @@
 # Native module replacement experiment
 
 Run `experiments/native-modules/run` from a logged-in macOS desktop with Xcode
-and ffmpeg. It builds an isolated app and four Swift dylibs under a fresh
+and ffmpeg. It builds an isolated app and five Swift dylibs under a fresh
 `/tmp/bowser-native-modules.*` directory, generates a local video, opens the
 fixture, runs assertions, and exits. No installed Bowser binary, profile,
 BEAM process, or session store is accessed. Swift and ffmpeg are experiment
@@ -12,24 +12,30 @@ build tools; this adds no shipped helper runtime.
 The stable host owns NSApplication, NSWindow, WKWebView, and the loaded page.
 Versioned Swift modules own a small AppKit view and its button behavior. V1
 increments by one; V2 changes the label/color and increments by two. A C ABI
-exports version/create/step/read/destroy functions. Only scalars, a C callback,
+exports version/create/step/read/health/destroy functions. Only scalars, a C callback,
 and an explicitly retained Objective-C view pointer cross the boundary. All
 calls and authority transfers happen on the main actor.
 
 Before replacement, the host reads the old counter, checks ABI compatibility,
 and prepares a candidate view. Once preparation succeeds it switches the
-active generation and view, then destroys the old view. Deliberately delayed
+active generation and view, then checks candidate health before destroying the
+old view. Explicit health failure restores the previous view and authority.
+Generation IDs are never reused, including after rollback. Deliberately delayed
 callbacks from retired generations are rejected. Dylib handles stay mapped;
 this is object retirement, **not safe unloading of arbitrary Swift code**.
 Each actual build must have a unique Swift module name and immutable path.
 
+A multiline draft and selection are seeded into a textarea without submitting
+or saving them. Both must survive every replacement and rollback.
+
 V2 and the rejection fixtures are first loaded while the video is fullscreen.
 Twelve replacements alternate two compiled implementations; twenty-four
-candidate attempts test incompatible ABI and failed preparation. Assertions
+candidate attempts test incompatible ABI and failed preparation; twelve more
+attempts activate an unhealthy module and roll back to the retained old view. Assertions
 cover changed native button behavior, preserved counter, stale callbacks,
 released retired views, page/player/window identity, JS closure activity,
 scroll, fullscreen focus, advancing playback, interruption events, and video
-frame-callback gaps below 250 ms. `loadMS` measures loading three candidate
+frame-callback gaps below 250 ms. `loadMS` measures loading four candidate
 libraries. `swapMS` measures view/authority transfer and old-view destruction,
 excluding loading and candidate preparation; it is not an end-to-end update
 latency claim.
@@ -87,3 +93,28 @@ instead of relying on autoplay after one startup timeout.
 Production admission, cold-load responsiveness, and the intermittent focus
 failure are tracked in **bowser-browser-kgu9**. The live UI expansion is
 **bowser-browser-6k1a**; this isolated experiment is **bowser-browser-d4lb**.
+
+## Draft and rollback extension (2026-09-13)
+
+`results/draft-rollback.json` records 12 successful replacements, 24 rejected
+preparation/ABI candidates and 12 post-activation health rejections. Each health
+rejection retains and restores the previous native view and counter; candidate
+generation numbers are never reused. The final counter was 18, 23 delayed
+callbacks were rejected, and all 24 retired/rejected views were released.
+The exact page and player survived, with the unsent multiline draft and its
+selection unchanged. Playback advanced without interruption events; the largest
+observed frame callback gap in this run was 51 ms. Successful view-transfer
+measurements were below 1 ms (excluding loading/preparation/rollback).
+
+This is **not yet a reliable seamless updater**. The first run failed the
+250 ms video frame-gap threshold (`results/draft-rollback-frame-gap.json`).
+Its detailed timings were not captured, so the cause is not established.
+The diagnostic rerun passed but loading four libraries still occupied the main
+thread for 1.56 seconds. The runner now writes `measurements.json` before final
+continuity assertions so later failures retain timing and page-state evidence.
+Cold-load responsiveness and repeatability remain production gates under
+`bowser-browser-kgu9`. Rollback covers an explicit immediate health rejection,
+not a crash, arbitrary side effects, or failure long after admission.
+
+Reproduce with `experiments/native-modules/run`. This extension is tracked as
+`bowser-browser-4mnc`; it changes only the isolated experiment, not installed Bowser.
