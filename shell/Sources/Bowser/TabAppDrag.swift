@@ -179,6 +179,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
     private var cancelled = false
     private var closeGesture = false
     private var closeCue: NSPanel?
+    private var closeIcon: NSImage?
     private var escapeMonitor: Any?
 
     /// A failed/cancelled drag is not automatically a request to close a tab.
@@ -233,6 +234,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
         let icon = tab.faviconPath.flatMap { NSImage(contentsOfFile: $0) }
             ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
         if closeGesture {
+            closeIcon = icon
             // Keep this entirely in AppKit mouse tracking: no drag pasteboard,
             // file promise, URL or drop operation is offered to another app.
             SurfaceManager.shared.setEdgeDragging("edge_dock", true)
@@ -276,6 +278,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
         escapeMonitor = nil
         closeCue?.close()
         closeCue = nil
+        closeIcon = nil
         down = nil
         draggedID = nil
         closeGesture = false
@@ -289,7 +292,7 @@ final class TabAppDragView: NSView, NSDraggingSource {
         guard !cancelled else { return }
         let ready = Self.shouldRemove(closing: true, operation: [], cancelled: false,
             mouseButtons: 0, exportFailed: false, point: point, dock: dragFrame)
-        let panel = closeCue ?? NSPanel(contentRect: NSRect(x: 0, y: 0, width: 190, height: 38),
+        let panel = closeCue ?? NSPanel(contentRect: NSRect(x: 0, y: 0, width: 220, height: 52),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         if closeCue == nil {
             panel.isReleasedWhenClosed = false
@@ -301,10 +304,17 @@ final class TabAppDragView: NSView, NSDraggingSource {
             closeCue = panel
         }
         panel.contentView = NSHostingView(rootView:
-            Label(ready ? "Release to close" : "Drag out to close", systemImage: "xmark.circle.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9)))
-        panel.setFrameOrigin(NSPoint(x: point.x + 18, y: point.y - 48))
+            HStack(spacing: 10) {
+                if let closeIcon {
+                    Image(nsImage: closeIcon).resizable().scaledToFit()
+                        .frame(width: 32, height: 32)
+                        .accessibilityHidden(true)
+                }
+                Text(ready ? "Release to close" : "Drag out to close")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9)))
+        panel.setFrameOrigin(NSPoint(x: point.x + 18, y: point.y - 62))
         panel.orderFrontRegardless()
     }
 
