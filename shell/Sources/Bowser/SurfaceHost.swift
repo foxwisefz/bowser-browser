@@ -286,14 +286,29 @@ final class SurfaceManager {
     }
 
     private var draggingEdges: Set<String> = []
+    private var edgeHoldUntil: [String: TimeInterval] = [:]
 
     func setEdgeDragging(_ id: String, _ dragging: Bool) {
-        if dragging { draggingEdges.insert(id) } else { draggingEdges.remove(id) }
-        setEdgeRevealed(id, dragging)
+        if dragging {
+            draggingEdges.insert(id)
+            setEdgeRevealed(id, true)
+        } else {
+            draggingEdges.remove(id)
+            let deadline = ProcessInfo.processInfo.systemUptime + 1.5
+            edgeHoldUntil[id] = deadline
+            setEdgeRevealed(id, true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, self.edgeHoldUntil[id] == deadline else { return }
+                self.edgeHoldUntil.removeValue(forKey: id)
+                guard let panel = self.panels[id] else { return }
+                if !panel.frame.contains(NSEvent.mouseLocation) { self.setEdgeRevealed(id, false) }
+            }
+        }
     }
 
     func setEdgeRevealed(_ id: String, _ revealed: Bool) {
-        if !revealed && draggingEdges.contains(id) { return }
+        if !revealed && (draggingEdges.contains(id) ||
+            (edgeHoldUntil[id] ?? 0) > ProcessInfo.processInfo.systemUptime) { return }
         guard let panel = panels[id] else { return }
         if revealed { edgeRevealed.insert(id) } else { edgeRevealed.remove(id) }
         positionEdge(id: id, panel: panel, animated: true)
