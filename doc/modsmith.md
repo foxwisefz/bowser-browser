@@ -43,6 +43,15 @@ through the revision writer. Page tools target the selected tab, and draft/final
 paths are validated against the chosen scope. Site Elixir mods must declare
 the matching host. App mods remain CSS/JS only.
 
+Source reads and Store reads/writes check the run's profile on every operation.
+`read_mod` accepts only an existing mod or site payload owned by that profile,
+including its disabled `.off` file, and refuses symlink paths. Store tools accept
+a literal module name (with an optional `Elixir.` prefix) declared directly as a
+Bowser mod in that profile's source. Unknown, quoted, conflicting-profile, and
+mismatched live module owners are rejected. Saved-app runs keep their separate
+payload scope and cannot use Store tools. These tool checks do not sandbox
+Elixir code running inside the BEAM process.
+
 ## Persistence and undo
 
 `BOWSER_HOME/modsmith-workspace.json` stores projects, turns, selections and

@@ -275,7 +275,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "read_mod",
-    "description": "Full source of one existing mod or payload by catalog path (mods/<name>.ex or sites/<host>/<name>.css|.js). Disabled (.off) files are found by their plain name too.",
+    "description": "Full source of one existing mod or payload by catalog path (mods/<name>.ex or sites/<host>/<name>.css|.js). Disabled (.off) files are found by their plain name too. In ModSmith, each read is restricted to the run profile.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -290,7 +290,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "store_get",
-    "description": "Read a mod's durable Store (BowserBrain.Store): mod = the defmodule name; omit key for everything it stored.",
+    "description": "Read a mod's durable Store (BowserBrain.Store): mod = the defmodule name; omit key for everything it stored. In ModSmith, the module must have an unambiguous declaration owned by the run profile.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -308,7 +308,7 @@ let toolCatalogJSON = #"""
   },
   {
     "name": "store_put",
-    "description": "Write one key into a mod's durable Store \u2014 SEED state (e.g. a follow with a 4-day-old timestamp) to verify time-based behavior now. value is any JSON.",
+    "description": "Write one key into a mod's durable Store \u2014 SEED state (e.g. a follow with a 4-day-old timestamp) to verify time-based behavior now. value is any JSON. In ModSmith, ownership is checked on every call; another profile's mod data is unavailable.",
     "inputSchema": {
       "type": "object",
       "properties": {

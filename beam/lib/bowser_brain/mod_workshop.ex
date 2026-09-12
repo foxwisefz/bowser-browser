@@ -40,6 +40,9 @@ defmodule BowserBrain.ModWorkshop do
             profile = Map.get(run, :profile, BowserBrain.ModScope.profile_of(run.webview))
             %{ok: true, mods: Enum.filter(BowserBrain.ModCatalog.catalog(), &(&1.profile == profile))}
 
+          tool in ["read_mod", "store_get", "store_put"] and run.app == nil ->
+            scoped_data_tool(run, tool, args)
+
           tool in ["page_eval", "page_html", "list_mods", "read_mod", "store_get", "store_put"] ->
             args = args |> Map.delete("site_app") |> Map.put("webview", run.webview)
 
@@ -55,6 +58,106 @@ defmodule BowserBrain.ModWorkshop do
         %{ok: false, error: reason}
     end
   end
+
+  # Catalog visibility is not authorization: check the exact source/storage
+  # target on every call, including disabled files and Elixir module aliases.
+  defp scoped_data_tool(%{profile: profile}, "read_mod", %{"path" => path})
+       when is_binary(profile) and profile != "" do
+    with {:ok, actual, source} <- scoped_source(path),
+         true <- BowserBrain.ModScope.source_profile(source) == profile do
+      %{ok: true, path: actual, content: source}
+    else
+      _ -> scope_error()
+    end
+  end
+
+  defp scoped_data_tool(%{profile: profile}, tool, %{"mod" => requested} = args)
+       when tool in ["store_get", "store_put"] and is_binary(profile) and profile != "" and
+              is_binary(requested) do
+    mod = String.replace_prefix(requested, "Elixir.", "")
+
+    if Regex.match?(~r/^[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)*$/, mod) and
+         module_owned_by?(mod, profile) do
+      BowserBrain.AgentPort.dispatch(%{"tool" => tool, "args" => Map.put(args, "mod", mod)})
+    else
+      scope_error()
+    end
+  end
+
+  defp scoped_data_tool(_, _, _), do: scope_error()
+  defp scope_error, do: %{ok: false, error: "Mod is unavailable in this ModSmith profile"}
+
+  defp scoped_source(path) when is_binary(path) do
+    if (String.starts_with?(path, "mods/") or String.starts_with?(path, "sites/")) and
+         ModRevision.allowed?(path) do
+      actual = ModRevision.actual_path(path)
+      case ModRevision.read(actual) do
+        source when is_binary(source) -> {:ok, actual, source}
+        _ -> :error
+      end
+    else
+      :error
+    end
+  rescue
+    _ -> :error
+  end
+  defp scoped_source(_), do: :error
+
+  defp module_owned_by?(mod, profile) do
+    # Inspect all declarations, not just the visible profile. Ambiguous names
+    # must never authorize access to the shared Store namespace. Never compile
+    # source or intern model-controlled module names while checking ownership.
+    owners =
+      Path.wildcard(Path.join(BowserBrain.ModCatalog.mods_dir(), "*.ex{,.off}"))
+      |> Enum.flat_map(fn file ->
+        case scoped_source("mods/" <> Path.basename(file)) do
+          {:ok, _, source} ->
+            if mod in declared_mods(source), do: [BowserBrain.ModScope.source_profile(source)], else: []
+          _ -> []
+        end
+      end)
+
+    owners != [] and Enum.all?(owners, &(&1 == profile)) and runtime_owner_matches?(mod, profile)
+  end
+
+  defp runtime_owner_matches?(mod, profile) do
+    # A live module can still belong to its previous profile after a file edit.
+    module =
+      try do
+        String.to_existing_atom("Elixir." <> mod)
+      rescue
+        ArgumentError -> nil
+      end
+
+    if module == nil do
+      true
+    else
+      case Registry.lookup(BowserBrain.ModRegistry, module) do
+        [] -> true
+        entries -> Enum.all?(entries, fn {pid, _} -> BowserBrain.ModScope.current(pid) == profile end)
+      end
+    end
+  rescue
+    _ -> false
+  end
+
+  defp declared_mods(source) do
+    case Code.string_to_quoted(source, static_atoms_encoder: fn name, _ -> {:ok, name} end) do
+      {:ok, ast} ->
+        for {"defmodule", _, [{:__aliases__, _, names}, body]} <- statements(ast),
+            is_list(body),
+            Enum.all?(names, &is_binary/1),
+            Enum.any?(statements(Keyword.get(body, :do)), fn
+              {"use", _, [{:__aliases__, _, ["BowserBrain", "Mod"]} | _]} -> true
+              _ -> false
+            end),
+            do: names |> Enum.join(".") |> String.replace_prefix("Elixir.", "")
+      _ -> []
+    end
+  end
+
+  defp statements({:__block__, _, statements}), do: statements
+  defp statements(statement), do: [statement]
 
   @impl true
   def init(_) do

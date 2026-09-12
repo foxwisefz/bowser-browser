@@ -146,6 +146,52 @@ test "Work drafts and project lists cannot take over Default mods" do
   assert ModWorkshop.snapshot(state, "main").selected == work["id"]
 end
 
+  test "source and Store tools enforce profile ownership on every operation", %{root: root} do
+    session = :sys.get_state(BowserBrain.Session)
+    :sys.replace_state(BowserBrain.Session, &Map.put(&1, :profiles, %{7 => "default"}))
+    on_exit(fn -> :sys.replace_state(BowserBrain.Session, fn _ -> session end) end)
+    suffix = Base.encode16(:crypto.strong_rand_bytes(8))
+    mine = "DefaultStore" <> suffix
+    foreign = "WorkStore" <> suffix
+    fake = "QuotedStore" <> suffix
+    for {file, profile, name} <- [{"mine.ex.off", "default", mine}, {"foreign.ex", "work", foreign}] do
+      ModRevision.write("mods/" <> file,
+        "# bowser-profile: #{profile}\ndefmodule #{name} do use BowserBrain.Mod end")
+    end
+    ModRevision.write("mods/quote.ex", "quote do defmodule #{fake} do use BowserBrain.Mod end end")
+    ModRevision.write("sites/example.com/private.css.off", "/* bowser-profile: work */\nbody {}")
+    BowserBrain.Store.put(foreign, "secret", "original")
+    on_exit(fn ->
+      BowserBrain.Store.clear(mine)
+      BowserBrain.Store.clear(foreign)
+    end)
+    event("submit", %{"text" => "Fix my mod", "scope" => "browser"})
+    assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+    assert %{ok: true, content: source} = ModWorkshop.tool(token, "read_mod", %{"path" => "mods/mine.ex"})
+    assert source =~ mine
+    for path <- ["mods/foreign.ex", "sites/example.com/private.css", "mods/missing.ex", "../settings.json", nil] do
+      assert %{ok: false} = ModWorkshop.tool(token, "read_mod", %{"path" => path})
+    end
+    for name <- [foreign, "Elixir." <> foreign, fake, "Unknown", "../" <> mine, nil] do
+      assert %{ok: false} = ModWorkshop.tool(token, "store_get", %{"mod" => name})
+      assert %{ok: false} = ModWorkshop.tool(token, "store_put", %{"mod" => name, "key" => "secret", "value" => "changed"})
+    end
+    assert BowserBrain.Store.get(foreign, "secret") == "original"
+    assert %{ok: true} = ModWorkshop.tool(token, "store_put", %{"mod" => "Elixir." <> mine, "key" => "draft", "value" => "mine"})
+    assert %{ok: true, value: "mine"} = ModWorkshop.tool(token, "store_get", %{"mod" => mine, "key" => "draft"})
+
+    # Source ownership is rechecked rather than cached from list_mods or a
+    # previous successful request. Conflicting profiles cannot share Store.
+    ModRevision.write("mods/conflict.ex", "# bowser-profile: work\ndefmodule #{mine} do use BowserBrain.Mod end")
+    assert %{ok: false} = ModWorkshop.tool(token, "store_get", %{"mod" => mine})
+    File.rm!(Path.join(root, "mods/conflict.ex"))
+    File.rename!(Path.join(root, "mods/mine.ex.off"), Path.join(root, "outside.ex"))
+    File.ln_s!(Path.join(root, "outside.ex"), Path.join(root, "mods/mine.ex.off"))
+    assert %{ok: false} = ModWorkshop.tool(token, "read_mod", %{"path" => "mods/mine.ex"})
+    assert %{ok: false} = ModWorkshop.tool(token, "store_get", %{"mod" => mine})
+  end
+
+
   test "Elixir drafts share final revision history and Undo removes the installed file" do
     event("submit", %{"text" => "AOL shell", "scope" => "browser"})
     assert_receive {:runner, pid, token, prompt, nil, nil}, 1000
@@ -340,6 +386,10 @@ end
       "name" => "app.ex", "content" => "defmodule AppDraft do use BowserBrain.Mod end"
     })
     assert ModRevision.read("mods/app.ex") == nil
+    for tool <- ["store_get", "store_put"] do
+      assert %{ok: false} = ModWorkshop.tool(token, tool, %{"mod" => "AnyMod", "key" => "secret", "value" => "changed"})
+    end
+    assert %{ok: false} = ModWorkshop.tool(token, "read_mod", %{"path" => "mods/app.ex", "site_app" => "main"})
 
     assert %{ok: true} =
              ModWorkshop.tool(token, "put_payload", %{
