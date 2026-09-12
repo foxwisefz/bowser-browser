@@ -231,3 +231,5 @@ for contracts, lifecycle, examples and the native renderer extension boundary.
 Native mod palettes inherit the effective window appearance. See the
 [appearance contract](../docs/mod-ui.md#appearance-and-palettes) for semantic
 roles, custom light/dark/high-contrast variants, scope inheritance and limits.
+
+See [security boundaries](../docs/security-boundaries.md) for privileged cookie API arities, profile scoping, retained local-file access, and mod execution limits.
