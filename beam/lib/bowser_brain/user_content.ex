@@ -5,10 +5,8 @@ defmodule BowserBrain.UserContent do
   Two jobs:
   - Mods set scripts/styles under their own key; the engine always receives
     the UNION, so mods can no longer clobber each other's content.
-  - A standard preservation script is always included: scroll position and
-    non-sensitive input values survive every reload on every page — no mod
-    has to hand-roll it. Password/hidden fields and cc/one-time-code
-    autocompletes are never touched.
+  - A standard preservation script restores scroll position across reloads.
+    It never reads, stores, or restores form field values.
 
   Re-pushes everything on engine hello, so mods don't need to.
   """
@@ -16,48 +14,25 @@ defmodule BowserBrain.UserContent do
 
   alias BowserBrain.Bridge
 
-  # Keyed per origin+path in sessionStorage. Restores retry briefly so pages
-  # (or mods!) that rebuild the DOM after load still get their values back.
+  # Scroll coordinates only, keyed per origin+path. Retries accommodate
+  # virtualized and slow-loading pages without capturing their contents.
   @std_preserve """
   (function () {
-    var KEY = "bowser-preserve:" + location.host + location.pathname;
-    function fields() {
-      return Array.prototype.filter.call(
-        document.querySelectorAll("input, textarea"),
-        function (el) {
-          var t = (el.type || "").toLowerCase();
-          if (t === "password" || t === "hidden") return false;
-          var ac = (el.getAttribute("autocomplete") || "").toLowerCase();
-          if (ac.indexOf("cc-") !== -1 || ac.indexOf("one-time") !== -1) return false;
-          return !!(el.name || el.id);
-        });
+    var KEY = "bowser-scroll:" + location.host + location.pathname;
+    // Delete previous field snapshots without reading or replaying them.
+    // Visit each storage separately: either may be unavailable on a page.
+    function discardFields(storage) {
+      for (var i = storage.length - 1; i >= 0; i--) {
+        var key = storage.key(i);
+        if (key && key.indexOf("bowser-preserve:") === 0) storage.removeItem(key);
+      }
     }
-    // localStorage (not sessionStorage): survives engine kills and full
-    // restarts. The freshness window keeps a restart-from-minutes-ago
-    // restoring scroll without haunting next week's visit.
+    try { discardFields(localStorage); } catch (e) {}
+    try { discardFields(sessionStorage); } catch (e) {}
     var MAX_AGE_MS = 6 * 60 * 60 * 1000;
     function save() {
-      // Merge-write: never erase a stored value with an empty field (a mod
-      // rewriting the DOM mid-tick would otherwise wipe the snapshot).
-      var data = null;
-      try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-      if (!data) data = { y: 0, f: {} };
-      if (window.scrollY) data.y = window.scrollY;
-      fields().forEach(function (el) {
-        if (el.value) data.f[el.name || el.id] = el.value;
-      });
-      data.at = Date.now();
+      var data = { y: Math.max(0, window.scrollY), at: Date.now() };
       try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
-    }
-    function restore() {
-      var data = null;
-      try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-      if (!data) return;
-      if (data.at && Date.now() - data.at > MAX_AGE_MS) return;
-      fields().forEach(function (el) {
-        var v = data.f[el.name || el.id];
-        if (v && !el.value) el.value = v;
-      });
     }
     // Scroll restore is a CAMPAIGN, not a shot: virtualized/slow pages
     // (x.com, YT Music) are not tall enough at load, scrollTo clamps to ~0
@@ -72,8 +47,8 @@ defmodule BowserBrain.UserContent do
     function restoreScroll() {
       var data = null;
       try { data = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-      if (!data || !data.y) return;
-      if (data.at && Date.now() - data.at > MAX_AGE_MS) return;
+      if (!data || !Number.isFinite(data.y) || data.y <= 0) return;
+      if (!Number.isFinite(data.at) || Date.now() - data.at > MAX_AGE_MS) return;
       var target = data.y;
       var deadline = Date.now() + 25000;
       var cancelled = false;
@@ -103,22 +78,17 @@ defmodule BowserBrain.UserContent do
       })();
     }
     function boot() {
-      restore();
       restoreScroll();
-      setTimeout(restore, 50);
-      setTimeout(restore, 400);
-      // Listeners where Servo delivers them...
-      document.addEventListener("input", save, true);
-      document.addEventListener("keyup", save, true);
       window.addEventListener("scroll", save, { passive: true });
-      // ...and a poll as ground truth: Servo doesn't reliably deliver
-      // input events to document-level listeners yet.
-      setInterval(save, 400);
+      window.addEventListener("pagehide", save);
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
     else boot();
   })();
   """
+
+  @doc false
+  def preservation_script, do: @std_preserve
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
