@@ -29,22 +29,20 @@ defmodule BowserBrain.Loader do
       send(self(), :scan)
     end
 
-    {:ok, %{mtimes: %{}}}
+    {:ok, %{mtimes: %{}, modules: %{}}}
   end
 
   @impl true
   def handle_info(:scan, state) do
     mtimes =
       for path <- Path.wildcard(Path.join(mods_dir(), "*.ex")),
-          not BowserBrain.LegacyMods.superseded?(path), into: %{} do
+          into: %{} do
         {path, :crypto.hash(:sha256, File.read!(path))}
       end
 
     # path -> modules it declares, snapshotted while the file still exists so
-    # a deleted file can still be mapped to the process to stop. Backfilled
-    # when this code was hot-swapped into a brain whose state predates it.
-    modules =
-      Map.get(state, :modules) || Map.new(mtimes, fn {path, _} -> {path, modules_in(path)} end)
+    # a deleted file can still be mapped to the process to stop.
+    modules = state.modules
 
     changed = for {path, mtime} <- mtimes, state.mtimes[path] != mtime, do: path
     Enum.each(changed, &load_file/1)
@@ -66,7 +64,7 @@ defmodule BowserBrain.Loader do
   def handle_call({:load_now, path}, _, state) do
     result = load_file(path)
     mtimes = Map.put(state.mtimes, path, :crypto.hash(:sha256, File.read!(path)))
-    modules = Map.put(Map.get(state, :modules, %{}), path, modules_in(path))
+    modules = Map.put(state.modules, path, modules_in(path))
     {:reply, result, state |> Map.put(:mtimes, mtimes) |> Map.put(:modules, modules)}
   end
 

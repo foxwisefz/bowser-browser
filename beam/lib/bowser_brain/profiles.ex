@@ -238,26 +238,21 @@ defmodule BowserBrain.Profiles do
     {:noreply, state}
   end
 
-  def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "new", "value" => text}}, state) do
-    if is_map(text) do
-      result = create_from_form(text)
-      response = %{id: System.unique_integer([:positive, :monotonic]), created: false, error: nil}
+  def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "new", "value" => text}}, state) when is_map(text) do
+    result = create_from_form(text)
+    response = %{id: System.unique_integer([:positive, :monotonic]), created: false, error: nil}
 
-      {response, status} =
-        case result do
-          {:ok, p} ->
-            Chrome.open_window(p["id"])
-            {%{response | created: true}, "Created #{label(p)}"}
+    {response, status} =
+      case result do
+        {:ok, p} ->
+          Chrome.open_window(p["id"])
+          {%{response | created: true}, "Created #{label(p)}"}
 
-          {:error, why} ->
-            {%{response | error: why}, nil}
-        end
+        {:error, why} ->
+          {%{response | error: why}, nil}
+      end
 
-      {:noreply, render(state |> Map.put(:form_response, response) |> Map.put(:status, status))}
-    else
-      # Backwards compatibility with the old shell and command-style input.
-      {:noreply, create_and_open(to_string(text), state)}
-    end
+    {:noreply, render(state |> Map.put(:form_response, response) |> Map.put(:status, status))}
   end
 
   def handle_info({:browser_event, %{"event" => "surface", "surface" => "profiles", "id" => "delete", "value" => id}}, state) do
@@ -397,8 +392,6 @@ defmodule BowserBrain.Profiles do
       |> Enum.map(&Map.merge(%{"tint" => nil, "icon" => nil, "uuid" => nil}, &1))
 
     default = Enum.find(profiles, @default, &(&1["id"] == "default"))
-    default = if default["name"] == "Personal", do: Map.put(default, "name", "Default"), else: default
-    default = if is_nil(default["character"]) and is_nil(default["icon"]), do: Map.put(default, "character", "bowser"), else: default
     [default | Enum.reject(profiles, &(&1["id"] == "default"))]
   end
 

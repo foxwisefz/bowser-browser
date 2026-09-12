@@ -33,7 +33,7 @@ defmodule BowserBrain.Handoff do
     for module <- Application.spec(:bowser_brain, :modules), do: Code.ensure_loaded!(module)
     Code.put_compiler_option(:ignore_module_conflict, true)
     for path <- Path.wildcard(Path.join(Paths.home(), "mods/*.ex")),
-        not BowserBrain.LegacyMods.superseded?(path), do: Code.compile_file(path)
+        do: Code.compile_file(path)
     path = Path.join(dir, "control.sock")
     File.rm(path)
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: 4, active: false,

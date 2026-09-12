@@ -1,4 +1,4 @@
-User mods belong to one browser profile. ModSmith stamps new Elixir, CSS, and JS files with a `bowser-profile` comment; untagged legacy files belong to Default. Keep this comment when editing. Existing filenames owned by another profile cannot be overwritten; choose a distinct file and module name. Browser-wide means all windows in the owning profile, not all profiles.
+User mods belong to one browser profile. ModSmith stamps new Elixir, CSS, and JS files with a `bowser-profile` comment; untagged files belong to Default. Keep this comment when editing. Existing filenames owned by another profile cannot be overwritten; choose a distinct file and module name. Browser-wide means all windows in the owning profile, not all profiles.
 
 Mod callbacks receive only their profile’s events and tabs in `hello`. `Surface.show/3`, chrome buttons, menu entries, toolbars, themes, and user content stay with that profile. Surface IDs remain local to the mod API; do not add profile prefixes yourself. `Chrome.open_tab/0,1,2` and `open_window/1` from a mod use its owning profile. Core browser features remain shared. Mods are trusted Elixir code, not a security sandbox.
 
@@ -94,7 +94,7 @@ by a button. Their content is a regular tree; popover inputs can edit an enclosi
 form. The width option sets presentation width, not trigger-button width.
 
 `action("Save", event: :save, role: :primary)` uses a native button instead of the
-legacy panel row. Options include `:destructive` role, `disabled`, SF `symbol`,
+panel row. Options include `:destructive` role, `disabled`, SF `symbol`,
 `payload`, and `shortcut` (`:default` for Return, `:cancel` for Escape, or one
 character for a Command shortcut). Use only one default action in a presentation;
 forms already supply a default Save button.

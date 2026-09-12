@@ -5,13 +5,13 @@ struct ProfileDraft: Equatable {
     var name: String
     var character: ProfileCharacter?
     var tint: String?
-    var legacyIcon: String?
+    var icon: String?
 
     init(_ profile: Profile) {
         name = profile.name
         character = profile.avatar
         tint = profile.tint
-        legacyIcon = profile.icon
+        icon = profile.icon
     }
 
     static var newProfile: ProfileDraft {
@@ -19,7 +19,7 @@ struct ProfileDraft: Equatable {
         draft.name = ""
         draft.character = .bowser
         draft.tint = ProfileCharacter.bowser.tint
-        draft.legacyIcon = nil
+        draft.icon = nil
         return draft
     }
 
@@ -252,7 +252,7 @@ private struct ProfileIdentity: View {
     var body: some View {
         Group {
             if let character = draft.character { ProfileCharacterPortrait(character: character, size: size) }
-            else if let emoji = draft.legacyIcon { Text(emoji).font(.system(size: size * 0.7)) }
+            else if let emoji = draft.icon { Text(emoji).font(.system(size: size * 0.7)) }
             else { Image(systemName: "person.crop.circle.fill").resizable().foregroundStyle(.secondary).frame(width: size, height: size) }
         }.frame(width: size, height: size)
     }
@@ -283,7 +283,7 @@ struct ProfileSettingsFields: View {
                 .popover(isPresented: $showCharacters, arrowEdge: .bottom) {
                     NativeProfileCharacterChooser(selected: draft.character) { character in
                         draft.character = character
-                        draft.legacyIcon = nil
+                        draft.icon = nil
                         showCharacters = false
                     }
                 }

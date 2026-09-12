@@ -11,7 +11,6 @@
 #   bin/install --release       optimized shell build (default; isolated launch gate)
 #   bin/install --debug         explicit debug shell build
 #   bin/install --stage-only   build a fresh pair; do not publish, install or register launch agents
-#   bin/install --no-restart    compatibility alias; installs never restart apps
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -20,7 +19,7 @@ BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
 SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0; STAGE_ONLY=0
 for a in "$@"; do case "$a" in
   --stage-only) STAGE_ONLY=1;;
-  --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;; --no-restart) :;;
+  --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;;
   *) echo "unknown flag: $a" >&2; exit 2;;
 esac; done
 
@@ -64,7 +63,7 @@ fi
 # The host requires a matching checkpoint schema. Promote a partial shell
 # install to a complete pair when the installed runtime schema differs.
 if [ "$SHELL_ONLY" = 1 ] && ! grep -Eq '"state_schema"[[:space:]]*:[[:space:]]*5' "$BASE_RUNTIME/HANDOFF.json" 2>/dev/null; then
-  say "upgrading the backend too: owner-migrating host requires state schema 5"
+  say "building the backend too: host requires state schema 5"
   SHELL_ONLY=0
 fi
 if [ -d "$BASE_RUNTIME" ]; then cp -R "$BASE_RUNTIME" "$APP_DIR"; fi

@@ -20,9 +20,9 @@ defmodule BowserBrain.ProfilesTest do
     assert ["default", "work"] = Enum.map(Profiles.list(), & &1["id"])
   end
 
-  test "legacy Personal defaults migrate without changing website identity" do
+  test "loading preserves a configured default profile" do
     File.write!(Profiles.path(), JSON.encode!([%{"id" => "default", "name" => "Personal", "uuid" => nil, "tint" => "#ab0500"}]))
-    assert %{"id" => "default", "name" => "Default", "character" => "bowser", "uuid" => nil, "tint" => "#ab0500"} = Profiles.get("default")
+    assert %{"id" => "default", "name" => "Personal", "uuid" => nil, "tint" => "#ab0500"} = Profiles.get("default")
   end
 
   test "create slugs the id, normalizes the tint, mints a uuid; duplicates refused" do
@@ -50,6 +50,12 @@ defmodule BowserBrain.ProfilesTest do
     assert Profiles.get(profile["id"])["character"] == "luigi"
     assert {:error, _} = Profiles.create_from_form(%{"name" => "blue team", "character" => "mario", "tint" => "red"})
     assert length(Profiles.list()) == 2
+  end
+
+  test "profile creation ignores unstructured surface messages" do
+    event = %{"event" => "surface", "surface" => "profiles", "id" => "new", "value" => "Work blue"}
+    assert {:noreply, %{}} = Profiles.handle_info({:browser_event, event}, %{})
+    assert length(Profiles.list()) == 1
   end
 
   test "character form refuses missing, malformed and unknown choices without creating profiles" do

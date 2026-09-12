@@ -51,9 +51,7 @@ struct Profile: Codable, Equatable {
 
     nonisolated static func ensureDefault(_ list: [Profile]) -> [Profile] {
         let others = list.filter { $0.id != "default" }
-        var def = list.first { $0.id == "default" } ?? defaultProfile
-        if def.name == "Personal" { def.name = "Default" }
-        if def.character == nil && def.icon == nil { def.character = "bowser" }
+        let def = list.first { $0.id == "default" } ?? defaultProfile
         return [def] + others
     }
 

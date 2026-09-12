@@ -21,7 +21,6 @@ defmodule BowserBrain.ModCatalog do
   def catalog(mods \\ mods_dir(), sites \\ sites_dir()) do
     mod_entries =
       for file <- Path.wildcard(Path.join(mods, "*.ex{,.off}")),
-          not BowserBrain.LegacyMods.superseded?(file),
           do: entry("mods/" <> Path.basename(file), file)
 
     site_entries =

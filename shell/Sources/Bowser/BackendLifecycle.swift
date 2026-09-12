@@ -112,7 +112,7 @@ final class BackendLifecycle {
                     }
                 }
             }
-            // Handles a startup failure or an older backend without the handshake.
+            // Stop the backend if startup failed or quit acknowledgement timed out.
             if let helper = Self.helper(), let stop = try? launch(helper, action: "stop-brain") {
                 while stop.isRunning { try? await Task.sleep(for: .milliseconds(100)) }
             }

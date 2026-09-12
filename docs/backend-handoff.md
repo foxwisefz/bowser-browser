@@ -23,7 +23,6 @@ Audit of the owner's `.ex` inventory on 2026-09-11:
 | TabsMod | Data-only tab tree; surface definitions survive in core checkpoint. |
 | FollowFlywheel | Previously audited; existing explicit contract retained. |
 | YoutubeDlMod | Not admitted: untracked Task plus yt-dlp/ffmpeg and temporary cookie file. Follow-up bowser-browser-29v.5. |
-| EdgeDockTabs, ModSwitchMod, PanelsMod, MediaWarmMod | Superseded by desktop core services; excluded by LegacyMods. |
 
 Disabled `.off` files and backup files are not loaded. The four new declarations
 are in the repository examples. Installed personal copies are deliberately not

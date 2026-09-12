@@ -27,14 +27,9 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(Profile.ensureDefault([]).map(\.id), ["default"])
     }
 
-    func testLegacyDefaultMigratesNameAndPortraitWithoutChangingStoreIdentity() {
-        let legacy = Profile(id: "default", name: "Personal", tint: "#ab0500", icon: nil, uuid: nil)
-        let migrated = Profile.ensureDefault([legacy])[0]
-        XCTAssertEqual(migrated.name, "Default")
-        XCTAssertEqual(migrated.avatar, .bowser)
-        XCTAssertEqual(migrated.id, legacy.id)
-        XCTAssertEqual(migrated.uuid, legacy.uuid)
-        XCTAssertEqual(migrated.tint, legacy.tint)
+    func testConfiguredDefaultIsNotRewritten() {
+        let configured = Profile(id: "default", name: "Personal", tint: "#ab0500", icon: nil, uuid: nil)
+        XCTAssertEqual(Profile.ensureDefault([configured]), [configured])
         XCTAssertEqual(Profile.defaultProfile.avatar, .bowser)
     }
 

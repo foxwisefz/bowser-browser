@@ -12,17 +12,13 @@ defmodule BowserBrain.CoreFeaturesTest do
     end
   end
 
-  test "legacy sources are skipped and hidden from the editable mod catalog" do
-    dir = Path.join(System.tmp_dir!(), "core-legacy-#{System.unique_integer([:positive])}")
+  test "mod catalog has no reserved historical module names" do
+    dir = Path.join(System.tmp_dir!(), "core-catalog-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
-    for name <- ["EdgeDockTabs", "ModSwitchMod", "PanelsMod", "MediaWarmMod"] do
-      path = Path.join(dir, "#{name}.ex")
-      File.write!(path, "defmodule #{name} do\nend")
-      assert BowserBrain.LegacyMods.superseded?(path)
-    end
-    File.write!(Path.join(dir, "personal.ex"), "defmodule PersonalFixture do\nend")
-    assert [%{path: "mods/personal.ex"}] = BowserBrain.ModCatalog.catalog(dir, Path.join(dir, "sites"))
+    path = Path.join(dir, "custom.ex")
+    File.write!(path, "defmodule PanelsMod do\nend")
+    assert [%{path: "mods/custom.ex"}] = BowserBrain.ModCatalog.catalog(dir, Path.join(dir, "sites"))
   end
 
   test "panel menu responds to registry changes without a polling timer" do

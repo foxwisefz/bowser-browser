@@ -36,7 +36,7 @@ defmodule BowserBrain.Session do
     # from the living engine, replayed into a fresh one BEFORE tabs navigate,
     # so restored pages load already logged in. Brain memory only: secrets
     # never touch disk (ADR 0004 territory).
-    # disk: %{urls: [...], active: index} persisted at ~/.bowser/session.json
+    # disk: %{tabs: [...], active: index} persisted at ~/.bowser/session.json
     # so a FULL-stack restart (brain + engine dying together) still restores
     # tabs. Logins survive via WebKit's own on-disk store.
     # restore: %{remaining: n} — counts tab_opened events after a restore
@@ -256,9 +256,7 @@ defmodule BowserBrain.Session do
     end
   end
 
-  # A disk record from before profiles (or a hot-swapped state) has only urls.
   defp disk_entries(%{tabs: tabs}) when is_list(tabs), do: tabs
-  defp disk_entries(%{urls: urls}), do: Enum.map(urls, &%{url: &1, profile: "default"})
   defp disk_entries(_), do: []
 
   @doc "Saved tabs absent from the launch snapshot, matching profile and URL with multiplicity."
@@ -276,7 +274,6 @@ defmodule BowserBrain.Session do
 
   defp normalize_entry(%{url: u, profile: p}), do: %{url: u, profile: p || "default"}
   defp normalize_entry(%{"url" => u} = e), do: %{url: u, profile: e["profile"] || "default"}
-  defp normalize_entry(u) when is_binary(u), do: %{url: u, profile: "default"}
 
   defp note_profile(state, wv, profile) when is_binary(profile),
     do: Map.put(state, :profiles, Map.put(Map.get(state, :profiles, %{}), wv, profile))
@@ -322,8 +319,7 @@ defmodule BowserBrain.Session do
   end
 
   @doc false
-  # Public for tests. Accepts the current %{urls, active} format and the
-  # Bare URL lists use active index 0, including when the data is invalid.
+  # Public for tests. Reads the tab records and active index written by persist/1.
   def load_disk do
     with {:ok, raw} <- File.read(disk_path()),
          {:ok, decoded} <- JSON.decode(raw) do
@@ -331,12 +327,6 @@ defmodule BowserBrain.Session do
         %{"tabs" => tabs, "active" => active} = stored when is_list(tabs) ->
           tabs = for %{"url" => u} = t <- tabs, real_url?(u), do: %{url: u, profile: t["profile"] || "default"}
           Map.put(disk(tabs, active), :engine_session_id, stored["engine_session_id"])
-
-        %{"urls" => urls, "active" => active} when is_list(urls) ->
-          disk(Enum.map(Enum.filter(urls, &real_url?/1), &%{url: &1, profile: "default"}), active)
-
-        urls when is_list(urls) ->
-          disk(Enum.map(Enum.filter(urls, &(is_binary(&1) and real_url?(&1))), &%{url: &1, profile: "default"}), 0)
 
         _ ->
           disk([], 0)
@@ -346,7 +336,7 @@ defmodule BowserBrain.Session do
     end
   end
 
-  # %{tabs, urls, active} — urls kept alongside tabs for anything still reading it.
+  # Cache URLs for restore logging and the session query API.
   defp disk(tabs, active) do
     active = if is_integer(active) and active in 0..max(length(tabs) - 1, 0), do: active, else: 0
     %{tabs: tabs, urls: Enum.map(tabs, & &1.url), active: active}
@@ -359,7 +349,7 @@ defmodule BowserBrain.Session do
     if urls != [] do
       path = disk_path()
       temporary = path <> ".tmp"
-      File.write!(temporary, JSON.encode!(%{tabs: tabs, urls: urls, active: active_index(state.tabs, state.active),
+      File.write!(temporary, JSON.encode!(%{tabs: tabs, active: active_index(state.tabs, state.active),
                                           engine_session_id: Map.get(state, :engine_session_id)}))
       File.rename!(temporary, path)
     end

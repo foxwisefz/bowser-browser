@@ -177,8 +177,7 @@ defmodule BowserBrain.ModControls do
   end
 
   def parse_toggle("mod|" <> name) do
-    path = Path.join(BowserBrain.Paths.home(), "mods/" <> name)
-    if Path.basename(name) == name and not BowserBrain.LegacyMods.superseded?(path),
+    if Path.basename(name) == name,
       do: {:mod, name}, else: :error
   end
   def parse_toggle(_), do: :error
@@ -236,7 +235,6 @@ defmodule BowserBrain.ModControls do
           for name <- Enum.sort(names),
               String.ends_with?(name, ".ex") or String.ends_with?(name, ".ex.off"),
               not String.starts_with?(name, "zz_"),
-              not BowserBrain.LegacyMods.superseded?(Path.join(mods_dir, name)),
               BowserBrain.ModScope.file_profile(Path.join(mods_dir, name)) == BowserBrain.ModScope.profile_of(state.active) do
             source = File.read!(Path.join(mods_dir, name))
             scope = host_of_source(source)

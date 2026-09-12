@@ -378,7 +378,7 @@ end
     refute ModRevision.allowed?("sites/example.com/../../a.css")
   end
 
-  test "pending undo finishes after restart, and legacy conversations migrate once", %{root: root} do
+  test "pending undo finishes after restart" do
     p = ModWorkshop.new_project("Reading", "site", "https://example.com", nil)
 
     r =
@@ -393,26 +393,6 @@ end
     assert hd(hd(data["projects"])["revisions"])["status"] == "undone"
     assert hd(data["projects"])["pending_undo"] == nil
 
-    old_path = Application.get_env(:bowser_brain, :modsmith_sessions_path)
-    path = Path.join(root, "legacy.json")
-
-    File.write!(
-      path,
-      JSON.encode!([
-        %{id: "legacy-session", host: "example.com", request: "Read", summary: "Reading"}
-      ])
-    )
-
-    Application.put_env(:bowser_brain, :modsmith_sessions_path, path)
-
-    try do
-      migrated = ModWorkshop.migrate_sessions(ModRevision.empty())
-      assert hd(migrated["projects"])["session"] == "legacy-session"
-      assert ModWorkshop.migrate_sessions(migrated) == migrated
-      assert File.read!(path) =~ "legacy-session"
-    after
-      Application.put_env(:bowser_brain, :modsmith_sessions_path, old_path)
-    end
   end
 
   test "final output cannot overwrite an external edit made after a draft" do

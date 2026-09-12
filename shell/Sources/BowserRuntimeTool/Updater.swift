@@ -93,11 +93,10 @@ func refreshWatcher(_ pending: URL) throws {
     let pids = try command("/usr/sbin/lsof", ["-t", pending.deletingPathExtension().appendingPathExtension("watcher.lock").path])
     for value in Set(pids.split(whereSeparator: { $0.isWhitespace })) {
         guard let pid = Int32(value), pid != getpid() else { continue }
-        // Migrate legacy Python watchers too. Match the full executable + arguments
-        // suffix, including this exact home, before signalling the lock holder.
+        // Match the native executable and this exact home before signalling the lock holder.
         let args = try command("/bin/ps", ["-p", String(pid), "-o", "args="]).trimmingCharacters(in: .whitespacesAndNewlines)
         let expected = child(pending.deletingLastPathComponent(), "apply-update").path + " " + pending.path + " --wait"
-        if args == expected || args.hasSuffix(" " + expected) { kill(pid, SIGTERM); print("Retired previous pending-update watcher.") }
+        if args == expected { kill(pid, SIGTERM); print("Retired previous pending-update watcher.") }
     }
 }
 func runUpdater(_ args: [String]) async throws {

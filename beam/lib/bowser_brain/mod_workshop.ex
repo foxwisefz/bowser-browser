@@ -59,65 +59,9 @@ defmodule BowserBrain.ModWorkshop do
   @impl true
   def init(_) do
     Registry.register(BowserBrain.Events, :browser_event, nil)
-    data = ModRevision.load() |> migrate_sessions() |> recover()
+    data = ModRevision.load() |> recover()
     {:ok, %{data: data, run: nil, active: 0, urls: %{}, progress: [], error: nil, accepted: nil}}
   end
-
-  def migrate_sessions(%{"projects" => []} = data) do
-    path =
-      Application.get_env(
-        :bowser_brain,
-        :modsmith_sessions_path,
-        Path.join(BowserBrain.Paths.home(), "modsmith-sessions.json")
-      )
-
-    with {:ok, raw} <- File.read(path),
-         {:ok, sessions} when is_list(sessions) <- JSON.decode(raw) do
-      projects =
-        for %{"id" => session} = old <- sessions do
-          app = old["app"]
-
-          p =
-            new_project(
-              old["summary"] || "Previous mod",
-              if(app, do: "app", else: "site"),
-              (app && app["url"]) || "https://#{old["host"]}",
-              app
-            )
-
-          Map.merge(p, %{
-            "session" => session,
-            "summary" => old["summary"] || "",
-            "turns" => [
-              %{
-                "id" => ModRevision.id(),
-                "role" => "user",
-                "text" => old["request"] || "Previous request"
-              },
-              %{
-                "id" => ModRevision.id(),
-                "role" => "assistant",
-                "text" => old["summary"] || "Previous result",
-                "notes" =>
-                  "Imported conversation. Undo is available for changes made from now on.",
-                "checks" => []
-              }
-            ]
-          })
-        end
-
-      selected =
-        Enum.reduce(Enum.reverse(projects), %{}, fn p, acc ->
-          Map.put(acc, get_in(p, ["app", "id"]) || "main", p["id"])
-        end)
-
-      %{"projects" => projects, "selected" => selected}
-    else
-      _ -> data
-    end
-  end
-
-  def migrate_sessions(data), do: data
 
   def recover(data) do
     projects =

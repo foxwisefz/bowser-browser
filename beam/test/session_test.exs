@@ -23,7 +23,7 @@ defmodule BowserBrain.SessionTest do
 
   defp base_state(overrides \\ %{}) do
     Map.merge(
-      %{tabs: %{}, active: nil, cookies: %{}, disk: %{urls: [], active: 0}, restore: nil},
+      %{tabs: %{}, active: nil, cookies: %{}, disk: %{tabs: [], urls: [], active: 0}, restore: nil},
       overrides
     )
   end
@@ -47,7 +47,7 @@ defmodule BowserBrain.SessionTest do
   end
 
   test "quitting before restore preserves the saved session", %{path: path} do
-    File.write!(path, JSON.encode!(%{urls: ["https://saved.example/"], active: 0}))
+    File.write!(path, JSON.encode!(%{tabs: [%{url: "https://saved.example/", profile: "default"}], active: 0}))
     before = File.read!(path)
     {:reply, :ok, _} = Session.handle_call(:prepare_quit, self(), base_state())
     assert File.read!(path) == before
@@ -72,7 +72,7 @@ defmodule BowserBrain.SessionTest do
     assert state.tabs == %{}
   end
 
-  test "persist writes urls and the active index to disk", %{path: path} do
+  test "persist writes tab records and the active index to disk", %{path: path} do
     base_state()
     |> event(%{"event" => "url_changed", "webview" => 1, "url" => "https://a.example/"})
     |> event(%{"event" => "url_changed", "webview" => 2, "url" => "https://b.example/"})
@@ -80,24 +80,18 @@ defmodule BowserBrain.SessionTest do
     |> event(%{"event" => "tab_activated", "webview" => 2})
 
     assert {:ok, raw} = File.read(path)
-    assert {:ok, %{"urls" => urls, "active" => 1}} = JSON.decode(raw)
-    assert urls == ["https://a.example/", "https://b.example/", "https://c.example/"]
+    assert {:ok, %{"tabs" => tabs, "active" => 1}} = JSON.decode(raw)
+    refute Map.has_key?(JSON.decode!(raw), "urls")
+    assert Enum.map(tabs, & &1["url"]) == ["https://a.example/", "https://b.example/", "https://c.example/"]
   end
 
-  test "load_disk accepts tabs-with-profile, the urls map and the legacy bare list", %{path: path} do
-    File.write!(path, JSON.encode!(%{tabs: [%{url: "https://w.example/", profile: "work"}, %{url: "https://a.example/"}], active: 1}))
-    assert %{tabs: [%{url: "https://w.example/", profile: "work"}, %{url: "https://a.example/", profile: "default"}],
-             urls: ["https://w.example/", "https://a.example/"], active: 1} = Session.load_disk()
-
-    File.write!(path, JSON.encode!(%{urls: ["https://a.example/"], active: 0}))
-    assert %{tabs: [%{url: "https://a.example/", profile: "default"}], urls: ["https://a.example/"], active: 0} = Session.load_disk()
-
-    File.write!(path, JSON.encode!(["https://a.example/", "https://b.example/"]))
-    assert %{urls: ["https://a.example/", "https://b.example/"], active: 0} = Session.load_disk()
-
-    # Out-of-range active clamps to 0 rather than pointing past the list.
-    File.write!(path, JSON.encode!(%{urls: ["https://a.example/"], active: 7}))
-    assert %{urls: ["https://a.example/"], active: 0} = Session.load_disk()
+  test "load_disk reads tab records and rejects obsolete formats", %{path: path} do
+    File.write!(path, JSON.encode!(%{tabs: [%{url: "https://w.example/", profile: "work"}], active: 7}))
+    assert %{tabs: [%{url: "https://w.example/", profile: "work"}], active: 0} = Session.load_disk()
+    for obsolete <- [%{urls: ["https://a.example/"], active: 0}, ["https://a.example/"]] do
+      File.write!(path, JSON.encode!(obsolete))
+      assert %{tabs: [], urls: [], active: 0} = Session.load_disk()
+    end
   end
 
   test "hello adoption takes the engine's active tab" do
@@ -192,6 +186,7 @@ defmodule BowserBrain.SessionTest do
     state =
       base_state(%{
         disk: %{
+          tabs: Enum.map(["https://a.example/", "https://b.example/", "https://c.example/"], &%{url: &1, profile: "default"}),
           urls: ["https://a.example/", "https://b.example/", "https://c.example/"],
           active: 1
         }
@@ -229,9 +224,6 @@ defmodule BowserBrain.SessionTest do
       assert {nil, ^entries, 2} = Session.restore_plan(entries, 1)
     end
 
-    test "legacy bare urls are default-profile entries" do
-      assert {"https://a", [%{url: "https://b", profile: "default"}], 1} =
-               Session.restore_plan(["https://a", "https://b"], 1)
-    end
+
   end
 end

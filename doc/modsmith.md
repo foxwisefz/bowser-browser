@@ -46,8 +46,7 @@ the matching host. App mods remain CSS/JS only.
 ## Persistence and undo
 
 `BOWSER_HOME/modsmith-workspace.json` stores projects, turns, selections and
-revisions. Previous `modsmith-sessions.json` conversations are migrated without
-changing the source file. Historical writes before migration cannot be undone.
+revisions.
 
 Before each write, the journal durably records the original content (or absence)
 and intended content. Further drafts retain that original. Undo preflights all
