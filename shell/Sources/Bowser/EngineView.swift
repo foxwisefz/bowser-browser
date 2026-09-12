@@ -253,6 +253,8 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    private let externalNavigation = ExternalNavigationConsent()
+
     var currentURLString: String? { webView.url?.absoluteString }
 
     // MARK: Commands
@@ -509,7 +511,10 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         if Self.shouldOpenExternally(navigationAction.request.url),
            let url = navigationAction.request.url {
             decisionHandler(.cancel)
-            NSWorkspace.shared.open(url)
+            guard navigationAction.sourceFrame.isMainFrame, let window = webView.window else { return }
+            let origin = navigationAction.sourceFrame.securityOrigin
+            let source = origin.host.isEmpty ? "This page" : origin.host
+            externalNavigation.request(url: url, source: source, window: window)
             return
         }
         // `<a download>` and app-scheme links ask WebKit to download rather
