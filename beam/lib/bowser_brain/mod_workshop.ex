@@ -16,7 +16,7 @@ defmodule BowserBrain.ModWorkshop do
             GenServer.call(__MODULE__, {:draft, token, args}, 15_000)
 
           tool == "put_mod" and run.app == nil ->
-            case GenServer.call(__MODULE__, {:draft_mod, token, args}, 15_000) do
+            case GenServer.call(__MODULE__, {:draft_mod, token, args}, 110_000) do
               %{ok: true, installed: path} = reply ->
                 runtime =
                   if ModRevision.actual_path(path) == path,
@@ -295,10 +295,60 @@ defmodule BowserBrain.ModWorkshop do
     {:noreply, state}
   end
 
-  def handle_info({:finished, token, session, result}, %{run: %{token: token}} = state) do
-    state = finish(state, session, result)
-    publish(state)
-    {:noreply, state}
+  def handle_info({:finished, token, session, result} = message, %{run: %{token: token}} = state) do
+    Process.demonitor(state.run.ref, [:flush])
+    files = case result do
+      {:output, output} ->
+        case ModSmith.extract_json(output) do
+          {:ok, %{"files" => files}} when is_list(files) -> resolve_drafts(state, files)
+          _ -> []
+        end
+      _ -> []
+    end
+    case audit_gate(state, files, {:info, message}) do
+      {:pending, state} -> {:noreply, state}
+      outcome ->
+        result = case outcome do
+          :ready -> result
+          {:error, reason} -> {:error, reason}
+        end
+        state = finish(state, session, result)
+        publish(state)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:audit_finished, ref, result}, %{pending_audit: %{ref: ref} = pending} = state) do
+    Process.cancel_timer(pending.timer)
+    if Process.alive?(pending.pid), do: Process.exit(pending.pid, :kill)
+    state = Map.put(state, :pending_audit, nil)
+    same_run = state.run != nil and state.run.token == pending.token
+    valid_run = same_run and
+      (state.urls[state.run.webview] == nil or URI.parse(state.urls[state.run.webview]).host == URI.parse(state.run.url).host)
+    result = if valid_run, do: result, else: {:error, "The ModSmith run ended during security audit"}
+    state = if result == :ok,
+      do: Map.update(state, :audit_approvals, pending.keys, &(Enum.uniq(&1 ++ pending.keys))), else: state
+    case {pending.continuation, result} do
+      {{:call, request, from}, :ok} ->
+        case handle_call(request, from, state) do
+          {:reply, reply, state} ->
+            GenServer.reply(from, reply)
+            {:noreply, state}
+          {:noreply, state} -> {:noreply, state}
+        end
+      {{:call, _, from}, {:error, reason}} ->
+        GenServer.reply(from, %{ok: false, error: reason})
+        {:noreply, state}
+      {{:info, message}, :ok} -> handle_info(message, state)
+      {{:info, {:finished, _, session, _}}, {:error, reason}} ->
+        if same_run do
+          state = finish(state, session, {:error, reason})
+          publish(state)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _, reason}, %{run: %{ref: ref}} = state) do
@@ -347,6 +397,9 @@ defmodule BowserBrain.ModWorkshop do
         do: "app-mods/#{p["app"]["id"]}/#{args["name"]}",
         else: "sites/#{args["host"] || host}/#{args["name"]}"
 
+    if not is_binary(args["content"]) or not ModRevision.allowed?(path) do
+      {:reply, %{ok: false, error: "Expected CSS/JS payload content and a scoped filename"}, state}
+    else
     profile = Map.get(state.run, :profile, BowserBrain.ModScope.profile_of(state.run.webview))
     content = if p["app"], do: args["content"], else: BowserBrain.ModScope.tag(args["content"], profile, Path.extname(path))
     existing = ModRevision.absolute(ModRevision.actual_path(path))
@@ -360,6 +413,9 @@ defmodule BowserBrain.ModWorkshop do
       {:error, reason, state} ->
         {:reply, %{ok: false, error: reason}, state}
     end
+    end
+  rescue
+    _ -> {:reply, %{ok: false, error: "Invalid payload path or content"}, state}
   end
 
   def handle_call({:draft, _, _}, _, state), do: {:reply, %{ok: false, error: "Run ended"}, state}
@@ -380,7 +436,23 @@ defmodule BowserBrain.ModWorkshop do
   def handle_call({:draft_asset, _, _}, _, state),
     do: {:reply, %{ok: false, error: "An active ModSmith run is required"}, state}
 
-  def handle_call({:draft_mod, token, args}, _, %{run: %{token: token, app: nil}} = state) do
+  def handle_call({:draft_mod, token, args} = request, from, %{run: %{token: token, app: nil}} = state) do
+    name = args["name"]
+    if is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex$/, name) do
+      case audit_gate(state, [%{"path" => "mods/#{name}", "content" => args["content"]}], {:call, request, from}) do
+        :ready -> draft_mod(args, state)
+        {:pending, state} -> {:noreply, state}
+        {:error, reason} -> {:reply, %{ok: false, error: reason}, state}
+      end
+    else
+      {:reply, %{ok: false, error: "Expected a mod filename ending in .ex, without directories"}, state}
+    end
+  end
+
+  def handle_call({:draft_mod, _, _}, _, state),
+    do: {:reply, %{ok: false, error: "An active browser/site ModSmith run is required"}, state}
+
+  defp draft_mod(args, state) do
     name = args["name"]
 
     if is_binary(name) and Regex.match?(~r/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex$/, name) do
@@ -404,8 +476,6 @@ defmodule BowserBrain.ModWorkshop do
     end
   end
 
-  def handle_call({:draft_mod, _, _}, _, state),
-    do: {:reply, %{ok: false, error: "An active browser/site ModSmith run is required"}, state}
 
   defp client(event), do: get_in(event, ["app", "id"]) || "main"
   defp project(state, id), do: Enum.find(state.data["projects"], &(&1["id"] == id))
@@ -740,10 +810,10 @@ defmodule BowserBrain.ModWorkshop do
     end
   end
 
-  defp write_files(state, files) do
+  defp prepared_files(state, files) do
     p = project(state, state.run.project)
     profile = Map.get(state.run, :profile, BowserBrain.ModScope.profile_of(state.run.webview))
-    prepared = Enum.map(files, fn file ->
+    Enum.map(files, fn file ->
       case prepare_file(p, file) do
         {:ok, {path, content}} = result ->
           if is_nil(p["app"]) and (String.starts_with?(path, "mods/") or String.starts_with?(path, "sites/")) do
@@ -758,6 +828,61 @@ defmodule BowserBrain.ModWorkshop do
           end
         error -> error
       end
+    end)
+
+  end
+
+  defp audit_key(state, path, content),
+    do: {state.run.token, path, BowserBrain.ModAuditor.digest(content)}
+
+  defp audit_gate(state, files, continuation) do
+    prepared = prepared_files(state, files)
+    with nil <- Enum.find(prepared, &match?({:error, _}, &1)) do
+      needed = for {:ok, {path, source}} <- prepared,
+        String.ends_with?(String.replace_suffix(path, ".off", ""), ".ex"),
+        audit_key(state, path, source) not in Map.get(state, :audit_approvals, []),
+        do: {path, source}
+      cond do
+        needed == [] -> :ready
+        Map.get(state, :pending_audit) != nil -> {:error, "A security audit is already running"}
+        true ->
+          parent = self()
+          ref = make_ref()
+          token = state.run.token
+          p = project(state, state.run.project)
+          [revision | _] = p["revisions"]
+          context = %{request: revision["request"], scope: p["scope"], host: URI.parse(p["url"]).host}
+          pid = spawn(fn ->
+            result = Enum.reduce_while(needed, :ok, fn {path, source}, :ok ->
+              case BowserBrain.ModAuditor.review(context, path, source) do
+                :ok -> {:cont, :ok}
+                error -> {:halt, error}
+              end
+            end)
+            send(parent, {:audit_finished, ref, result})
+          end)
+          timer = Process.send_after(self(), {:audit_finished, ref, {:error, "Security audit timed out; Elixir was not installed"}}, 95_000)
+          pending = %{ref: ref, token: token, pid: pid, timer: timer, continuation: continuation,
+            keys: Enum.map(needed, fn {path, source} -> audit_key(state, path, source) end)}
+          state = state |> Map.put(:pending_audit, pending) |> Map.update!(:progress, &(&1 ++ ["Security audit reviewing generated Elixir"]))
+          publish(state)
+          {:pending, state}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    _ -> {:error, "Cannot prepare generated files for security audit"}
+  end
+
+  defp write_files(state, files) do
+    prepared = prepared_files(state, files)
+    prepared = Enum.map(prepared, fn
+      {:ok, {path, source}} = item ->
+        if String.ends_with?(String.replace_suffix(path, ".off", ""), ".ex") and
+             audit_key(state, path, source) not in Map.get(state, :audit_approvals, []),
+          do: {:error, "Security audit approval is required before installing Elixir"}, else: item
+      item -> item
     end)
 
     case Enum.find(prepared, &match?({:error, _}, &1)) do
@@ -881,7 +1006,7 @@ defmodule BowserBrain.ModWorkshop do
       )
 
     state = put_project(state, p)
-    %{state | run: nil}
+    %{state | run: nil} |> Map.put(:audit_approvals, [])
   end
 
   defp string(value) when is_binary(value), do: value

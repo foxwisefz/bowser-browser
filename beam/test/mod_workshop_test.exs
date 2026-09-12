@@ -7,6 +7,11 @@ defmodule BowserBrain.ModWorkshopTest do
     File.mkdir_p!(root)
     old_home = System.get_env("BOWSER_HOME")
     old_path = Application.get_env(:bowser_brain, :modsmith_workspace_path)
+    old_auditor = Application.get_env(:bowser_brain, :modsmith_auditor)
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      data = JSON.decode!(prompt)
+      {:ok, JSON.encode!(%{verdict: "allow", reason: "Test fixture approved", sha256: data["sha256"], nonce: data["nonce"]})}
+    end)
     original = :sys.get_state(ModWorkshop)
     System.put_env("BOWSER_HOME", root)
     Application.put_env(:bowser_brain, :modsmith_workspace_path, Path.join(root, "history.json"))
@@ -43,6 +48,9 @@ defmodule BowserBrain.ModWorkshopTest do
 
       Application.put_env(:bowser_brain, :modsmith_workspace_path, old_path)
       Application.delete_env(:bowser_brain, :modsmith_runner)
+      if old_auditor, do: Application.put_env(:bowser_brain, :modsmith_auditor, old_auditor),
+        else: Application.delete_env(:bowser_brain, :modsmith_auditor)
+
       File.rm_rf!(root)
     end)
 
@@ -220,6 +228,119 @@ end
     assert ModRevision.read("mods/valid_host.ex") =~ "GenuineScopedDraft"
   end
 
+  test "independent audit precedes writes and compilation and reviews exact tagged source", %{root: root} do
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      send(owner, {:audit, self(), JSON.decode!(prompt)})
+      receive do
+        :approve ->
+          data = JSON.decode!(prompt)
+          {:ok, JSON.encode!(%{verdict: "allow", reason: "Approved fixture", sha256: data["sha256"], nonce: data["nonce"]})}
+      end
+    end)
+    event("submit", %{"text" => "A native control", "scope" => "browser"})
+    assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+    marker = Path.join(root, "compiled")
+    source = "File.write!(#{inspect(marker)}, \"compiled\")\ndefmodule AuditedFixture do use BowserBrain.Mod end"
+    task = Task.async(fn -> ModWorkshop.tool(token, "put_mod", %{"name" => "audited.ex", "content" => source}) end)
+    assert_receive {:audit, auditor, data}, 1000
+    assert data["source"] == BowserBrain.ModScope.tag(source, "default")
+    assert data["request"] == "A native control"
+    refute File.exists?(marker)
+    assert ModRevision.read("mods/audited.ex") == nil
+    # The native workspace remains responsive while the audit is pending.
+    assert :sys.get_state(ModWorkshop).pending_audit != nil
+    send(auditor, :approve)
+    assert %{ok: true} = Task.await(task, 3000)
+    assert File.read!(marker) == "compiled"
+    assert ModRevision.read("mods/audited.ex") == data["source"]
+  end
+
+  test "rejected and unavailable audits leave draft and final batches inert", %{root: root} do
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn _ -> {:error, :unavailable} end)
+    event("submit", %{"text" => "A native control", "scope" => "browser"})
+    assert_receive {:runner, pid, token, _, nil, nil}, 1000
+    marker = Path.join(root, "forbidden")
+    source = "File.write!(#{inspect(marker)}, \"bad\")\ndefmodule RejectedFixture do use BowserBrain.Mod end"
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "rejected.ex", "content" => source})
+    refute File.exists?(marker)
+    assert ModRevision.read("mods/rejected.ex") == nil
+    complete(pid, [%{"path" => "sites/example.com/first.css", "content" => "body {}"}, %{"path" => "mods/rejected.ex", "content" => source}])
+    refute File.exists?(marker)
+    assert ModRevision.read("mods/rejected.ex") == nil
+    assert ModRevision.read("sites/example.com/first.css") == nil
+    [project] = :sys.get_state(ModWorkshop).data["projects"]
+    assert project["status"] == "failed"
+    assert hd(project["revisions"])["files"] == %{}
+  end
+
+  test "audit timeout and stale-run approval cannot install a draft" do
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      send(owner, {:waiting_audit, self(), JSON.decode!(prompt)})
+      receive do
+        :approve ->
+          data = JSON.decode!(prompt)
+          {:ok, JSON.encode!(%{verdict: "allow", reason: "Fixture", sha256: data["sha256"], nonce: data["nonce"]})}
+      end
+    end)
+    event("submit", %{"text" => "A native control", "scope" => "browser"})
+    assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+    args = %{"name" => "waiting.ex", "content" => "defmodule WaitingAuditFixture do use BowserBrain.Mod end"}
+    task = Task.async(fn -> ModWorkshop.tool(token, "put_mod", args) end)
+    assert_receive {:waiting_audit, auditor, _}, 1000
+    pending = :sys.get_state(ModWorkshop).pending_audit
+    send(ModWorkshop, {:audit_finished, pending.ref, {:error, "Security audit timed out"}})
+    assert %{ok: false} = Task.await(task, 3000)
+    refute Process.alive?(auditor)
+    assert ModRevision.read("mods/waiting.ex") == nil
+
+    task = Task.async(fn -> ModWorkshop.tool(token, "put_mod", args) end)
+    assert_receive {:waiting_audit, auditor, _}, 1000
+    :sys.replace_state(ModWorkshop, fn state -> %{state | urls: %{7 => "https://other.example"}} end)
+    send(auditor, :approve)
+    assert %{ok: false} = Task.await(task, 3000)
+    assert ModRevision.read("mods/waiting.ex") == nil
+  end
+
+  test "changing audited source requires a fresh review and preserves the approved file" do
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      data = JSON.decode!(prompt)
+      send(owner, {:reviewed_source, data["source"]})
+      decision = if String.contains?(data["source"], "reject_this_change"), do: "reject", else: "allow"
+      {:ok, JSON.encode!(%{verdict: decision, reason: "Fixture", sha256: data["sha256"], nonce: data["nonce"]})}
+    end)
+    event("submit", %{"text" => "A native control", "scope" => "browser"})
+    assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+    source = "defmodule FreshAuditFixture do use BowserBrain.Mod end"
+    assert %{ok: true} = ModWorkshop.tool(token, "put_mod", %{"name" => "fresh.ex", "content" => source})
+    assert_receive {:reviewed_source, first}
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "fresh.ex", "content" => source <> "\n# reject_this_change"})
+    assert_receive {:reviewed_source, second}
+    refute first == second
+    assert ModRevision.read("mods/fresh.ex") == first
+  end
+
+  test "nil content and payload tool names cannot bypass the Elixir gate" do
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn _ -> send(owner, :unexpected_audit); {:error, :unavailable} end)
+    event("submit", %{"text" => "A native control", "scope" => "browser"})
+    assert_receive {:runner, pid, token, _, nil, nil}, 1000
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "nil.ex", "content" => nil})
+    for args <- [%{"name" => "payload.ex", "content" => "defmodule PayloadBypass do use BowserBrain.Mod end"},
+                 %{"name" => "../../mods/bypass.ex", "content" => "defmodule PayloadBypass do use BowserBrain.Mod end"},
+                 %{"name" => "valid.css", "content" => nil}] do
+      assert %{ok: false} = ModWorkshop.tool(token, "put_payload", args)
+    end
+    assert Process.alive?(Process.whereis(ModWorkshop))
+    refute_received :unexpected_audit
+    complete(pid, [%{"path" => "mods/nil.ex", "content" => nil}])
+    assert ModRevision.read("mods/nil.ex") == nil
+    assert ModRevision.read("mods/bypass.ex") == nil
+    [project] = :sys.get_state(ModWorkshop).data["projects"]
+    assert project["status"] == "failed"
+  end
 
   test "Elixir drafts share final revision history and Undo removes the installed file" do
     event("submit", %{"text" => "AOL shell", "scope" => "browser"})

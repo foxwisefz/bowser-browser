@@ -73,6 +73,13 @@ literal declared host constrains both injected scripts and styles. Explicit
 page-world code is visible to/tamperable by that website; do not put secrets
 in it. DOM content is shared in either world.
 
+Generated Elixir is independently reviewed before writing or compiling it.
+The auditor has no tools, receives the owner's request/scope and exact source,
+and must return a strict allow verdict bound to the source hash and a nonce.
+Reject, uncertain, malformed, unavailable, timed-out, or stale reviews block
+activation. Every changed source needs its own review, including final batches.
+Audit-only is the chosen policy: accepted mods retain full OS privileges.
+
 ## Persistence and undo
 
 `BOWSER_HOME/modsmith-workspace.json` stores projects, turns, selections and

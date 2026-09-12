@@ -144,6 +144,7 @@ defmodule BowserBrain.ModSmith do
     is safe merely because the new init_mod defines it. Test mod_reloaded with
     the previous state shape (including %{}), not only a fresh process.
     SCRIPT WORLDS: Page.set_scripts/1,2 and Page.eval/1,2 default to isolated JavaScript, sharing DOM but not page globals. Explicit world: :page opts into website globals/patching; scripts and eval must select the same world to share mod variables. Injected payloads have function scope; put shared state on globalThis. Persistent site/saved-app JS opts in with // bowser-world: page as first nonblank line after optional profile tag. CSS remains isolated. Native injection enforces the declared mod/site host (saved apps exact origin). No private DOM data: websites can read DOM changes in either world.
+    ELIXIR AUDIT: A separate tool-free LLM reviews each changed Elixir source before file installation/compilation. Only explicit exact-source approval permits activation; reject/uncertain/unavailable/malformed/timeout blocks it. Never claim runtime verification if audit fails. Accepted mods still have full OS privileges; this is not a sandbox.
 
     APIs: BowserBrain.Browser.navigate(url); BowserBrain.Page.eval(js, webview: 0) ->
     {:ok,val}; Page.set_styles([css]); Page.set_scripts([js]) (engine-injected, owner-keyed);
@@ -420,6 +421,37 @@ defmodule BowserBrain.ModSmith do
   end
 
   @finish_ms 240_000
+  @doc "Run a fresh tool-free security reviewer, independent of generation history."
+  def run_audit(prompt) do
+    settings = BowserBrain.Settings.all()
+    with claude when is_binary(claude) <- System.find_executable("claude"),
+         route when route == :cli or elem(route, 0) == :router <- auth_route(settings) do
+      args = audit_args(prompt)
+      case run_port(claude, args, claude_env(settings), 90_000, fn _ -> :ok end) do
+        {:done, 0, events, _raw, _session} ->
+          case stream_result(events) do
+            {_, text} when is_binary(text) -> {:ok, text}
+            _ -> {:error, :invalid_audit_response}
+          end
+        _ -> {:error, :audit_unavailable}
+      end
+    else
+      _ -> {:error, :audit_unavailable}
+    end
+  rescue
+    _ -> {:error, :audit_unavailable}
+  end
+
+  @doc false
+  def audit_args(prompt) do
+    ["-p", prompt, "--output-format", "stream-json", "--verbose",
+        "--tools", "", "--allowedTools", "", "--strict-mcp-config",
+        "--mcp-config", JSON.encode!(%{mcpServers: %{}}), "--disable-slash-commands",
+        "--no-session-persistence", "--setting-sources", "", "--settings",
+        JSON.encode!(%{disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ["**"]}),
+        "--system-prompt", BowserBrain.ModAuditor.instructions()] ++ model_args()
+  end
+
   def run_claude(prompt, resume, on_progress, app) do
     settings = BowserBrain.Settings.all()
 
