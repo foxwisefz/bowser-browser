@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+: "${BOWSER_SIGN_IDENTITY:?Set Developer ID identity to qualify signed module replacement}"
+root="$(mktemp -d /tmp/bowser-toolbar-check.XXXXXX)"
+app="$root/ToolbarCheck.app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+"$repo/bin/build-native-toolbar" "$app/Contents/Resources/CommandToolbar.bundle"
+"$repo/bin/build-native-toolbar" "$root/Second.bundle"
+cp -f "$repo/experiments/native-modules/fixture.html" "$root/fixture.html"
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=320x180:rate=30' -t 45 -c:v libx264 -pix_fmt yuv420p "$root/video.mp4"
+swiftc -swift-version 6 "$repo/shell/Sources/Bowser/NativeToolbar.swift" "$repo/shell/Sources/Bowser/BowserPaths.swift" "$repo/tests/native-toolbar/main.swift" -o "$app/Contents/MacOS/ToolbarCheck"
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.foxwiseai.bowser.toolbar-check</string>
+<key>CFBundleExecutable</key><string>ToolbarCheck</string>
+<key>ProbeRoot</key><string>$root</string>
+</dict></plist>
+PLIST
+codesign --force --options runtime --sign "$BOWSER_SIGN_IDENTITY" "$app"
+codesign --verify --deep --strict "$app"
+codesign -dvv "$app" 2> "$root/signing.txt"
+grep -q 'runtime' "$root/signing.txt"
+codesign -d --entitlements - "$app" > "$root/entitlements.txt" 2>/dev/null
+if grep -q 'disable-library-validation' "$root/entitlements.txt"; then echo 'library validation disabled' >&2; exit 1; fi
+open -n -W "$app"
+if [ -f "$root/failure" ]; then cat "$root/failure"; echo "Artifacts: $root"; exit 1; fi
+cat "$root/result.json"
+echo "Artifacts: $root"

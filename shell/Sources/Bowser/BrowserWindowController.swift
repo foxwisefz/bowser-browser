@@ -25,6 +25,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     private var paneFocusMonitor: Any?
     private var band: BandScrimView!
     private var clusterHosting: NSHostingView<AnyView>?
+    private var nativeToolbar: NativeToolbarSlot?
     private let titleLabel = NSTextField(labelWithString: "")
     /// The profile every tab of this window belongs to. Set once, right
     /// after the window exists and before its first tab is born.
@@ -90,7 +91,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         // plain view, obeys constraints; page starts below the band so
         // nothing ever collides. The band still takes the page's theme tint.
         if !isSiteApp {
-        let hosting = NSHostingView(rootView: AnyView(clusterView()))
+        let fallback = NSHostingView(rootView: AnyView(clusterView()))
+        let hosting = NativeToolbarSlot(fallback: fallback)
+        hosting.interactionInProgress = { TabDragPreview.shared.source != nil }
+        hosting.onAction = { [weak self] event in self?.nativeToolbarAction(event) }
+        nativeToolbar = hosting
         hosting.translatesAutoresizingMaskIntoConstraints = false
         if let titlebar = window.standardWindowButton(.closeButton)?.superview {
             titlebar.addSubview(hosting)
@@ -118,7 +123,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
                     lessThanOrEqualTo: titlebar.widthAnchor, multiplier: 0.45),
             ])
         }
-        clusterHosting = hosting
+        clusterHosting = fallback
 
         // Profile identity in the title bar: "🧪 Work" in the profile's tint,
         // trailing edge. Hidden for an unstyled default profile — today's look.
@@ -515,10 +520,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Hover changes only local toolbar appearance, never window ordering.
     func setToolbarHovered(_ shown: Bool) {
         revealHide?.cancel()
-        guard window?.isKeyWindow == true else { reveal.lights = false; return }
-        if shown { reveal.lights = true }
+        guard window?.isKeyWindow == true else { reveal.lights = false; syncModButtons(); return }
+        if shown { reveal.lights = true; syncModButtons() }
         else {
-            let work = DispatchWorkItem { [weak self] in self?.reveal.lights = false }
+            let work = DispatchWorkItem { [weak self] in self?.reveal.lights = false; self?.syncModButtons() }
             revealHide = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
@@ -586,6 +591,32 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Mod buttons render inside the hover cluster now; rebuild it.
     func syncModButtons() {
         clusterHosting?.rootView = AnyView(clusterView())
+        let theme = ChromeSurface.theme(for: profile.id)
+        let tint = profile.color?.usingColorSpace(.sRGB)
+        let payload: [String: Any] = [
+            "revealed": reveal.lights, "colors": theme.colors,
+            "tint": tint.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } as Any? ?? NSNull(),
+            "buttonStyle": theme.buttonStyle, "cornerRadius": theme.cornerRadius,
+            "showNavigation": theme.showNavigation,
+            "buttons": ChromeSurface.buttons(for: profile.id).prefix(128).map { ["id": $0.id, "title": $0.title, "symbol": $0.symbol as Any? ?? NSNull()] }
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload) { nativeToolbar?.setSnapshot(data) }
+    }
+
+    private func nativeToolbarAction(_ event: String) {
+        switch event {
+        case "command": focusOmnibar()
+        case "back": activeTab?.webView.goBack()
+        case "forward": activeTab?.webView.goForward()
+        case "reload": activeTab?.webView.reload()
+        case "hover:1": setToolbarHovered(true)
+        case "hover:0": setToolbarHovered(false)
+        default:
+            guard event.hasPrefix("mod:") else { return }
+            let id = String(event.dropFirst(4))
+            guard ChromeSurface.buttons(for: profile.id).contains(where: { $0.id == id }) else { return }
+            ChromeSurface.emit(["op": "event", "event": "chrome_click", "id": id])
+        }
     }
 
     func syncToolbars() { container.setBars(ChromeSurface.toolbars(for: profile.id)) }
@@ -622,6 +653,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        nativeToolbar?.retire()
         container.releaseLocalState()
         detachWebsiteLayout()
         ChromeSurface.unregister(self)
@@ -666,6 +698,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             window.toggleFullScreen(nil)
         }
     }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { NativeToolbarRuntime.shared.clearTransition(window) }
+    func windowDidFailToExitFullScreen(_ window: NSWindow) { NativeToolbarRuntime.shared.clearTransition(window) }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         UserDefaults.standard.set(true, forKey: Self.fullscreenKey(for: profile))

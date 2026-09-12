@@ -10,18 +10,35 @@
 #   bin/install --brain-only    stage only the brain and helpers
 #   bin/install --release       optimized shell build (default; isolated launch gate)
 #   bin/install --debug         explicit debug shell build
+#   bin/install --native-only  build/publish only the live command toolbar
 #   bin/install --stage-only   build a fresh pair; do not publish, install or register launch agents
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 APP_DIR="${BOWSER_APP_DIR:-$HOME/.bowser/app}"
 BUNDLE="${BOWSER_BUNDLE_PATH:-$HOME/Applications/Bowser.app}"
-SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0; STAGE_ONLY=0
+SHELL_ONLY=0; BRAIN_ONLY=0; DEBUG=0; STAGE_ONLY=0; NATIVE_ONLY=0
 for a in "$@"; do case "$a" in
   --stage-only) STAGE_ONLY=1;;
+  --native-only) NATIVE_ONLY=1;;
   --shell-only) SHELL_ONLY=1;; --brain-only) BRAIN_ONLY=1;; --debug) DEBUG=1;; --release) DEBUG=0;;
   *) echo "unknown flag: $a" >&2; exit 2;;
 esac; done
+
+# Prefer an available Developer ID identity; explicit '-' keeps local ad-hoc builds.
+if [ -z "${BOWSER_SIGN_IDENTITY:-}" ]; then
+  BOWSER_SIGN_IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+  export BOWSER_SIGN_IDENTITY="${BOWSER_SIGN_IDENTITY:--}"
+fi
+if [ "$NATIVE_ONLY" = 1 ]; then
+  [ "$STAGE_ONLY$SHELL_ONLY$BRAIN_ONLY" = 000 ] || { echo '--native-only cannot be combined with other partial/stage flags' >&2; exit 2; }
+  [ "$BOWSER_SIGN_IDENTITY" != - ] || { echo 'Live native updates require Developer ID signing' >&2; exit 2; }
+  native_stage="$(mktemp -d /tmp/bowser-native-build.XXXXXX)"
+  trap 'rm -rf "$native_stage"' EXIT
+  "$REPO/bin/build-native-toolbar" "$native_stage/CommandToolbar.bundle"
+  "$REPO/bin/publish-native-toolbar" "$native_stage/CommandToolbar.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
+  exit 0
+fi
 
 if [ "$STAGE_ONLY" = 1 ]; then
   [ "$SHELL_ONLY" = 0 ] && [ "$BRAIN_ONLY" = 0 ] || { echo "--stage-only requires a complete build" >&2; exit 2; }
@@ -94,7 +111,12 @@ if [ "$BRAIN_ONLY" = 0 ]; then
     /usr/libexec/PlistBuddy -c "Add :BowserUpdatePublicKey string $BOWSER_UPDATE_PUBLIC_KEY" "$STAGE/Bowser.app/Contents/Info.plist"
   fi
   printf 'APPL????' > "$STAGE/Bowser.app/Contents/PkgInfo"
-  codesign --force --deep --sign - "$STAGE/Bowser.app" >/dev/null 2>&1 || echo "  (codesign skipped)"
+  "$REPO/bin/build-native-toolbar" "$STAGE/Bowser.app/Contents/Resources/CommandToolbar.bundle"
+  native_sign=(--force --sign "$BOWSER_SIGN_IDENTITY")
+  if [ "$BOWSER_SIGN_IDENTITY" != - ]; then native_sign+=(--options runtime); fi
+  if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then native_sign+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
+  codesign "${native_sign[@]}" "$STAGE/Bowser.app"
+  codesign --verify --deep --strict "$STAGE/Bowser.app"
   # Assemble inside the unpublished generation.
   rm -rf "$BUNDLE.new"; mv "$STAGE/Bowser.app" "$BUNDLE.new"; rm -rf "$BUNDLE.old"
   [ -d "$BUNDLE" ] && mv "$BUNDLE" "$BUNDLE.old"; mv "$BUNDLE.new" "$BUNDLE"; rm -rf "$BUNDLE.old" "$STAGE"
@@ -137,6 +159,12 @@ if [ "$STAGE_ONLY" = 1 ]; then
   if [ -n "${BOWSER_STAGE_FILE:-}" ]; then printf '%s\n' "$BUILD_STAGE" > "$BOWSER_STAGE_FILE"; fi
   say "release stage ready — no installation or launch-agent changes"
   exit 0
+fi
+
+# Module delivery is independent of pending host/backend activation. Older
+# shells ignore this pointer; new shells validate compatibility and signing.
+if [ "$BRAIN_ONLY" = 0 ] && [ "$BOWSER_SIGN_IDENTITY" != - ]; then
+  "$REPO/bin/publish-native-toolbar" "$BUNDLE/Contents/Resources/CommandToolbar.bundle" "${BOWSER_HOME:-$HOME/.bowser}"
 fi
 
 # Publish a complete generation only after builds and signatures succeed.

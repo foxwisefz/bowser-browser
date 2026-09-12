@@ -1,0 +1,24 @@
+#!/bin/bash
+# Publish only immutable module generations. The running host independently
+# verifies the complete signature, Team ID, ABI and dependencies before loading.
+set -euo pipefail
+[ "$#" = 2 ] || { echo 'usage: bin/publish-native-toolbar MODULE.bundle BOWSER_HOME' >&2; exit 2; }
+source="$1"; root="$2/native-modules/command-toolbar"
+build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source/Contents/Info.plist")"
+[[ "$build" =~ ^[0-9a-f]{32}$ ]] || { echo 'invalid module build' >&2; exit 1; }
+codesign --verify --strict "$source"
+mkdir -p "$root"; chmod 700 "$root"
+if [ ! -d "$root/$build.bundle" ]; then
+  stage="$(mktemp -d "$root/stage.XXXXXX")"
+  trap 'chmod -R u+w "$stage" 2>/dev/null || true; rm -rf "$stage"' EXIT
+  ditto "$source" "$stage/module.bundle"
+  codesign --verify --strict "$stage/module.bundle"
+  find "$stage/module.bundle" -type f -exec chmod 400 {} +
+  find "$stage/module.bundle" -mindepth 1 -type d -exec chmod 500 {} +
+  mv -f "$stage/module.bundle" "$root/$build.bundle"
+  chmod 500 "$root/$build.bundle"
+fi
+pointer="$(mktemp "$root/current.XXXXXX")"
+printf '%s\n' "$build" > "$pointer"
+chmod 600 "$pointer"; mv -f "$pointer" "$root/current"
+echo "Published command toolbar $build; compatible signed running hosts validate and apply it independently."

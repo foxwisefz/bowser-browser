@@ -1,0 +1,30 @@
+#!/bin/bash
+# Build an immutable, uniquely named Swift module with a sealed admission record.
+set -euo pipefail
+[ "$#" = 1 ] || { echo 'usage: bin/build-native-toolbar OUTPUT.bundle' >&2; exit 2; }
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+output="$1"
+[ ! -e "$output" ] || { echo 'module output already exists' >&2; exit 1; }
+identity="${BOWSER_SIGN_IDENTITY:--}"
+build="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+mkdir -p "$output/Contents/MacOS"
+swiftc -target arm64-apple-macos15.0 -swift-version 6 -O -parse-as-library -emit-library -module-name "BowserToolbar_$build" \
+  -Xlinker -rpath -Xlinker /usr/lib/swift \
+  "$repo/shell/NativeModules/CommandToolbar/Toolbar.swift" -o "$output/Contents/MacOS/CommandToolbar"
+cat > "$output/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.foxwiseai.bowser.command-toolbar</string>
+<key>CFBundleExecutable</key><string>CommandToolbar</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+<key>CFBundleVersion</key><string>$build</string>
+<key>BowserHostABI</key><integer>1</integer>
+<key>BowserStateSchema</key><integer>1</integer>
+<key>BowserBackendProtocol</key><integer>1</integer>
+</dict></plist>
+PLIST
+args=(--force --sign "$identity")
+if [ "$identity" != - ]; then args+=(--options runtime); fi
+if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then args+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
+codesign "${args[@]}" "$output"
+codesign --verify --strict "$output"
+echo "Built command toolbar $build"

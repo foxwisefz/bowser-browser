@@ -1,0 +1,44 @@
+{
+  "activeBuild" : "d0e1f9c760214cc7beae54b4deeb7923",
+  "after" : {
+    "draft" : "unsent before after",
+    "frames" : 169,
+    "fullscreen" : false,
+    "interruptions" : [
+      "waiting"
+    ],
+    "maxGapMS" : 54,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 19,
+    "selectionStart" : 19,
+    "ticks" : 237,
+    "time" : 5.6296193750076258,
+    "token" : "6a9a9535-907c-4291-8e89-4cbfbd7151cc"
+  },
+  "before" : {
+    "draft" : "unsent",
+    "frames" : 47,
+    "fullscreen" : false,
+    "interruptions" : [
+      "waiting"
+    ],
+    "maxGapMS" : 54,
+    "paused" : false,
+    "samePlayer" : true,
+    "scrollY" : 0,
+    "selectionEnd" : 6,
+    "selectionStart" : 6,
+    "ticks" : 67,
+    "time" : 1.5638053750006538,
+    "token" : "6a9a9535-907c-4291-8e89-4cbfbd7151cc"
+  },
+  "commandActions" : 2,
+  "developerID" : true,
+  "initialBuild" : "79b9a03d97324e848b4655f9962482aa",
+  "libraryValidationDisabled" : false,
+  "passed" : true,
+  "sameWebView" : true,
+  "typedDraft" : "unsent before after"
+}

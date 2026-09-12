@@ -1,6 +1,6 @@
 # Native module admission around a stable page owner
 
-Status: proposed production design; implementation remains gated.
+Status: command-toolbar boundary implemented; broader qualification remains open.
 Date: 2026-09-11. Bead: bowser-browser-kgu9; parent: bowser-browser-29v.
 
 ## Boundary and guarantees
@@ -11,9 +11,10 @@ and socket/event routing in a small stable owner. Existing page objects and
 WebKit processes continue running across a controller update. Move replaceable
 native toolbar/panel behavior into versioned modules only after extracting this
 boundary from AppDelegate, BrowserWindowController, EngineView, BrainBridge,
-SurfaceHost, and the SwiftUI hosting views. The current shell has not undergone
-that extraction. The backend relay is a working precedent, not a native module
-loader.
+SurfaceHost, and the SwiftUI hosting views. The command-toolbar cluster has been
+extracted; other shell views remain in the host. See
+[current implementation](../../docs/native-toolbar-updates.md). The backend
+relay is a precedent for independently replaceable components.
 
 The stable owner holds all page/window references. Modules get opaque handles
 with owner-provided operations, not raw WKWebView pointers or delegate authority.
@@ -61,10 +62,11 @@ immutable staging is therefore part of admission, not just caching.
 Hardened runtime is also required for notarization.
 [Apple hardened runtime guidance](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime).
 
-Current evidence: `security find-identity -v -p codesigning` returned zero valid
-identities in this environment on 2026-09-11. Existing fixtures are ad hoc signed.
-Production signing, notarization and quarantine tests remain blocked on the
-real distribution identity; ad hoc tests cannot satisfy that gate.
+Current evidence: a Foxwise Developer ID identity is available. The integrated
+command-toolbar check passed in a Developer ID signed hardened-runtime host
+with library validation enabled on 2026-09-13. See
+`tests/native-toolbar/results/signed-replacement.json`. Notarization and
+quarantine qualification remain separate gates; local signing does not prove them.
 
 ## ABI, preparation and state
 
