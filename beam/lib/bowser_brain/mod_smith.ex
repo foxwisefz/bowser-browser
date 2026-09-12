@@ -211,24 +211,54 @@ defmodule BowserBrain.ModSmith do
     across the surface. Use text(..., style: :heading) for settings headings. Layout
     settings as focused editors and separate creation sheets, not a stack of every
     editable record. button() creates a panel row, not a native form action.
-    NATIVE EDITING: input(:body, kind: :multiline, monospaced: true,
-    preview: :markdown, editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}],
-    fill_height: true, fill_width: true) inside form/3,4 creates a native multiline
-    editor with selection, clipboard, undo/redo, wrapping and scrolling. Options
-    editor_actions and preview are optional: plain text works without Markdown.
-    Actions insert prefix/suffix around the current selection in one undoable edit.
-    Markdown preview reads the current local draft (including unsaved edits), supports
-    headings, lists, quotes, fenced code and inline emphasis/code/link labels. It does
-    not execute HTML, fetch images or open links; tables and rich HTML are unsupported.
-    Use stable form keys per document, not hashes of changing content. Re-showing a
-    form keeps dirty drafts; use matching form_response acknowledgments after saving.
-    Native forms can live inline in Chrome.put_toolbar(edge: :right, size: 360),
-    with fill_height: true on the form and input. Side widths accept 16..800 points;
-    top/bottom heights 16..200. Native notes/private tools must keep data in Store and
-    native form events, never Page.eval, page scripts or page-origin message handlers.
-    Never substitute one single-line field per line for a document editor. Use JSON
-    (built in), not Jason (not installed). Verify typing, saving and reopening, and
-    check the actual rendered result before marking complete.
+    NATIVE COMPOSITION: state(key, values, content, opts) (arities 3,4) is a local
+    state scope with no imposed controls. tracked_fields: [:body] makes only the
+    document dirty, excluding UI choices like mode; default tracks all fields.
+    Submit still includes all values. Keys are unique per surface and stable
+    per document. Toolbar scopes are isolated per window. Removing the toolbar or
+    closing its window releases state. Any mod function can return a reusable
+    component tree; compose controls freely instead of building feature widgets.
+    editor(field, opts) (1,2) is ONLY a native multiline editing surface: label:,
+    placeholder:, monospaced:, shared sizing. It has native selection, clipboard,
+    wrapping and undo; no built-in formatting bar, mode selector or Save button.
+    preview(field, opts) (1,2) independently renders the current local string as
+    Markdown: headings/bullets/quotes/fenced code/inline emphasis/code/link labels;
+    no HTML execution, remote images, link activation or tables.
+    selector(field, options, opts) (2,3) binds a local string field; options are
+    [%{value: "write", label: "Write"}, %{value: "preview", label: "Preview"}],
+    style: :segmented (default) or :menu, label: for accessibility.
+    switch(field, cases, opts) (2,3) shows the matching local string value; cases
+    are [%{key: "write", value: "write", content: tree}, ...]. Hidden branches stay
+    mounted to preserve undo/selection, reserve maximum branch size, and cannot
+    receive input. flow(children, opts) (1,2) wraps ANY children, spacing: default 6.
+    spacer/0,1 takes min:. Use adaptive layout; don't put overflowing tool rows
+    behind horizontal scrollbars. image/1 accepts a symbol OR [symbol:, size:].
+    action(label, opts) (1,2) accepts symbol:, label_style: :icon, button_style:
+    :plain/:borderless/:bordered, help:, sizing and command: command(op, opts).
+    command/1,2 targets the nearest state/form, not global IDs. Ops:
+    set(field:, value:), toggle(field:), wrap(field:, prefix:, suffix:),
+    insert(field:, text:), select(field:, location:, length:) using UTF-16 ranges,
+    undo(field:), redo(field:), reset(), discard(), snapshot(fields: [strings]),
+    submit(required: [strings], labels: map). Editing needs a mounted enabled editor.
+    set/toggle/editing remain local. snapshot emits only requested values and editor
+    selections; submit emits request_id + values; discard confirms dirty-state
+    loss and emits if accepted. These use the action's event. Other commands emit
+    nothing. Commands are ignored during pending submissions. Acknowledge via
+    form_response/2 and state(..., response: reply); errors retain drafts.
+    form/3,4 retains default controls; controls: false allows custom save controls.
+    Example: action("Bold", symbol: "bold", label_style: :icon, button_style: :plain,
+      command: command(:wrap, field: "body", prefix: "**", suffix: "**"));
+    place this anywhere inside state("doc-42", %{"body" => text}, tree).
+    Shared ui/2 styles: foreground/background/border hex colors, corner_radius,
+    font_size: 8..72 points, control_size: :regular/:small/:mini, existing sizing/
+    padding/alignment. Editor font_size/foreground/background style its native text.
+    Set fill_height: true on editor, scope and enclosing layout for full-height UI.
+    Native components assembled from these primitives hot-reload as ordinary mod
+    functions. New native rendering/input capabilities still require a shell
+    implementation; arbitrary Swift/dylib loading is not exposed.
+    Keep private data in Store and native state/events, never Page.eval, scripts
+    or page-origin handlers. Use JSON (built in), not Jason (not installed).
+    Verify actual typing, commands, saving/reopening, appearance at narrow widths.
 
     COMPOSABLE WEBSITE LAYOUT: alias BowserBrain.{Layout, Surface}.
     Surface.create_tab(wv, url) -> {:ok, state} with "created" => background tab ID.

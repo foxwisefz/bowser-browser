@@ -185,7 +185,7 @@ defmodule BowserBrain.View do
   def ui(node, opts) when is_map(node) do
     shared = Keyword.take(opts, [:key, :width, :height, :min_width, :max_width, :min_height,
       :max_height, :fill_width, :fill_height, :padding, :alignment, :disabled,
-      :accessibility_label, :help]) |> Map.new()
+      :accessibility_label, :help, :foreground, :background, :border, :corner_radius, :control_size, :font_size]) |> Map.new()
     shared = if Map.has_key?(shared, :key), do: Map.update!(shared, :key, &to_string/1), else: shared
     Map.merge(node, shared)
   end
@@ -195,7 +195,8 @@ defmodule BowserBrain.View do
     %{t: "action", label: to_string(label), event: to_string(Keyword.get(opts, :event, :click)),
       payload: Keyword.get(opts, :payload), role: Keyword.get(opts, :role),
       shortcut: Keyword.get(opts, :shortcut), symbol: Keyword.get(opts, :symbol),
-      action: Keyword.get(opts, :action)} |> ui(opts)
+      action: Keyword.get(opts, :action), command: Keyword.get(opts, :command),
+      button_style: Keyword.get(opts, :button_style), label_style: Keyword.get(opts, :label_style)} |> ui(opts)
   end
 
   @doc "Equal-width native grid. columns: 1..12."
@@ -218,7 +219,7 @@ defmodule BowserBrain.View do
       event: to_string(Keyword.get(opts, :event, key)),
       required: Enum.map(Keyword.get(opts, :required, []), &to_string/1),
       labels: Map.new(Keyword.get(opts, :labels, %{}), fn {k, v} -> {to_string(k), v} end),
-      require_changes: Keyword.get(opts, :require_changes, true),
+      require_changes: Keyword.get(opts, :require_changes, true), controls: Keyword.get(opts, :controls, true),
       dismiss_on_success: Keyword.get(opts, :dismiss_on_success, false),
       dismiss_on_cancel: Keyword.get(opts, :dismiss_on_cancel, false),
       submit_label: Keyword.get(opts, :submit_label, "Save Changes"),
@@ -233,14 +234,40 @@ defmodule BowserBrain.View do
   def form_response(request_id, {:error, message}),
     do: %{request_id: request_id, ok: false, error: to_string(message)}
 
-  @doc "Form-bound input. kind: :text/:multiline/:toggle/:color/:choice. Multiline accepts monospaced:, preview: :markdown, editor_actions: [%{label: string, prefix: string, suffix: string}]. Choice options: %{value: string, label: string, path: image_path or symbol: sf_symbol}."
+  @doc "Form-bound input. kind: :text/:multiline/:toggle/:color/:choice. Multiline accepts monospaced:. Compose editor commands and previews as sibling views. Choice options: %{value: string, label: string, path: image_path or symbol: sf_symbol}."
   def input(name, opts \\ []) do
     %{t: "input", key: to_string(name), field: to_string(name), kind: Keyword.get(opts, :kind, :text),
       label: Keyword.get(opts, :label, to_string(name)), placeholder: Keyword.get(opts, :placeholder),
       columns: Keyword.get(opts, :columns, 4), options: Keyword.get(opts, :options, []),
-      monospaced: Keyword.get(opts, :monospaced, false), preview: Keyword.get(opts, :preview),
-      editor_actions: Keyword.get(opts, :editor_actions, [])} |> ui(opts)
+      monospaced: Keyword.get(opts, :monospaced, false)} |> ui(opts)
   end
+
+  @doc "Local state scope. Children bind to string-keyed values; keys are stable per document. No imposed controls."
+  def state(key, values, content, opts \\ []) when is_map(values),
+    do: ui(%{t: "state", key: to_string(key), values: values, content: content, response: Keyword.get(opts, :response),
+      tracked_fields: case Keyword.get(opts, :tracked_fields) do nil -> nil; fields -> Enum.map(fields, &to_string/1) end}, opts)
+
+  @doc "Bare native text editor bound to a field in the nearest state/form. Selection and undo remain local."
+  def editor(field, opts \\ []),
+    do: ui(%{t: "editor", field: to_string(field), label: Keyword.get(opts, :label, to_string(field)),
+      placeholder: Keyword.get(opts, :placeholder, ""), monospaced: Keyword.get(opts, :monospaced, false)}, opts)
+
+  @doc "Independent native Markdown preview bound to a state/form field. No HTML, network assets or link activation."
+  def preview(field, opts \\ []), do: ui(%{t: "preview", field: to_string(field)}, opts)
+
+  @doc "Local field selector. options: [%{value: string, label: string}]; style: :segmented (default) or :menu."
+  def selector(field, options, opts \\ []),
+    do: ui(%{t: "selector", field: to_string(field), options: options,
+      label: Keyword.get(opts, :label, to_string(field)), style: Keyword.get(opts, :style, :segmented)}, opts)
+
+  @doc "Display the case matching a local string field. Cases: [%{key: string, value: string, content: tree}]. Hidden cases retain editor state."
+  def switch(field, cases, opts \\ []), do: ui(%{t: "switch", field: to_string(field), cases: cases}, opts)
+
+  @doc "Wrap arbitrary child views into rows as available width changes."
+  def flow(children, opts \\ []), do: ui(%{t: "flow", children: children, spacing: Keyword.get(opts, :spacing, 6)}, opts)
+
+  @doc "Local command for action(command: ...). Ops: set, toggle, wrap, insert, select, undo, redo, snapshot, submit, reset, discard."
+  def command(op, opts \\ []), do: opts |> Map.new() |> Map.put(:op, to_string(op))
 
   @doc "Native sheet opened by a button; content is another tree. Include action(..., action: :dismiss) to close."
   def sheet(key, label, content, opts \\ []), do: presentation("sheet", key, label, content, opts)

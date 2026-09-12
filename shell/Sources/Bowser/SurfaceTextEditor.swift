@@ -21,6 +21,9 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
     let monospaced: Bool
     let editable: Bool
     let label: String
+    var fontSize: Double = 14
+    var foreground: String? = nil
+    var background: String? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -41,6 +44,8 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
         view.delegate = context.coordinator
         view.string = text
         scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
         scroll.hasHorizontalScroller = false
         scroll.borderType = .noBorder
         controller.textView = view
@@ -62,9 +67,10 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
     }
     private func configure(_ view: NSTextView) {
         view.isEditable = editable
-        view.font = monospaced ? .monospacedSystemFont(ofSize: 14, weight: .regular) : .systemFont(ofSize: 14)
-        view.textColor = .textColor
-        view.backgroundColor = .textBackgroundColor
+        let size = max(8, min(72, fontSize))
+        view.font = monospaced ? .monospacedSystemFont(ofSize: size, weight: .regular) : .systemFont(ofSize: size)
+        view.textColor = Profile.color(hex: foreground) ?? .textColor
+        view.backgroundColor = Profile.color(hex: background) ?? .textBackgroundColor
         view.setAccessibilityLabel(label)
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -77,49 +83,26 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
     }
 }
 
+/// An editor is only an editing surface. Its model owns selection and commands;
+/// sibling views decide how to present tools and previews.
 struct SurfaceMultilineInput: View {
     let node: [String: Any]
     @Binding var text: String
     @Environment(\.isEnabled) private var enabled
-    @StateObject private var controller = SurfaceEditorController()
-    @State private var preview = false
-    private var actions: [[String: Any]] { node["editor_actions"] as? [[String: Any]] ?? [] }
+    @Environment(\.surfaceForm) private var model
+    @StateObject private var fallback = SurfaceEditorController()
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if node["preview"] as? String == "markdown" {
-                Picker("Editor mode", selection: $preview) {
-                    Text("Write").tag(false)
-                    Text("Preview").tag(true)
-                }.pickerStyle(.segmented)
+        ZStack(alignment: .topLeading) {
+            SurfaceNativeTextEditor(text: $text,
+                controller: model?.editor(node["field"] as? String ?? "") ?? fallback,
+                monospaced: node["monospaced"] as? Bool ?? false, editable: enabled,
+                label: node["label"] as? String ?? "Text editor", fontSize: node["font_size"] as? Double ?? 14,
+                foreground: node["foreground"] as? String, background: node["background"] as? String)
+            if text.isEmpty {
+                Text(node["placeholder"] as? String ?? "")
+                    .foregroundStyle(.secondary).padding(16).allowsHitTesting(false)
             }
-            if !actions.isEmpty && !preview {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 6) {
-                        ForEach(actions.indices, id: \.self) { index in
-                            let action = actions[index]
-                            Button(action["label"] as? String ?? "Insert") {
-                                controller.insert(prefix: action["prefix"] as? String ?? "", suffix: action["suffix"] as? String ?? "")
-                            }.help(action["help"] as? String ?? action["label"] as? String ?? "Insert around selection")
-                        }
-                    }
-                }.scrollIndicators(.hidden)
-            }
-            ZStack(alignment: .topLeading) {
-                // Keep the editor mounted while previewing to retain its undo stack.
-                SurfaceNativeTextEditor(text: $text, controller: controller,
-                    monospaced: node["monospaced"] as? Bool ?? false, editable: enabled && !preview,
-                    label: node["label"] as? String ?? "Text editor")
-                    .opacity(preview ? 0 : 1).allowsHitTesting(!preview).accessibilityHidden(preview)
-                if !preview && text.isEmpty {
-                    Text(node["placeholder"] as? String ?? "")
-                        .foregroundStyle(.secondary).padding(16).allowsHitTesting(false)
-                }
-                if preview { SurfaceMarkdownPreview(text: text) }
-            }
-            .frame(minHeight: 180, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.2)))
-        }
+        }.frame(minHeight: 100, maxHeight: .infinity)
     }
 }
 

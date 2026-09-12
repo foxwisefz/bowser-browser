@@ -86,43 +86,120 @@ Other validation belongs in the brain. Revert restores the last accepted baselin
 `require_changes: false` enables initial submission for creation forms.
 `submit_label` and `cancel_label` customize the action labels.
 
-## Native document editing
+## Composing native tools
 
-Use `input(:body, kind: :multiline)` inside a form for a native, scrollable,
-wrapping text editor with selection, clipboard and undo/redo. Newlines remain
-part of one string. Add `fill_height: true` to the input, form and enclosing
-vertical layout to fill a sidebar. Side toolbars accept widths of 16–800 points;
-top/bottom bars accept heights of 16–200. Bars shrink to preserve page space in
-small windows. Sidebar content aligns at the top.
+Mods own composition. Build reusable components as Elixir functions returning
+view trees; put editors, previews, actions and selectors wherever the design
+requires. The native editor supplies text editing and does not supply a toolbar,
+mode picker, save controls or a notes-specific interface.
+
+`state(key, values, content, opts)` (`state/3,4`) creates a local state scope.
+Values have string keys. Optional `tracked_fields: [:body]` controls which fields
+count as unsaved changes; omitted means all fields. Untracked UI choices survive
+refreshes that repeat the same defaults. Submit still includes all values. Inputs and commands bind to the nearest enclosing
+state or form. Keys must be unique within the surface and stable per document.
+Changing a document key selects its own retained draft. Toolbar state is also
+isolated per browser window. Removing the toolbar or closing its window releases
+its state. Form surfaces release state when removed.
 
 ```elixir
-form("document-42", %{"body" => saved_text},
-  input(:body, kind: :multiline, monospaced: true,
-    preview: :markdown, placeholder: "Start writing…",
-    editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}],
-    fill_width: true, fill_height: true),
-  event: :save, response: state.response, fill_height: true)
+alias BowserBrain.View, as: V
+
+bold = V.action("Bold", symbol: "bold", label_style: :icon,
+  button_style: :plain, help: "Bold", width: 28, height: 28,
+  command: V.command(:wrap, field: "body", prefix: "**", suffix: "**"))
+
+V.state("document-42", %{"body" => saved_text, "mode" => "write"},
+  V.vstack([
+    V.selector(:mode, [%{value: "write", label: "Write"},
+                      %{value: "preview", label: "Preview"}], label: "Document view"),
+    V.flow([bold]),
+    V.switch(:mode, [
+      %{key: "write", value: "write", content: V.editor(:body, fill_height: true)},
+      %{key: "preview", value: "preview", content: V.preview(:body, fill_height: true)}
+    ], fill_height: true),
+    V.action("Save", command: V.command(:submit), event: :save, role: :primary)
+  ], fill_height: true), response: state.response, fill_height: true)
 ```
 
-`input/1,2` accepts optional `monospaced:` (default false), `preview: :markdown`
-and `editor_actions:` (default empty). Each action has a `label`, optional `help`,
-`prefix` and `suffix`; it wraps the selected text in one undoable edit. With no
-selection it inserts the delimiters and places the caret between them. These
-options work with arbitrary text; actions are not tied to notes or Markdown.
+The formatting action could instead live in a header, a popover or another
+component inside the scope. The preview could appear beside the editor with no
+mode selector. A tool without persistence needs neither a form nor a Save button.
+These are mod decisions; there is no required editor layout.
 
-The optional Write/Preview control renders the current unsaved draft natively.
-Preview supports headings, bullet lists, quotes, fenced code and inline
-emphasis/code/link labels. It does not execute HTML, fetch images or activate
-links; tables and rich HTML are unsupported. Plain multiline editing needs no
-preview or formatting actions. Editor state is local until form submission;
-matching `form_response/2` acknowledges persistence. Keep form keys stable per
-document so tree refreshes preserve drafts; disabling a surface removes drafts.
+### State-bound views
 
-Private tools must store content through `Store` and use native form events.
-Do not send private text through page evaluation/scripts or expose it to
-page-origin messages. See `beam/example_mods/page_notes.ex` for an inline native
-sidebar example with URL-bound saves and a 500 KB note limit. That limit belongs
-to the example; general editor inputs inherit the surface transport limits.
+- `editor/1,2`: bare native multiline editor. Options: `label:`, `placeholder:`,
+  `monospaced:` (default false) and shared sizing/style options. Selection,
+  clipboard, wrapping, scrolling and undo/redo are native. `font_size`,
+  `foreground` and `background` also style the actual native text view. `input(kind: :multiline)`
+  is also a bare editor inside a form/state scope.
+- `preview/1,2`: independent native Markdown view of the named string field,
+  including unsaved changes. Supports headings, bullet lists, quotes, fenced
+  code and inline emphasis/code/link labels. No HTML execution, asset fetching
+  or link activation; tables and rich HTML are unsupported.
+- `selector/2,3`: binds a string field to options `%{value: string, label: string}`.
+  `style: :segmented` (default) or `:menu`; `label:` is an accessibility label.
+- `switch/2,3`: displays the branch matching a string field. Each case supplies
+  `key`, `value`, and `content`. Branches stay mounted and reserve their combined
+  maximum size, preserving editor selection/undo; hidden branches receive no
+  input and are excluded from accessibility.
+- `flow/1,2`: wraps arbitrary child views into rows as width changes; `spacing:`
+  defaults to 6. Existing `spacer/0,1` takes `min:` for flexible space.
+
+### Commands and events
+
+`command/1,2` builds a command map for any `action/1,2`. Commands act on the
+nearest scope; the same field name in another window or scope is independent.
+Commands are ignored while a submission is pending. Available operations:
+
+| Operation | Options | Behavior |
+| --- | --- | --- |
+| `set` | `field`, `value` | Set a local value. |
+| `toggle` | `field` | Toggle a local boolean, initially false. |
+| `wrap` | `field`, `prefix`, `suffix` | Wrap current editor selection in one undoable edit; keep the selection inside the delimiters. |
+| `insert` | `field`, `text` | Replace the current editor selection. |
+| `select` | `field`, `location`, `length` | Select a clamped UTF-16 range. |
+| `undo`, `redo` | `field` | Use that editor's native undo history. |
+| `snapshot` | `fields: [strings]` | Emit only requested values and mounted editors' UTF-16 selection ranges to the action's event. |
+| `submit` | optional `required: [strings]`, `labels: map` | Emit `{request_id, values}` to the action's event; freeze edits until acknowledged or timed out. |
+| `reset` | none | Restore the acknowledged baseline. |
+| `discard` | none | Confirm discarding dirty state, then emit the action event if accepted. |
+
+Editing commands require a mounted, enabled editor for the field. Set/toggle
+change local state without a BEAM round trip. Only snapshot, submit and accepted
+discard emit an action event. Use `form_response/2` and re-show the same scope
+with `response:` to acknowledge saves. Rejected saves preserve the draft.
+`form/3,4` still supplies default controls; `controls: false` lets the mod provide
+its own commands while retaining form state/validation.
+
+### Styling and lifecycle
+
+Actions accept `button_style: :plain|:borderless|:bordered` (default bordered),
+`label_style: :icon` with `symbol:`, accessible label/help and existing primary/
+destructive roles and shortcuts. Shared `ui/2` options also include `foreground`,
+`background`, `border` (hex colors), `corner_radius`, `font_size` (8–72 points), and `control_size`
+(`:regular`, `:small`, `:mini`). Existing sizing, padding and alignment compose
+with these on any node. Side toolbars accept widths of 16–800 points; top/bottom
+bars accept heights of 16–200. Bars shrink to preserve page space in small windows.
+
+Keep private content in Store and native state/events. Do not send it through
+page evaluation/scripts or expose it to page-origin messages. The example
+`beam/example_mods/page_notes.ex` composes an inline sidebar with URL-bound saves
+and a 500 KB note limit; the limit is the example's policy, not the editor's.
+
+### Adding components
+
+A mod can define Elixir helper functions accepting data, child trees and command
+maps, then return any composition of these primitives. Those components hot-reload
+with the mod and require no shell build. Avoid baking feature behavior into
+renderer nodes merely to reuse a composition.
+
+A genuinely new native rendering or input capability still requires a Swift
+renderer implementation, its View builder, documentation and behavioral tests,
+then a native app update. Mods cannot load arbitrary Swift/dylibs into the shell.
+This is the current native capability boundary, not a promise that JSON trees
+can express every AppKit behavior.
 
 ## Sheets, popovers, and actions
 

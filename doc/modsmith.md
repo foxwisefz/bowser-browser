@@ -183,8 +183,9 @@ mods choose the websites, controls and behavior. See [live website layouts](../d
 for limits, lifecycle and examples. This capability does not require a resident
 agent to implement a particular layout feature.
 
-Native document editors use `View.input/1,2` with `kind: :multiline` inside a form.
-Optional `editor_actions` wrap selections with configurable prefixes/suffixes;
-`preview: :markdown` previews the current draft. Use stable document keys and
-acknowledged saves. Native UI and Store keep private content outside website
-scripts. See [native document editing](../docs/mod-ui.md#native-document-editing).
+Native UI is composed around `View.state/3,4`: editors, previews, selectors and
+command buttons bind to local fields independently. Mods choose their layout,
+controls and styling. `View.flow/1,2` wraps arbitrary controls; formatting is an
+ordinary command action, not built into the editor. State is isolated per toolbar
+window and document key. See [native composition](../docs/mod-ui.md#composing-native-tools)
+for contracts, lifecycle, examples and the native renderer extension boundary.

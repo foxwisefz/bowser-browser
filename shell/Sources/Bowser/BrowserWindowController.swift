@@ -605,6 +605,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        container.releaseLocalState()
         detachWebsiteLayout()
         ChromeSurface.unregister(self)
         Self.all.removeAll { $0 === self }

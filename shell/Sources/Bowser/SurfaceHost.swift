@@ -713,12 +713,14 @@ struct SurfaceTreeView: View {
     var cursor: CursorModel? = nil
     var eventWebview: UInt64? = nil
     @StateObject private var localCursor = CursorModel()
+    @Environment(\.surfaceEventWebview) private var inheritedWebview
 
     var body: some View {
         render(node)
             .disabled(node["disabled"] as? Bool ?? false)
             .modifier(SurfaceNodeStyle(node: node))
             .environmentObject(cursor ?? localCursor)
+            .environment(\.surfaceEventWebview, eventWebview ?? inheritedWebview)
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -731,7 +733,7 @@ struct SurfaceTreeView: View {
             "surface": surfaceId, "id": eventId,
         ]
         if let value { message["value"] = value }
-        if let eventWebview { message["webview"] = eventWebview }
+        if let id = eventWebview ?? inheritedWebview { message["webview"] = id }
         BrainBridge.shared.send(message)
     }
 
@@ -751,8 +753,16 @@ struct SurfaceTreeView: View {
                     SurfaceTreeView(surfaceId: surfaceId, node: child.value)
                 }
             })
-        case "form":
-            return AnyView(SurfaceFormView(surfaceId: surfaceId, node: node))
+        case "form", "state":
+            return AnyView(SurfaceModelScope(surfaceId: surfaceId, node: node))
+        case "editor", "preview", "selector", "switch":
+            return AnyView(SurfaceBoundView(surfaceId: surfaceId, node: node))
+        case "flow":
+            return AnyView(SurfaceFlowLayout(spacing: node["spacing"] as? Double ?? 6) {
+                ForEach(SurfaceNode.children(children(node))) { child in
+                    SurfaceTreeView(surfaceId: surfaceId, node: child.value)
+                }
+            })
         case "input":
             return AnyView(SurfaceInput(node: node))
         case "action":
@@ -783,6 +793,7 @@ struct SurfaceTreeView: View {
         case "text":
             let value = node["value"] as? String ?? ""
             let style = node["style"] as? String
+            if let size = node["font_size"] as? Double { return AnyView(Text(value).font(.system(size: max(8, min(72, size))))) }
             switch style {
             case "heading":
                 return AnyView(Text(value).font(.title2.weight(.semibold)))

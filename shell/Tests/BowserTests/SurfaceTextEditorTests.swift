@@ -54,9 +54,8 @@ final class SurfaceTextEditorTests: XCTestCase {
         let node: [String: Any] = ["t": "vstack", "fill_height": true, "fill_width": true, "padding": 12, "children": [
             ["t": "text", "value": "Page Notes", "style": "heading"],
             ["t": "form", "key": "editor-layout-test", "values": ["body": ""], "fill_height": true,
-             "content": ["t": "input", "field": "body", "kind": "multiline", "preview": "markdown", "label": "Page note",
-                         "placeholder": "Write a note for this page…", "monospaced": true, "fill_height": true,
-                         "editor_actions": [["label": "Bold", "prefix": "**", "suffix": "**"]]]]
+             "content": ["t": "input", "field": "body", "kind": "multiline", "label": "Page note",
+                         "placeholder": "Write a note for this page…", "monospaced": true, "fill_height": true]]
         ]]
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

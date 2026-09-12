@@ -3,15 +3,27 @@ defmodule BowserBrain.ViewTest do
 
   alias BowserBrain.View
 
-  test "multiline editor options survive native JSON transport" do
-    node = View.input(:body, kind: :multiline, monospaced: true, preview: :markdown,
-      editor_actions: [%{label: "Bold", prefix: "**", suffix: "**"}], fill_height: true)
-    wire = node |> JSON.encode!() |> JSON.decode!()
-    assert wire["kind"] == "multiline"
-    assert wire["preview"] == "markdown"
-    assert wire["monospaced"]
-    assert wire["fill_height"]
-    assert wire["editor_actions"] == [%{"label" => "Bold", "prefix" => "**", "suffix" => "**"}]
+  test "state, editor, commands and preview are independent native nodes" do
+    editor = View.editor(:body, monospaced: true, fill_height: true)
+    preview = View.preview(:body)
+    button = View.action("Bold", command: View.command(:wrap, field: "body", prefix: "**", suffix: "**"),
+      symbol: "bold", label_style: :icon, button_style: :plain)
+    tree = View.state("document", %{"body" => "Hello", "mode" => "write"}, View.vstack([
+      View.selector(:mode, [%{value: "write", label: "Write"}, %{value: "preview", label: "Preview"}]),
+      View.flow([button]),
+      View.switch(:mode, [%{key: "write", value: "write", content: editor}, %{key: "preview", value: "preview", content: preview}])
+    ]))
+    wire = tree |> JSON.encode!() |> JSON.decode!()
+    assert wire["t"] == "state"
+    [selector, tools, branches] = wire["content"]["children"]
+    assert selector["field"] == "mode"
+    assert hd(tools["children"])["command"] == %{"op" => "wrap", "field" => "body", "prefix" => "**", "suffix" => "**"}
+    assert hd(tools["children"])["label_style"] == "icon"
+    assert Enum.map(branches["cases"], & &1["content"]["t"]) == ["editor", "preview"]
+    refute Map.has_key?(editor, :editor_actions)
+    refute Map.has_key?(editor, :preview)
+    assert View.form("custom", %{}, View.text("x"), controls: false).controls == false
+    assert View.ui(editor, background: "#112233", corner_radius: 8).background == "#112233"
   end
 
   test "strip chrome is a composable JSON tree, including profile bindings and actions" do

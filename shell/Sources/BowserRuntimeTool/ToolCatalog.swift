@@ -181,7 +181,7 @@ let toolCatalogJSON = #"""
         },
         "content": {
           "type": "string",
-          "description": "Elixir source. Use the ModSmith guide for BowserBrain.View builders and native renderer availability. Native form input kind multiline supports undo, selection, editor_actions (label/prefix/suffix), monospaced and optional markdown preview; private editors belong in native forms, never page scripts. Side toolbar widths are 16..800 points. profile_avatar(id, badge: true, size: 18) adds a circular backing; its native renderer must support badge. No remote avatar assets are fetched."
+          "description": "Elixir source. Use the ModSmith guide for BowserBrain.View builders and native renderer availability. Compose View.state scopes with independent editor, preview, selector, switch, flow and action nodes. command maps (set/toggle/wrap/insert/select/undo/redo/snapshot/submit/reset/discard) target the nearest scope. Actions choose icons/styles/layout; the editor has no bundled toolbar. Private data stays in native state/events, never page scripts. Side toolbar widths are 16..800 points. profile_avatar(id, badge: true, size: 18) adds a circular backing; its native renderer must support badge. No remote avatar assets are fetched."
         }
       },
       "required": [

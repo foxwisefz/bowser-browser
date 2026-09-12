@@ -9,8 +9,22 @@ final class SurfaceFormModel: ObservableObject {
     @Published private(set) var pendingID: String?
     private var baseline: [String: Any]
     private var submitted: [String: Any] = [:]
-    init(_ values: [String: Any]) { self.values = values; baseline = values }
-    var dirty: Bool { !NSDictionary(dictionary: values).isEqual(to: baseline) }
+    private var editors: [String: SurfaceEditorController] = [:]
+    func editor(_ field: String) -> SurfaceEditorController {
+        if let existing = editors[field] { return existing }
+        let controller = SurfaceEditorController()
+        editors[field] = controller
+        return controller
+    }
+    private let trackedFields: Set<String>?
+    init(_ values: [String: Any], trackedFields: [String]? = nil) {
+        self.values = values; baseline = values; self.trackedFields = trackedFields.map(Set.init)
+    }
+    private func tracked(_ map: [String: Any]) -> [String: Any] {
+        guard let trackedFields else { return map }
+        return map.filter { trackedFields.contains($0.key) }
+    }
+    var dirty: Bool { !NSDictionary(dictionary: tracked(values)).isEqual(to: tracked(baseline)) }
     var busy: Bool { pendingID != nil }
 
     func refresh(_ initial: [String: Any], response: [String: Any]?) {
@@ -25,7 +39,13 @@ final class SurfaceFormModel: ObservableObject {
                 errors["_form"] = response["error"] as? String ?? "Could not save. Check your changes and try again."
             }
         } else if !dirty && !busy {
-            values = initial
+            // Keep untracked UI choices when the mod re-sends the same defaults.
+            for (key, value) in initial {
+                if !NSDictionary(dictionary: [key: value]).isEqual(to: baseline[key].map { [key: $0] } ?? [:]) {
+                    values[key] = value
+                }
+            }
+            for key in baseline.keys where initial[key] == nil { values.removeValue(forKey: key) }
             baseline = initial
         }
     }
@@ -92,10 +112,11 @@ struct SurfaceFormView: View {
     let surfaceId: String
     let node: [String: Any]
     @StateObject private var model: SurfaceFormModel
+    @Environment(\.surfaceEventWebview) private var webview
     @Environment(\.dismiss) private var dismiss
-    init(surfaceId: String, node: [String: Any]) {
+    init(surfaceId: String, node: [String: Any], storeID: String? = nil) {
         self.surfaceId = surfaceId; self.node = node
-        _model = StateObject(wrappedValue: SurfaceFormStore.shared.model(surface: surfaceId, key: node["key"] as? String ?? node["event"] as? String ?? "form", initial: node["values"] as? [String: Any] ?? [:]))
+        _model = StateObject(wrappedValue: SurfaceFormStore.shared.model(surface: storeID ?? surfaceId, key: node["key"] as? String ?? node["event"] as? String ?? "form", initial: node["values"] as? [String: Any] ?? [:], trackedFields: node["tracked_fields"] as? [String]))
     }
     private var fingerprint: Data { (try? JSONSerialization.data(withJSONObject: node, options: .sortedKeys)) ?? Data() }
     var body: some View {
@@ -104,7 +125,7 @@ struct SurfaceFormView: View {
                 .environment(\.surfaceForm, model)
                 .disabled(model.busy)
             if let error = model.errors["_form"] { Text(error).font(.callout).foregroundStyle(.red) }
-            HStack {
+            if node["controls"] as? Bool ?? true { HStack {
                 Spacer()
                 Button(node["cancel_label"] as? String ?? "Revert") {
                     model.reset()
@@ -113,14 +134,17 @@ struct SurfaceFormView: View {
                     .disabled(model.busy || (!model.dirty && node["dismiss_on_cancel"] as? Bool != true))
                 Button(model.busy ? "Saving…" : node["submit_label"] as? String ?? "Save Changes") {
                     if let payload = model.begin(required: node["required"] as? [String] ?? [], labels: node["labels"] as? [String: String] ?? [:]) {
-                        BrainBridge.shared.send(["op": "event", "event": "surface", "surface": surfaceId,
-                                                 "id": node["event"] as? String ?? "submit", "value": payload])
+                        var message: [String: Any] = ["op": "event", "event": "surface", "surface": surfaceId,
+                                                      "id": node["event"] as? String ?? "submit", "value": payload]
+                        if let webview { message["webview"] = webview }
+                        BrainBridge.shared.send(message)
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.busy || (node["require_changes"] as? Bool ?? true) && !model.dirty)
             }
+        }
         }
         .interactiveDismissDisabled(model.dirty || model.busy)
         .onAppear { model.refresh(node["values"] as? [String: Any] ?? [:], response: node["response"] as? [String: Any]) }
@@ -230,16 +254,23 @@ struct SurfaceNativeAction: View {
     }
     private var button: some View {
         Button(role: node["role"] as? String == "destructive" ? .destructive : nil) {
-            if node["action"] as? String == "dismiss" {
+            if let command = node["command"] as? [String: Any], let form {
+                if let payload = form.perform(command) { emit(node["event"] as? String ?? "click", payload) }
+            } else if node["action"] as? String == "dismiss" {
                 if form?.confirmDiscard() ?? true { dismiss() }
             } else { emit(node["event"] as? String ?? "click", node["payload"]) }
         } label: {
-            if let symbol = node["symbol"] as? String { Label(node["label"] as? String ?? "", systemImage: symbol) }
+            if let symbol = node["symbol"] as? String {
+                if node["label_style"] as? String == "icon" { Image(systemName: symbol).accessibilityLabel(node["label"] as? String ?? "") }
+                else { Label(node["label"] as? String ?? "", systemImage: symbol) }
+            }
             else { Text(node["label"] as? String ?? "") }
         }
     }
     @ViewBuilder private var styled: some View {
-        if node["role"] as? String == "primary" { button.buttonStyle(.borderedProminent) }
+        if node["button_style"] as? String == "plain" { button.buttonStyle(.plain) }
+        else if node["button_style"] as? String == "borderless" { button.buttonStyle(.borderless) }
+        else if node["role"] as? String == "primary" { button.buttonStyle(.borderedProminent) }
         else { button.buttonStyle(.bordered) }
     }
 }
@@ -295,6 +326,13 @@ struct SurfaceNodeStyle: ViewModifier {
                    maxHeight: node["fill_height"] as? Bool == true ? .infinity : (node["max_height"] as? Double).map { CGFloat($0) },
                    alignment: .leading)
             .padding(node["padding"] as? Double ?? 0)
+            .background(Profile.color(hex: node["background"] as? String).map { Color(nsColor: $0) } ?? .clear)
+            .clipShape(RoundedRectangle(cornerRadius: node["corner_radius"] as? Double ?? 0))
+            .overlay(RoundedRectangle(cornerRadius: node["corner_radius"] as? Double ?? 0)
+                .strokeBorder(Profile.color(hex: node["border"] as? String).map { Color(nsColor: $0) } ?? .clear, lineWidth: 1))
+            .modifier(SurfaceFontSize(size: node["font_size"] as? Double))
+            .modifier(SurfaceForeground(color: node["foreground"] as? String))
+            .controlSize(node["control_size"] as? String == "small" ? .small : node["control_size"] as? String == "mini" ? .mini : .regular)
             .modifier(SurfaceAccessibility(node: node))
     }
 }
@@ -313,11 +351,27 @@ private struct SurfaceAccessibility: ViewModifier {
 final class SurfaceFormStore {
     static let shared = SurfaceFormStore()
     private var surfaces: [String: [String: SurfaceFormModel]] = [:]
-    func model(surface: String, key: String, initial: [String: Any]) -> SurfaceFormModel {
+    func model(surface: String, key: String, initial: [String: Any], trackedFields: [String]? = nil) -> SurfaceFormModel {
         if let existing = surfaces[surface]?[key] { return existing }
-        let model = SurfaceFormModel(initial)
+        let model = SurfaceFormModel(initial, trackedFields: trackedFields)
         surfaces[surface, default: [:]][key] = model
         return model
     }
     func remove(surface: String) { surfaces.removeValue(forKey: surface) }
+}
+
+private struct SurfaceForeground: ViewModifier {
+    let color: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let value = Profile.color(hex: color) { content.foregroundStyle(Color(nsColor: value)) }
+        else { content }
+    }
+}
+
+private struct SurfaceFontSize: ViewModifier {
+    let size: Double?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let size { content.font(.system(size: max(8, min(72, size)))) }
+        else { content }
+    }
 }

@@ -63,6 +63,7 @@ final class ToolbarContainerView: NSView {
     let pageArea = NSView()
     private var hosts: [String: NSHostingView<AnyView>] = [:]
     private var bars: [ModToolbar] = []
+    private let stateNamespace = UUID().uuidString
     private let outline = WindowBorderView()
     var webview: UInt64 = 0 { didSet { refreshRoots() } }
     var theme: ShellTheme = .native { didSet { outline.theme = theme; needsLayout = true } }
@@ -82,14 +83,21 @@ final class ToolbarContainerView: NSView {
     func setBars(_ bars: [ModToolbar]) {
         self.bars = bars
         let ids = Set(bars.map(\.id))
-        for id in Array(hosts.keys) where !ids.contains(id) { hosts.removeValue(forKey: id)?.removeFromSuperview() }
+        for id in Array(hosts.keys) where !ids.contains(id) {
+            hosts.removeValue(forKey: id)?.removeFromSuperview()
+            SurfaceFormStore.shared.remove(surface: stateNamespace + "|toolbar:" + id)
+        }
         refreshRoots()
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
+    func releaseLocalState() {
+        for id in hosts.keys { SurfaceFormStore.shared.remove(surface: stateNamespace + "|toolbar:" + id) }
+    }
     private func refreshRoots() {
         for bar in bars {
             let root = AnyView(SurfaceTreeView(surfaceId: "toolbar:\(bar.id)", node: bar.view, eventWebview: webview)
+                .environment(\.surfaceStateNamespace, stateNamespace)
                 .padding(4)
                 .foregroundStyle(Color(nsColor: bar.style.color("foreground") ?? .labelColor))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bar.edge == "left" || bar.edge == "right" ? .topLeading : .leading)

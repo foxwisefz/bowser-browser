@@ -65,31 +65,55 @@ defmodule PageNotes do
   end
   defp contents(s) do
     supported = is_binary(s.url) and URI.parse(s.url).scheme in ["http", "https"]
-    header = View.hstack([View.text("Page Notes", style: :heading), View.action("Close", event: "page_notes_toggle")])
+    header = View.hstack([
+      View.image(symbol: "note.text", size: 18), View.text("Page Notes", style: :heading), View.spacer(),
+      View.action("Close notes", event: "page_notes_toggle", command: View.command(:discard),
+        symbol: "xmark", label_style: :icon, button_style: :plain, help: "Close notes", padding: 6)
+    ], spacing: 8)
     if supported do
       key = Base.url_encode64(:crypto.hash(:sha256, s.url), padding: false)
       contexts = Map.put_new(s.contexts, key, %{url: s.url, body: body(s.url)})
-      actions = [
-        %{label: "H1", prefix: "# ", suffix: ""},
-        %{label: "B", help: "Bold", prefix: "**", suffix: "**"},
-        %{label: "I", help: "Italic", prefix: "*", suffix: "*"},
-        %{label: "List", prefix: "- ", suffix: ""},
-        %{label: "Quote", prefix: "> ", suffix: ""},
-        %{label: "Code", prefix: "`", suffix: "`"},
-        %{label: "Link", prefix: "[", suffix: "](https://)"}
-      ]
-      editor = View.input(:body, kind: :multiline, label: "Page note", monospaced: true,
-        preview: :markdown, editor_actions: actions, placeholder: "Write a note for this page…",
-        fill_width: true, fill_height: true)
-      form = View.form("page-note-" <> key, %{"body" => body(s.url)}, editor,
-        event: "notes_save:" <> key, response: s.response, submit_label: "Save",
-        fill_width: true, fill_height: true)
-      tree = View.vstack([header, View.text(s.url, style: :caption), form],
-        padding: 12, fill_width: true, fill_height: true)
+      tools = View.flow([
+        tool("Heading", "textformat.size", "# ", ""),
+        tool("Bold", "bold", "**", "**"),
+        tool("Italic", "italic", "*", "*"),
+        tool("List", "list.bullet", "- ", ""),
+        tool("Quote", "text.quote", "> ", ""),
+        tool("Code", "chevron.left.forwardslash.chevron.right", "`", "`"),
+        tool("Link", "link", "[", "](https://)"),
+        View.action("Undo", symbol: "arrow.uturn.backward", label_style: :icon, button_style: :plain,
+          command: View.command(:undo, field: "body"), help: "Undo", width: 28, height: 28)
+      ], spacing: 6, padding: 4)
+      editor = View.editor(:body, label: "Page note", monospaced: true,
+        placeholder: "Write a note for this page…", fill_width: true, fill_height: true)
+      pages = View.switch(:mode, [
+        %{key: "write", value: "write", content: View.vstack([tools, View.divider(), editor], spacing: 8, fill_height: true)},
+        %{key: "preview", value: "preview", content: View.preview(:body, fill_height: true)}
+      ], fill_height: true, fill_width: true)
+      footer = View.hstack([
+        View.spacer(),
+        View.action("Revert", command: View.command(:reset), button_style: :borderless),
+        View.action("Save", command: View.command(:submit), event: "notes_save:" <> key, role: :primary, shortcut: "s")
+      ])
+      tree = View.state("page-note-" <> key, %{"body" => body(s.url), "mode" => "write"},
+        View.vstack([
+          header,
+          View.text(s.url, style: :caption),
+          View.selector(:mode, [%{value: "write", label: "Write"}, %{value: "preview", label: "Preview"}], label: "Note view"),
+          pages, footer
+        ], spacing: 12, fill_height: true, fill_width: true),
+        response: s.response, tracked_fields: [:body], padding: 16, fill_width: true, fill_height: true)
       {tree, %{s | contexts: contexts}}
     else
       {View.vstack([header, View.text("Select a website to write a note.")], padding: 12, fill_width: true), s}
     end
+  end
+  # These are ordinary mod components; their layout and commands can be changed
+  # independently of the native editor, including by composing other helpers.
+  defp tool(label, symbol, prefix, suffix) do
+    View.action(label, symbol: symbol, label_style: :icon, button_style: :plain,
+      command: View.command(:wrap, field: "body", prefix: prefix, suffix: suffix),
+      help: label, width: 28, height: 28)
   end
   defp save(%{"request_id" => request, "values" => %{"body" => value} = values}, key, s) when is_binary(value) do
     case s.contexts[key] do
