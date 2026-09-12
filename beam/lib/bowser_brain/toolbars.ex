@@ -25,8 +25,11 @@ defmodule BowserBrain.Toolbars do
     valid_style =
       Enum.all?(style, fn
         {k, v}
-        when k in [:background, :foreground, :border, "background", "foreground", "border"] ->
-          is_binary(v) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, v)
+        when k in [:background, :foreground, :border, :accent, "background", "foreground", "border", "accent"] ->
+          BowserBrain.Appearance.valid_color?(v)
+
+        {k, v} when k in [:palette, "palette"] ->
+          BowserBrain.Appearance.valid_palette?(v)
 
         _ ->
           false

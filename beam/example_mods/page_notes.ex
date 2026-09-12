@@ -56,12 +56,23 @@ defmodule PageNotes do
   defp render(s) do
     if Store.get(__MODULE__, "visible", true) do
       {content, s} = contents(s)
-      Chrome.put_toolbar("page_notes_sidebar", content, edge: :right, size: 360)
+      Chrome.put_toolbar("page_notes_sidebar", content, edge: :right, size: 360,
+        style: %{palette: palette(), foreground: :text, background: :surface, border: :separator})
       s
     else
       Chrome.remove_toolbar("page_notes_sidebar")
       s
     end
+  end
+  # One palette supplies the same native colors to the editor, preview and tools.
+  defp palette do
+    %{
+      accent: %{light: "#7253A1", dark: "#C2A7F0", high_contrast_light: "#4B237C", high_contrast_dark: "#E2CCFF"},
+      surface: %{light: "#FAF9FC", dark: "#252329", high_contrast_light: "#FFFFFF", high_contrast_dark: "#000000"},
+      editor_background: :surface,
+      text: %{light: "#302B3A", dark: "#EDE9F5", high_contrast_light: "#000000", high_contrast_dark: "#FFFFFF"},
+      secondary_text: %{light: "#655E70", dark: "#BDB5CB", high_contrast_light: "#302B3A", high_contrast_dark: "#EDE9F5"}
+    }
   end
   defp contents(s) do
     supported = is_binary(s.url) and URI.parse(s.url).scheme in ["http", "https"]

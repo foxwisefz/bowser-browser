@@ -17,7 +17,8 @@ defmodule BowserBrain.Chrome do
   Add/update a native bar, reserving webpage space on edge: :top/:bottom/:left/:right.
   size: 16..200 points for top/bottom height; 16..800 for left/right width.
   Side bars align content at the top. Bars shrink proportionally in small windows.
-  view is a View DSL tree; style accepts background/foreground/border #rrggbb.
+  view is a View DSL tree; style accepts background/foreground/border/accent
+  semantic colors, #rrggbb, or light/dark maps, and a scoped palette map.
   Events arrive as surface events with surface: "toolbar:<id>" and webview.
   Call in init_mod and mod_reloaded. Bars die with the calling mod, replay on
   reconnect, and appear in new browser windows. Same ids shadow older owners.

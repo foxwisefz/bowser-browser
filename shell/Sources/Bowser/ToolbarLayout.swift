@@ -6,7 +6,7 @@ struct ModToolbar {
     let edge: String
     let size: CGFloat
     let view: [String: Any]
-    let style: ShellTheme
+    let style: [String: Any]
 
     init?(json: [String: Any]) {
         guard let id = json["id"] as? String, !id.isEmpty, id.utf8.count <= 100,
@@ -14,7 +14,7 @@ struct ModToolbar {
               let size = json["size"] as? NSNumber, CFGetTypeID(size) != CFBooleanGetTypeID(),
               size.doubleValue.isFinite, (16...(edge == "left" || edge == "right" ? 800.0 : 200.0)).contains(size.doubleValue),
               let view = json["view"] as? [String: Any],
-              let style = ShellTheme(json: json["style"] as? [String: Any] ?? [:]) else { return nil }
+              let style = (json["style"] ?? [:]) as? [String: Any], SurfaceColorSpec.validStyle(style) else { return nil }
         self.id = id; self.edge = edge; self.size = size.doubleValue
         self.view = view; self.style = style
     }
@@ -96,13 +96,9 @@ final class ToolbarContainerView: NSView {
     }
     private func refreshRoots() {
         for bar in bars {
-            let root = AnyView(SurfaceTreeView(surfaceId: "toolbar:\(bar.id)", node: bar.view, eventWebview: webview)
-                .environment(\.surfaceStateNamespace, stateNamespace)
-                .padding(4)
-                .foregroundStyle(Color(nsColor: bar.style.color("foreground") ?? .labelColor))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bar.edge == "left" || bar.edge == "right" ? .topLeading : .leading)
-                .background(Color(nsColor: bar.style.color("background") ?? .windowBackgroundColor))
-                .overlay(Rectangle().strokeBorder(Color(nsColor: bar.style.color("border") ?? .clear), lineWidth: 1)))
+            let root = AnyView(ModToolbarView(bar: bar, webview: webview)
+                .modifier(SurfacePaletteScope(palette: bar.style["palette"] as? [String: Any]))
+                .environment(\.surfaceStateNamespace, stateNamespace))
             if let host = hosts[bar.id] { host.rootView = root }
             else {
                 let host = NSHostingView(rootView: root)

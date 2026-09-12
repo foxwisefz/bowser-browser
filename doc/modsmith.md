@@ -117,8 +117,9 @@ rename it to `.ex.off` or remove it to restore the previous appearance.
 `Chrome.put_toolbar(id, view, edge: :bottom, size: 32, style: %{...})`
 adds or updates a process-owned bar in every browser window. The view uses
 normal `BowserBrain.View` controls and layout. `edge` can be `:top`, `:bottom`,
-`:left`, or `:right`; `size` is 16–200 points for top/bottom height and 16–800 for left/right width. Style accepts `background`, `foreground`, and `border` as
-`#rrggbb` colors. View DSL spacing controls the gaps between controls.
+`:left`, or `:right`; `size` is 16–200 points for top/bottom height and 16–800 for left/right width. Style accepts adaptive `background`, `foreground`, `border` and `accent` colors,
+plus a scoped `palette`. Use semantic roles or light/dark variant maps; literal
+`#rrggbb` values remain fixed. View DSL spacing controls the gaps between controls.
 
 Bars reserve native webpage space, including when switching or warming tabs
 and resizing windows. Horizontal bars span the width inside the window border;
@@ -189,3 +190,7 @@ controls and styling. `View.flow/1,2` wraps arbitrary controls; formatting is an
 ordinary command action, not built into the editor. State is isolated per toolbar
 window and document key. See [native composition](../docs/mod-ui.md#composing-native-tools)
 for contracts, lifecycle, examples and the native renderer extension boundary.
+
+Native mod palettes inherit the effective window appearance. See the
+[appearance contract](../docs/mod-ui.md#appearance-and-palettes) for semantic
+roles, custom light/dark/high-contrast variants, scope inheritance and limits.

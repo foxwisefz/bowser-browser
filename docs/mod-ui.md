@@ -178,7 +178,7 @@ its own commands while retaining form state/validation.
 Actions accept `button_style: :plain|:borderless|:bordered` (default bordered),
 `label_style: :icon` with `symbol:`, accessible label/help and existing primary/
 destructive roles and shortcuts. Shared `ui/2` options also include `foreground`,
-`background`, `border` (hex colors), `corner_radius`, `font_size` (8–72 points), and `control_size`
+`background`, `border` (adaptive colors), `corner_radius`, `font_size` (8–72 points), and `control_size`
 (`:regular`, `:small`, `:mini`). Existing sizing, padding and alignment compose
 with these on any node. Side toolbars accept widths of 16–800 points; top/bottom
 bars accept heights of 16–200. Bars shrink to preserve page space in small windows.
@@ -187,6 +187,59 @@ Keep private content in Store and native state/events. Do not send it through
 page evaluation/scripts or expose it to page-origin messages. The example
 `beam/example_mods/page_notes.ex` composes an inline sidebar with URL-bound saves
 and a 500 KB note limit; the limit is the example's policy, not the editor's.
+
+### Appearance and palettes
+
+Use semantic colors for native UI. The renderer resolves them against the
+**effective browser window appearance**, including increased contrast. Bowser
+can select a window appearance from the page tint; it need not match the system
+setting. Appearance changes recolor mounted controls without recreating editors,
+resetting local drafts, or changing selection.
+
+Supported roles are `:text`, `:secondary_text`, `:surface`, `:editor_background`,
+`:control_background`, `:separator`, `:accent`, `:selection`, `:selected_text`,
+`:disabled_text` and `:error`. Color values may be a role/token, a literal six-digit
+`#rrggbb` string, or an adaptive map:
+
+```elixir
+%{light: "#7253A1", dark: "#C2A7F0",
+  high_contrast_light: "#4B237C", high_contrast_dark: "#E2CCFF"}
+```
+
+Both `light` and `dark` are required. High-contrast variants are optional and
+fall back to the corresponding regular variant. Literal hex colors deliberately
+stay fixed in every mode; Bowser does not guess their intended contrast partner.
+
+`palette(colors, content, opts)` (`palette/2,3`) scopes named colors to a subtree:
+
+```elixir
+View.palette(%{
+  accent: %{light: "#7253A1", dark: "#C2A7F0"},
+  surface: %{light: "#FAF9FC", dark: "#252329"},
+  text: %{light: "#302B3A", dark: "#EDE9F5"},
+  editor_background: :surface
+}, View.state("note", %{"body" => ""},
+  View.editor(:body, foreground: :text, background: :editor_background)))
+```
+
+Palettes inherit from enclosing scopes and override only supplied names. Names
+use lowercase letters, digits and underscores, start with a letter, and have
+at most 64 characters. A palette has at most 64 entries. Values may reference
+other tokens. Resolution is bounded; missing/cyclic custom references fall back
+to the field's semantic role. Variant maps nest at most 8 levels.
+
+`ui(node, palette: colors)` scopes a palette on a node. Native toolbar `style`
+also accepts `palette:`, adaptive `foreground`, `background`, `border` and
+`accent`. Editors use the same resolver for text, background, caret and selection;
+previews and presentations inherit the palette. Setting the `text` and `surface`
+roles together keeps custom presentations consistent. Fixed image assets are
+not recolored; use SF Symbols for UI icons when appropriate.
+
+This color contract applies to native mod view styling and edge toolbars.
+`Chrome.set_theme` retains its separate browser-shell theme contract. Existing
+mods using literal hex colors must choose roles or paired variants where they
+want adaptation. ModSmith should generate adaptive colors by default and verify
+light, dark and increased contrast, including switching with an unsaved draft.
 
 ### Adding components
 

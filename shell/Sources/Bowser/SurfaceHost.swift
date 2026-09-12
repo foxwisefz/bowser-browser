@@ -706,6 +706,7 @@ struct SurfaceRootView: View {
 // MARK: - The view-tree interpreter
 
 struct SurfaceTreeView: View {
+    var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
     /// Edge panels supply their AppKit tracker. All other surface roots
@@ -719,8 +720,17 @@ struct SurfaceTreeView: View {
         render(node)
             .disabled(node["disabled"] as? Bool ?? false)
             .modifier(SurfaceNodeStyle(node: node))
+            .modifier(SurfacePaletteScope(palette: node["palette"] as? [String: Any]))
             .environmentObject(cursor ?? localCursor)
             .environment(\.surfaceEventWebview, eventWebview ?? inheritedWebview)
+    }
+
+    private func scopedColor(_ value: Any?, fallback: String = "text") -> Color {
+        let local = node["palette"] as? [String: Any] ?? [:]
+        let palette = SurfaceColorSpec.validPalette(local)
+            ? colors.palette.merging(local) { _, replacement in replacement } : colors.palette
+        return Color(nsColor: SurfaceColorSpec.resolve(value, palette: palette,
+            dark: colors.scheme == .dark, highContrast: colors.contrast == .increased, fallback: fallback))
     }
 
     private func children(_ node: [String: Any]) -> [[String: Any]] {
@@ -739,6 +749,8 @@ struct SurfaceTreeView: View {
 
     private func render(_ node: [String: Any]) -> AnyView {
         switch node["t"] as? String ?? "" {
+        case "palette":
+            return AnyView(SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:]))
         case "vstack":
             let spacing = node["spacing"] as? Double ?? 4
             return AnyView(VStack(alignment: SurfaceNodeStyle.horizontal(node["alignment"] as? String), spacing: spacing) {
@@ -806,14 +818,14 @@ struct SurfaceTreeView: View {
                 )
             case "caption":
                 return AnyView(
-                    Text(value).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(value).font(.system(size: 11)).foregroundStyle(scopedColor("secondary_text"))
                 )
             case "mono":
                 // One-line log entry: what an agent said / which tool it called.
                 return AnyView(
                     Text(value)
                         .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(scopedColor("secondary_text"))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 )
@@ -837,7 +849,7 @@ struct SurfaceTreeView: View {
                 Text((node["value"] as? String ?? "").uppercased())
                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     .kerning(0.9)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(scopedColor("secondary_text"))
                     .padding(.top, 10)
                     .padding(.bottom, 2)
             )
@@ -903,7 +915,7 @@ struct SurfaceTreeView: View {
             return AnyView(
                 Text("⟨unknown widget: \(unknown)⟩")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(scopedColor("error"))
             )
         }
     }
@@ -1428,6 +1440,7 @@ struct SurfaceColorPicker: View {
 /// trailing nodes are laid out by the same renderer (toggle, buttons, a
 /// compact textfield).
 private struct SurfaceListRow: View {
+    var colors = SurfaceColors()
     let node: [String: Any]
     let emit: (String, Any?) -> Void
     let render: ([String: Any]) -> AnyView
@@ -1442,12 +1455,12 @@ private struct SurfaceListRow: View {
                     .frame(width: 18, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
             } else if let symbol = node["symbol"] as? String {
                 Image(systemName: symbol).font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary).frame(width: 18)
+                    .foregroundStyle(colors.color("secondary_text")).frame(width: 18)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(node["title"] as? String ?? "").font(.system(size: 13)).lineLimit(1)
                 if let subtitle = node["subtitle"] as? String, !subtitle.isEmpty {
-                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(colors.color("secondary_text"))
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1467,7 +1480,7 @@ private struct SurfaceListRow: View {
             }
         }
         .overlay(alignment: .bottom) {
-            Rectangle().fill(.separator).frame(height: 0.5).opacity(0.6)
+            Rectangle().fill(colors.color("separator")).frame(height: 0.5).opacity(0.6)
         }
     }
 }

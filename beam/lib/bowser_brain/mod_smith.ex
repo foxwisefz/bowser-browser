@@ -249,7 +249,7 @@ defmodule BowserBrain.ModSmith do
     Example: action("Bold", symbol: "bold", label_style: :icon, button_style: :plain,
       command: command(:wrap, field: "body", prefix: "**", suffix: "**"));
     place this anywhere inside state("doc-42", %{"body" => text}, tree).
-    Shared ui/2 styles: foreground/background/border hex colors, corner_radius,
+    Shared ui/2 styles: adaptive foreground/background/border colors, corner_radius,
     font_size: 8..72 points, control_size: :regular/:small/:mini, existing sizing/
     padding/alignment. Editor font_size/foreground/background style its native text.
     Set fill_height: true on editor, scope and enclosing layout for full-height UI.
@@ -259,6 +259,30 @@ defmodule BowserBrain.ModSmith do
     Keep private data in Store and native state/events, never Page.eval, scripts
     or page-origin handlers. Use JSON (built in), not Jason (not installed).
     Verify actual typing, commands, saving/reopening, appearance at narrow widths.
+
+    NATIVE APPEARANCE: Prefer semantic colors over fixed hex in native mod UI:
+    :text, :secondary_text, :surface, :editor_background, :control_background,
+    :separator, :accent, :selection, :selected_text, :disabled_text, :error.
+    Colors resolve against the effective WINDOW appearance (which can follow page
+    tint), including increased contrast. Optional custom colors are maps with
+    required light/dark and optional high_contrast_light/high_contrast_dark keys;
+    omitted contrast variants fall back to the matching normal variant. Values
+    can be #rrggbb, role/token names, or nested maps (at most 8 levels).
+    palette(colors, content, opts) (2,3), or ui(node, palette: colors), scopes names
+    to a subtree; nested palettes override supplied names and inherit the rest.
+    At most 64 entries per palette; names start with a lowercase letter, followed
+    by lowercase letters/digits/underscores, at most 64 characters. References
+    between tokens are allowed; missing/cyclic references fall back semantically.
+    Example: palette(%{accent: %{light: "#7253A1", dark: "#C2A7F0"},
+      editor_background: :surface}, tree). Editors, previews, captions, controls
+    and presentations share the palette. Override text/surface together when
+    choosing custom backgrounds; editor caret and selection are also adaptive.
+    Chrome.put_toolbar style accepts adaptive foreground/background/border/accent
+    plus palette:. Chrome.set_theme has a separate browser-shell color contract.
+    Fixed hex stays literal in every mode. Do not generate one appearance's fixed
+    background mixed with the other's native text. Prefer SF Symbols over fixed
+    icon assets; artwork is not automatically recolored. Test light, dark and
+    increased contrast, plus switching while retaining drafts and selection.
 
     COMPOSABLE WEBSITE LAYOUT: alias BowserBrain.{Layout, Surface}.
     Surface.create_tab(wv, url) -> {:ok, state} with "created" => background tab ID.

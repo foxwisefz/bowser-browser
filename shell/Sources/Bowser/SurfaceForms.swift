@@ -109,6 +109,7 @@ struct SurfaceNode: Identifiable {
 }
 
 struct SurfaceFormView: View {
+    var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
     @StateObject private var model: SurfaceFormModel
@@ -124,7 +125,7 @@ struct SurfaceFormView: View {
             SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:])
                 .environment(\.surfaceForm, model)
                 .disabled(model.busy)
-            if let error = model.errors["_form"] { Text(error).font(.callout).foregroundStyle(.red) }
+            if let error = model.errors["_form"] { Text(error).font(.callout).foregroundStyle(colors.color("error")) }
             if node["controls"] as? Bool ?? true { HStack {
                 Spacer()
                 Button(node["cancel_label"] as? String ?? "Revert") {
@@ -158,15 +159,17 @@ struct SurfaceFormView: View {
 }
 
 struct SurfaceInput: View {
+    var colors = SurfaceColors()
     let node: [String: Any]
     @Environment(\.surfaceForm) private var form
     var body: some View {
         if let form { SurfaceBoundInput(node: node, model: form) }
-        else { Text("Input requires a form").foregroundStyle(.red) }
+        else { Text("Input requires a form").foregroundStyle(colors.color("error")) }
     }
 }
 
 private struct SurfaceBoundInput: View {
+    var colors = SurfaceColors()
     let node: [String: Any]
     @ObservedObject var model: SurfaceFormModel
     private var field: String { node["field"] as? String ?? "" }
@@ -177,7 +180,7 @@ private struct SurfaceBoundInput: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             control
-            if let error = model.errors[field] { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = model.errors[field] { Text(error).font(.caption).foregroundStyle(colors.color("error")) }
         }.accessibilityLabel(label)
     }
     @ViewBuilder private var control: some View {
@@ -219,6 +222,7 @@ private struct SurfaceBoundInput: View {
 }
 
 struct SurfacePresentation: View {
+    var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
     @State private var presented = false
@@ -235,9 +239,10 @@ struct SurfacePresentation: View {
     private var content: some View {
         SurfaceTreeView(surfaceId: surfaceId, node: node["content"] as? [String: Any] ?? [:])
             .environment(\.surfaceForm, form)
-            .foregroundStyle(Color.primary)
+            .environment(\.surfacePalette, colors.palette)
+            .foregroundStyle(colors.color("text"))
             .padding(24)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(colors.color("surface"))
             .frame(width: max(240, min(1000, (node["content_width"] as? Double).map { CGFloat($0) } ?? 480)))
     }
 }
@@ -313,6 +318,7 @@ struct SurfaceListDetail: View {
 }
 
 struct SurfaceNodeStyle: ViewModifier {
+    var colors = SurfaceColors()
     let node: [String: Any]
     static func horizontal(_ value: String?) -> HorizontalAlignment {
         switch value { case "center": return .center; case "trailing": return .trailing; default: return .leading }
@@ -326,12 +332,12 @@ struct SurfaceNodeStyle: ViewModifier {
                    maxHeight: node["fill_height"] as? Bool == true ? .infinity : (node["max_height"] as? Double).map { CGFloat($0) },
                    alignment: .leading)
             .padding(node["padding"] as? Double ?? 0)
-            .background(Profile.color(hex: node["background"] as? String).map { Color(nsColor: $0) } ?? .clear)
+            .background(node["background"].map { colors.color($0, fallback: "surface") } ?? .clear)
             .clipShape(RoundedRectangle(cornerRadius: node["corner_radius"] as? Double ?? 0))
             .overlay(RoundedRectangle(cornerRadius: node["corner_radius"] as? Double ?? 0)
-                .strokeBorder(Profile.color(hex: node["border"] as? String).map { Color(nsColor: $0) } ?? .clear, lineWidth: 1))
+                .strokeBorder(node["border"].map { colors.color($0, fallback: "separator") } ?? .clear, lineWidth: 1))
             .modifier(SurfaceFontSize(size: node["font_size"] as? Double))
-            .modifier(SurfaceForeground(color: node["foreground"] as? String))
+            .modifier(SurfaceForeground(color: node["foreground"]))
             .controlSize(node["control_size"] as? String == "small" ? .small : node["control_size"] as? String == "mini" ? .mini : .regular)
             .modifier(SurfaceAccessibility(node: node))
     }
@@ -361,9 +367,10 @@ final class SurfaceFormStore {
 }
 
 private struct SurfaceForeground: ViewModifier {
-    let color: String?
+    var colors = SurfaceColors()
+    let color: Any?
     @ViewBuilder func body(content: Content) -> some View {
-        if let value = Profile.color(hex: color) { content.foregroundStyle(Color(nsColor: value)) }
+        if let color { content.foregroundStyle(colors.color(color)) }
         else { content }
     }
 }

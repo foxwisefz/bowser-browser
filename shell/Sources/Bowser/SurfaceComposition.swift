@@ -75,16 +75,18 @@ struct SurfaceModelScope: View {
 }
 
 struct SurfaceBoundView: View {
+    var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
     @Environment(\.surfaceForm) private var model
     var body: some View {
         if let model { SurfaceBoundContent(surfaceId: surfaceId, node: node, model: model) }
-        else { Text("This control requires a state or form scope").foregroundStyle(.red) }
+        else { Text("This control requires a state or form scope").foregroundStyle(colors.color("error")) }
     }
 }
 
 private struct SurfaceBoundContent: View {
+    var colors = SurfaceColors()
     let surfaceId: String
     let node: [String: Any]
     @ObservedObject var model: SurfaceFormModel
@@ -97,7 +99,7 @@ private struct SurfaceBoundContent: View {
         case "editor":
             VStack(alignment: .leading, spacing: 4) {
                 SurfaceMultilineInput(node: node, text: string)
-                if let error = model.errors[field] { Text(error).foregroundStyle(.red).font(.caption) }
+                if let error = model.errors[field] { Text(error).foregroundStyle(colors.color("error")).font(.caption) }
             }
         case "preview": SurfaceMarkdownPreview(text: string.wrappedValue)
         case "selector":

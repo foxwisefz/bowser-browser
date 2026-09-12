@@ -16,14 +16,15 @@ final class SurfaceEditorController: ObservableObject {
 }
 
 struct SurfaceNativeTextEditor: NSViewRepresentable {
+    var colors = SurfaceColors()
     @Binding var text: String
     let controller: SurfaceEditorController
     let monospaced: Bool
     let editable: Bool
     let label: String
     var fontSize: Double = 14
-    var foreground: String? = nil
-    var background: String? = nil
+    var foreground: Any? = nil
+    var background: Any? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -69,8 +70,10 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
         view.isEditable = editable
         let size = max(8, min(72, fontSize))
         view.font = monospaced ? .monospacedSystemFont(ofSize: size, weight: .regular) : .systemFont(ofSize: size)
-        view.textColor = Profile.color(hex: foreground) ?? .textColor
-        view.backgroundColor = Profile.color(hex: background) ?? .textBackgroundColor
+        view.textColor = colors.native(foreground, fallback: "text")
+        view.backgroundColor = colors.native(background, fallback: "editor_background")
+        view.insertionPointColor = colors.native(foreground, fallback: "text")
+        view.selectedTextAttributes = [.backgroundColor: colors.native("selection"), .foregroundColor: colors.native("selected_text")]
         view.setAccessibilityLabel(label)
     }
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -86,6 +89,7 @@ struct SurfaceNativeTextEditor: NSViewRepresentable {
 /// An editor is only an editing surface. Its model owns selection and commands;
 /// sibling views decide how to present tools and previews.
 struct SurfaceMultilineInput: View {
+    var colors = SurfaceColors()
     let node: [String: Any]
     @Binding var text: String
     @Environment(\.isEnabled) private var enabled
@@ -97,10 +101,10 @@ struct SurfaceMultilineInput: View {
                 controller: model?.editor(node["field"] as? String ?? "") ?? fallback,
                 monospaced: node["monospaced"] as? Bool ?? false, editable: enabled,
                 label: node["label"] as? String ?? "Text editor", fontSize: node["font_size"] as? Double ?? 14,
-                foreground: node["foreground"] as? String, background: node["background"] as? String)
+                foreground: node["foreground"], background: node["background"])
             if text.isEmpty {
                 Text(node["placeholder"] as? String ?? "")
-                    .foregroundStyle(.secondary).padding(16).allowsHitTesting(false)
+                    .foregroundStyle(colors.color("secondary_text")).padding(16).allowsHitTesting(false)
             }
         }.frame(minHeight: 100, maxHeight: .infinity)
     }
@@ -108,6 +112,7 @@ struct SurfaceMultilineInput: View {
 
 /// Text-only Markdown preview: no HTML execution, web views or image fetches.
 struct SurfaceMarkdownPreview: View {
+    var colors = SurfaceColors()
     let text: String
     struct Line {
         let text: String
@@ -137,14 +142,14 @@ struct SurfaceMarkdownPreview: View {
                     Text(line.code ? AttributedString(line.text) : (try? AttributedString(markdown: line.text,
                         options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(line.text))
                         .font(line.code ? .system(size: 13, design: .monospaced) : line.heading > 0 ? .system(size: CGFloat(26 - line.heading * 2), weight: .semibold) : .body)
-                        .foregroundStyle(line.quote ? Color.secondary : Color.primary)
+                        .foregroundStyle(colors.color(line.quote ? "secondary_text" : "text"))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }.padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(Color(nsColor: .textBackgroundColor))
-        .foregroundStyle(.primary)
+        .background(colors.color("editor_background"))
+        .foregroundStyle(colors.color("text"))
         // A preview displays links but never dispatches URLs to external handlers.
         .environment(\.openURL, OpenURLAction { _ in .handled })
     }

@@ -185,7 +185,7 @@ defmodule BowserBrain.View do
   def ui(node, opts) when is_map(node) do
     shared = Keyword.take(opts, [:key, :width, :height, :min_width, :max_width, :min_height,
       :max_height, :fill_width, :fill_height, :padding, :alignment, :disabled,
-      :accessibility_label, :help, :foreground, :background, :border, :corner_radius, :control_size, :font_size]) |> Map.new()
+      :accessibility_label, :help, :foreground, :background, :border, :corner_radius, :control_size, :font_size, :palette]) |> Map.new()
     shared = if Map.has_key?(shared, :key), do: Map.update!(shared, :key, &to_string/1), else: shared
     Map.merge(node, shared)
   end
@@ -240,6 +240,13 @@ defmodule BowserBrain.View do
       label: Keyword.get(opts, :label, to_string(name)), placeholder: Keyword.get(opts, :placeholder),
       columns: Keyword.get(opts, :columns, 4), options: Keyword.get(opts, :options, []),
       monospaced: Keyword.get(opts, :monospaced, false)} |> ui(opts)
+  end
+
+  @doc "Scope adaptive color roles/tokens to a subtree. Colors are semantic atoms, #rrggbb, or %{light: color, dark: color, high_contrast_light: color, high_contrast_dark: color}."
+  def palette(colors, content, opts \\ []) when is_map(colors) do
+    if BowserBrain.Appearance.valid_palette?(colors),
+      do: ui(%{t: "palette", palette: colors, content: content}, opts),
+      else: raise(ArgumentError, "invalid native palette")
   end
 
   @doc "Local state scope. Children bind to string-keyed values; keys are stable per document. No imposed controls."
