@@ -137,6 +137,7 @@ struct TabAppDragTarget: NSViewRepresentable {
 final class TabAppPasteboardProvider: NSObject, NSPasteboardItemDataProvider {
     var makeBundle: () throws -> URL
     private var bundle: URL?
+    private(set) var failed = false
     init(makeBundle: @escaping () throws -> URL) { self.makeBundle = makeBundle }
 
     func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem,
@@ -145,7 +146,7 @@ final class TabAppPasteboardProvider: NSObject, NSPasteboardItemDataProvider {
         do {
             if bundle == nil { bundle = try makeBundle() }
             item.setString(bundle!.absoluteString, forType: .fileURL)
-        } catch { NSLog("Bowser: tab app drag failed: %@", error.localizedDescription) }
+        } catch { failed = true; NSLog("Bowser: tab app drag failed: %@", error.localizedDescription) }
     }
 }
 
@@ -158,6 +159,17 @@ final class TabAppDragView: NSView, NSDraggingSource {
     private(set) var draggedID: UInt64?
     private var provider: TabAppPasteboardProvider?
     private var insertionAfter: Bool?
+    private var dragFrame: NSRect?
+    private var cancelled = false
+    private var escapeMonitor: Any?
+
+    /// A failed/cancelled drag is not automatically a request to close a tab.
+    static func shouldRemove(operation: NSDragOperation, cancelled: Bool, mouseButtons: Int,
+                             exportFailed: Bool, point: NSPoint, dock: NSRect?) -> Bool {
+        guard operation.isEmpty, !cancelled, mouseButtons & 1 == 0, !exportFailed,
+              let dock else { return false }
+        return !dock.insetBy(dx: -64, dy: -32).contains(point)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -178,6 +190,12 @@ final class TabAppDragView: NSView, NSDraggingSource {
               let tab = EngineView.live[webviewID] else { return }
         dragged = true
         draggedID = webviewID
+        dragFrame = window?.frame
+        cancelled = false
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { self?.cancelled = true }
+            return event
+        }
         let icon = tab.faviconPath.flatMap { NSImage(contentsOfFile: $0) }
             ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
         let pasteboard = NSPasteboardItem()
@@ -204,10 +222,22 @@ final class TabAppDragView: NSView, NSDraggingSource {
         context == .withinApplication ? [.move] : [.copy, .link, .generic]
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        let remove = Self.shouldRemove(operation: operation, cancelled: cancelled,
+            mouseButtons: NSEvent.pressedMouseButtons, exportFailed: provider?.failed == true,
+            point: screenPoint, dock: dragFrame)
+        let id = draggedID
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
         down = nil
         draggedID = nil
         provider = nil
+        dragFrame = nil
         SurfaceManager.shared.setEdgeDragging("edge_dock", false)
+        if remove, let id, let host = BrowserWindowController.host(of: id) {
+            session.animatesToStartingPositionsOnCancelOrFail = false
+            TabDustEffect.show(at: screenPoint)
+            host.closeTab(id: id)
+        }
     }
 
     private func sourceID(_ sender: NSDraggingInfo) -> UInt64? {

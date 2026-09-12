@@ -4,6 +4,37 @@ import IconRendering
 @testable import Bowser
 
 final class TabAppDragTests: XCTestCase {
+    @MainActor func testDragOutRequiresUnacceptedMouseReleaseFarFromDock() {
+        let dock = NSRect(x: 0, y: 20, width: 48, height: 900)
+        let outside = NSPoint(x: 220, y: 450)
+        func removes(_ operation: NSDragOperation = [], cancelled: Bool = false, buttons: Int = 0,
+                     failed: Bool = false, point: NSPoint? = nil) -> Bool {
+            TabAppDragView.shouldRemove(operation: operation, cancelled: cancelled, mouseButtons: buttons,
+                exportFailed: failed, point: point ?? outside, dock: dock)
+        }
+        XCTAssertTrue(removes())
+        for accepted: NSDragOperation in [.move, .copy, .link, .generic] { XCTAssertFalse(removes(accepted)) }
+        XCTAssertFalse(removes(cancelled: true))
+        XCTAssertFalse(removes(buttons: 1))
+        XCTAssertFalse(removes(failed: true))
+        XCTAssertFalse(removes(point: NSPoint(x: 75, y: 450)))
+        XCTAssertFalse(removes(point: NSPoint(x: 24, y: 450)))
+        XCTAssertFalse(TabAppDragView.shouldRemove(operation: [], cancelled: false, mouseButtons: 0,
+            exportFailed: false, point: outside, dock: nil))
+    }
+
+    @MainActor func testDustRespectsReducedMotion() {
+        for reduced in [false, true] {
+            let layer = CALayer()
+            TabDustEffect.populate(layer, size: NSSize(width: 180, height: 160), reducedMotion: reduced, duration: 0.5)
+            XCTAssertEqual(layer.sublayers?.count, 24)
+            let animation = layer.sublayers?.first?.animation(forKey: "dust") as? CAAnimationGroup
+            let keys = animation?.animations?.compactMap { ($0 as? CAPropertyAnimation)?.keyPath }
+            XCTAssertEqual(keys?.contains("position"), !reduced)
+            XCTAssertEqual(keys?.contains("opacity"), true)
+        }
+    }
+
     @MainActor func testSavedAppIsGeneratedOnlyWhenFileRepresentationIsRequested() {
         var creations = 0
         let url = URL(fileURLWithPath: "/tmp/test-saved-app.app")
