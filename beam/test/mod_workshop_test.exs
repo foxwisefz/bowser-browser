@@ -191,6 +191,35 @@ end
     assert %{ok: false} = ModWorkshop.tool(token, "store_get", %{"mod" => mine})
   end
 
+  test "site drafts reject inert host declarations before any file write or compilation", %{root: root} do
+    event("submit", %{"text" => "Change this site", "scope" => "site"})
+    assert_receive {:runner, _pid, token, _, nil, nil}, 1000
+    marker = Path.join(root, "must-not-execute")
+    side_effect = "File.write!(#{inspect(marker)}, \"executed\")\n"
+    sources = [
+      "quote do defmodule QuotedHost do use BowserBrain.Mod, host: \"example.com\" end end",
+      "defmodule QuotedBody do quote do use BowserBrain.Mod, host: \"example.com\" end end",
+      "defmodule FunctionBody do def unused do use BowserBrain.Mod, host: \"example.com\" end end",
+      "defmodule WrongHost do use BowserBrain.Mod, host: \"other.example\" end\nquote do use BowserBrain.Mod, host: \"example.com\" end",
+      "defmodule MissingHost do use BowserBrain.Mod end\nquote do use BowserBrain.Mod, host: \"example.com\" end",
+      "defmodule HelperOnly do def hello, do: :ok end",
+      "defmodule GoodHost do use BowserBrain.Mod, host: \"example.com\" end\ndefmodule ForeignHost do use BowserBrain.Mod, host: \"other.example\" end"
+    ]
+    for source <- sources do
+      assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "invalid_host.ex", "content" => side_effect <> source})
+      refute File.exists?(marker)
+      assert ModRevision.read("mods/invalid_host.ex") == nil
+    end
+    [project] = :sys.get_state(ModWorkshop).data["projects"]
+    assert hd(project["revisions"])["files"] == %{}
+
+    assert %{ok: true} = ModWorkshop.tool(token, "put_mod", %{
+      "name" => "valid_host.ex",
+      "content" => "defmodule GenuineScopedDraft do use BowserBrain.Mod, host: \"example.com\" end"
+    })
+    assert ModRevision.read("mods/valid_host.ex") =~ "GenuineScopedDraft"
+  end
+
 
   test "Elixir drafts share final revision history and Undo removes the installed file" do
     event("submit", %{"text" => "AOL shell", "scope" => "browser"})

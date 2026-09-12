@@ -710,22 +710,28 @@ defmodule BowserBrain.ModWorkshop do
 
   defp validate_code(p, path, content) do
     if String.ends_with?(String.replace_suffix(path, ".off", ""), ".ex") do
-      with {:ok, ast} <- Code.string_to_quoted(content) do
+      with {:ok, ast} <- Code.string_to_quoted(content, static_atoms_encoder: fn name, _ -> {:ok, name} end) do
         host = URI.parse(p["url"]).host
+        declarations =
+          for {"defmodule", _, [{:__aliases__, _, names}, body]} <- statements(ast),
+              is_list(body), Enum.all?(names, &is_binary/1),
+              {"use", _, [{:__aliases__, _, target} | arguments]} <- statements(Keyword.get(body, :do)),
+              target in [["BowserBrain", "Mod"], ["Elixir", "BowserBrain", "Mod"]],
+              do: arguments
 
-        {_ast, scoped} =
-          Macro.prewalk(ast, false, fn
-            {:use, _, [{:__aliases__, _, [:BowserBrain, :Mod]}, opts]} = node, found
-            when is_list(opts) ->
-              {node, found or Keyword.get(opts, :host) == host}
-
-            node, found ->
-              {node, found}
-          end)
-
-        if p["scope"] == "site" and not scoped,
-          do: {:error, "This mod must declare host: #{host}"},
-          else: :ok
+        # Only direct declarations describe a mod. Walking into quotes or
+        # function bodies mistakes inert examples for executable metadata.
+        # This is structural validation, not an Elixir capability boundary.
+        cond do
+          declarations == [] ->
+            {:error, "Generated Elixir must define a top-level module using BowserBrain.Mod"}
+          p["scope"] == "site" and not Enum.all?(declarations, fn
+            [opts] when is_list(opts) -> List.keyfind(opts, "host", 0) == {"host", host}
+            _ -> false
+          end) ->
+            {:error, "Every site mod must directly declare host: #{host}"}
+          true -> :ok
+        end
       else
         _ -> {:error, "Generated Elixir has a syntax error"}
       end

@@ -118,8 +118,10 @@ defmodule BowserBrain.ModSmith do
 
     SCOPE RULE: a request about a specific page/site must be limited to that
     site by default. Payloads are auto host-scoped. A tier-"mod" for
-    page-specific behavior MUST declare its host:
+    page-specific behavior MUST declare its host directly in a top-level defmodule:
       use BowserBrain.Mod, host: "#{host}"
+    Quotes or function bodies do not count as declarations. Every declared site mod must match this host.
+    This validates metadata only; Elixir code still has the runtime user's privileges.
     — events from tabs on other sites then never reach handle_event
     (subdomains included). Omit host: ONLY for genuinely browser-wide mods
     (tab docks, global chrome).

@@ -41,7 +41,12 @@ The MCP bridge adds a per-run token out of band. Expired tokens cannot write.
 ModSmith's CLI exposes only the Bowser MCP toolbox: filesystem changes must go
 through the revision writer. Page tools target the selected tab, and draft/final
 paths are validated against the chosen scope. Site Elixir mods must declare
-the matching host. App mods remain CSS/JS only.
+the matching host in a direct `use BowserBrain.Mod` inside a top-level module.
+Every directly declared site mod must match; quoted examples and declarations
+inside functions do not satisfy this check. Elixir drafts with no direct mod
+declaration are rejected before files are written. This structural check does
+not restrict the privileges of accepted Elixir or prevent its top-level code
+from executing. App mods remain CSS/JS only.
 
 Source reads and Store reads/writes check the run's profile on every operation.
 `read_mod` accepts only an existing mod or site payload owned by that profile,
