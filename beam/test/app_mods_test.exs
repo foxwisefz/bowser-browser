@@ -1,8 +1,8 @@
 defmodule BowserBrain.AppModsTest do
   use ExUnit.Case, async: false
   alias BowserBrain.{AppMods, AgentPort}
-  @id "com.gezim.bowser.site.0123456789abcdef"
-  @other "com.gezim.bowser.site.fedcba9876543210"
+  @id "com.foxwiseai.bowser.site.0123456789abcdef"
+  @other "com.foxwiseai.bowser.site.fedcba9876543210"
 
   setup do
     root = Path.join(System.tmp_dir!(), "bowser-appmods-#{System.unique_integer([:positive])}")
@@ -16,7 +16,7 @@ defmodule BowserBrain.AppModsTest do
     Application.put_env(:bowser_brain, :site_apps_dir, Path.join(root, "apps"))
 
     for id <- [@id, @other] do
-      dir = Path.join([root, "apps", String.replace_prefix(id, "com.gezim.bowser.site.", "")])
+      dir = Path.join([root, "apps", String.replace_prefix(id, "com.foxwiseai.bowser.site.", "")])
       File.mkdir_p!(dir)
 
       File.write!(

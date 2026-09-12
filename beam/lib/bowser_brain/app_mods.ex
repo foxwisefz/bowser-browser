@@ -3,14 +3,14 @@ defmodule BowserBrain.AppMods do
   alias BowserBrain.{Bridge, ModSmith, Paths}
 
   def valid_id?(id),
-    do: is_binary(id) and Regex.match?(~r/^com\.gezim\.bowser\.site\.[0-9a-f]{16}$/, id)
+    do: is_binary(id) and Regex.match?(~r/^com\.foxwiseai\.bowser\.site\.[0-9a-f]{16}$/, id)
 
   def root,
     do: Application.get_env(:bowser_brain, :app_mods_dir, Path.join(Paths.home(), "app-mods"))
 
   def config(id) do
     if valid_id?(id) do
-      key = String.replace_prefix(id, "com.gezim.bowser.site.", "")
+      key = String.replace_prefix(id, "com.foxwiseai.bowser.site.", "")
 
       base =
         Application.get_env(:bowser_brain, :site_apps_dir, Path.join(Paths.home(), "site-apps"))

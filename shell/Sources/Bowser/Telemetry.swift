@@ -64,12 +64,12 @@ actor Telemetry {
     static let shared = Telemetry(directory: queueDirectory(home: BowserPaths.home, bundleID: Bundle.main.bundleIdentifier), endpoint: configuredEndpoint)
     nonisolated static func queueDirectory(home: URL, bundleID: String?) -> URL {
         let root = home.appendingPathComponent("telemetry")
-        guard let bundleID, bundleID.range(of: #"^com\.gezim\.bowser\.site\.[0-9a-f]{16}$"#, options: .regularExpression) != nil else { return root }
+        guard let bundleID, bundleID.range(of: #"^com\.foxwiseai\.bowser\.site\.[0-9a-f]{16}$"#, options: .regularExpression) != nil else { return root }
         return root.appendingPathComponent(bundleID)
     }
     private static var configuredEndpoint: URL? {
         if ProcessInfo.processInfo.environment["BOWSER_TELEMETRY_DISABLED"] == "1" { return nil }
-        guard Bundle.main.bundleIdentifier?.hasPrefix("com.gezim.bowser") == true else { return nil }
+        guard Bundle.main.bundleIdentifier?.hasPrefix("com.foxwiseai.bowser") == true else { return nil }
         return URL(string: "https://bowser.app/v1/events")
     }
     typealias Sender = @Sendable (URLRequest) async throws -> Int

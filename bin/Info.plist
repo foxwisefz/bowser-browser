@@ -4,7 +4,7 @@
 <dict>
   <key>CFBundleName</key><string>Bowser</string>
   <key>CFBundleDisplayName</key><string>Bowser</string>
-  <key>CFBundleIdentifier</key><string>com.gezim.bowser</string>
+  <key>CFBundleIdentifier</key><string>com.foxwiseai.bowser</string>
   <key>CFBundleExecutable</key><string>Bowser</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

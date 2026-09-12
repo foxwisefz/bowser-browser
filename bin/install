@@ -149,7 +149,7 @@ mv -f "$UPDATE_ROOT/apply-update.new" "$UPDATE_ROOT/apply-update"
 # A dormant login job resumes pending activation even if this session reboots.
 # It runs only while a manifest exists and exits immediately after activation.
 AGENT_DIR="$HOME/Library/LaunchAgents"
-AGENT_LABEL="com.gezim.bowser.pending-update"
+AGENT_LABEL="com.foxwiseai.bowser.pending-update"
 mkdir -p "$AGENT_DIR"
 "$RUNTIME_TOOL" watcher-plist "$AGENT_DIR/$AGENT_LABEL.plist" "$UPDATE_ROOT"
 "$UPDATE_ROOT/apply-update" "$UPDATE_ROOT/pending.json" --refresh-watcher

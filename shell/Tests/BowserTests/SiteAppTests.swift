@@ -39,7 +39,7 @@ final class SiteAppTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let config = SiteAppConfiguration(url: URL(string: "https://example.com")!, profile: "default",
-            identifier: "com.gezim.bowser.site.0123456789abcdef", mainApp: URL(fileURLWithPath: "/Applications/Bowser.app"))
+            identifier: "com.foxwiseai.bowser.site.0123456789abcdef", mainApp: URL(fileURLWithPath: "/Applications/Bowser.app"))
         let directory = root.appendingPathComponent(config.identifier)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try "globalThis.fixture='only this app';".write(to: directory.appendingPathComponent("test.js"), atomically: true, encoding: .utf8)
@@ -54,7 +54,7 @@ final class SiteAppTests: XCTestCase {
         context.evaluateScript(scripts[0])
         XCTAssertEqual(context.evaluateScript("fixture")?.toString(), "only this app")
         let other = SiteAppConfiguration(url: config.url, profile: "work",
-            identifier: "com.gezim.bowser.site.fedcba9876543210", mainApp: config.mainApp)
+            identifier: "com.foxwiseai.bowser.site.fedcba9876543210", mainApp: config.mainApp)
         XCTAssertTrue(SiteAppRuntime.modScripts(configuration: other, root: root).isEmpty)
     }
 
@@ -113,7 +113,7 @@ final class SiteAppTests: XCTestCase {
         compiler.arguments = [fixtureSource.path, "-o", fixtureExecutable.path]
         try compiler.run(); compiler.waitUntilExit()
         XCTAssertEqual(compiler.terminationStatus, 0)
-        let info: [String: Any] = ["CFBundleIdentifier": "com.gezim.bowser.test-parent.\(UUID().uuidString)",
+        let info: [String: Any] = ["CFBundleIdentifier": "com.foxwiseai.bowser.test-parent.\(UUID().uuidString)",
             "CFBundleExecutable": "Fixture", "CFBundlePackageType": "APPL", "LSUIElement": true]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: browser.appendingPathComponent("Contents/Info.plist"))
@@ -129,7 +129,7 @@ final class SiteAppTests: XCTestCase {
         defer { if !parent.isTerminated { _ = parent.terminate() } }
         print("Signed site app preparation: \((ProcessInfo.processInfo.systemUptime - preparationStart) * 1000)ms")
         let configuration = try XCTUnwrap(SiteAppConfiguration.parse(Bundle(url: bundle)!.infoDictionary!))
-        let mainPIDs = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").map(\.processIdentifier))
+        let mainPIDs = Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.foxwiseai.bowser").map(\.processIdentifier))
         let options = NSWorkspace.OpenConfiguration()
         options.activates = false
         options.environment = ["BOWSER_HOME": root.appendingPathComponent("state").path]
@@ -156,7 +156,7 @@ final class SiteAppTests: XCTestCase {
         let expectedSession = UUID().uuidString
         let delayedBootstrap = ProcessInfo.processInfo.environment["BOWSER_TEST_LATE_BOOTSTRAP"] == "1"
         let stateHome = root.appendingPathComponent("state/site-apps")
-            .appendingPathComponent(configuration.identifier.replacingOccurrences(of: "com.gezim.bowser.site.", with: ""))
+            .appendingPathComponent(configuration.identifier.replacingOccurrences(of: "com.foxwiseai.bowser.site.", with: ""))
         let socketPath = stateHome.appendingPathComponent("brain.sock").path
         // LaunchServices can report finished before the listener's background
         // queue has bound its socket. Wait for readiness, not a fixed delay.
@@ -264,7 +264,7 @@ final class SiteAppTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertTrue(running.isTerminated)
-        XCTAssertEqual(mainPIDs, Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").map(\.processIdentifier)))
+        XCTAssertEqual(mainPIDs, Set(NSRunningApplication.runningApplications(withBundleIdentifier: "com.foxwiseai.bowser").map(\.processIdentifier)))
     }
 }
 

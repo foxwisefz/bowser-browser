@@ -41,7 +41,7 @@ final class BackendLifecycle {
             try? await Task.sleep(for: .milliseconds(750))
             guard !Task.isCancelled, !isQuitting, !BrainBridge.shared.isConnected else { return }
             guard let helper = Self.helper() else {
-                if Bundle.main.bundleIdentifier == "com.gezim.bowser" { showStartupFailure() }
+                if Bundle.main.bundleIdentifier == "com.foxwiseai.bowser" { showStartupFailure() }
                 return
             }
             do {

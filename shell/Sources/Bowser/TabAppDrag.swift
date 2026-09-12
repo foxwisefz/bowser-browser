@@ -26,7 +26,7 @@ enum TabAppBundle {
         try FileManager.default.copyItem(at: bowser.appendingPathComponent("Contents/MacOS/Bowser"), to: executable)
         let info: [String: Any] = [
             "CFBundleName": name, "CFBundleDisplayName": name,
-            "CFBundleIdentifier": "com.gezim.bowser.site.\(key)",
+            "CFBundleIdentifier": "com.foxwiseai.bowser.site.\(key)",
             "CFBundleExecutable": "launch", "CFBundlePackageType": "APPL",
             "CFBundleVersion": "2", "BowserAppVersion": 2,
             "BowserEngineBuild": try engineBuild(bowser),
@@ -58,7 +58,7 @@ enum TabAppBundle {
         let plist = bundle.appendingPathComponent("Contents/Info.plist")
         guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as? [String: Any],
               let identifier = info["CFBundleIdentifier"] as? String,
-              identifier.hasPrefix("com.gezim.bowser.site."), info["BowserSavedURL"] is String else { return }
+              identifier.hasPrefix("com.foxwiseai.bowser.site."), info["BowserSavedURL"] is String else { return }
         let build = try engineBuild(bowser)
         let engineChanged = info["BowserAppVersion"] as? Int != 2 || info["BowserEngineBuild"] as? String != build
         let savedURL = (info["BowserSavedURL"] as? String).flatMap(URL.init(string:))

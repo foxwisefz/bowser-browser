@@ -243,14 +243,14 @@ final class DefaultBrowserSettingsModel: ObservableObject {
     }
 
     nonisolated static func isInstalledApplication(_ bundle: Bundle) -> Bool {
-        bundle.bundleIdentifier == "com.gezim.bowser" && bundle.bundleURL.pathExtension == "app"
+        bundle.bundleIdentifier == "com.foxwiseai.bowser" && bundle.bundleURL.pathExtension == "app"
     }
 
     private static func isBowserHandler(for url: URL) -> Bool {
         guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: url),
               let bundle = Bundle(url: applicationURL)
         else { return false }
-        return bundle.bundleIdentifier == "com.gezim.bowser"
+        return bundle.bundleIdentifier == "com.foxwiseai.bowser"
     }
 }
 

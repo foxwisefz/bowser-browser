@@ -72,7 +72,7 @@ defmodule BowserBrain.ModWorkshopTest do
   end
 
   test "saved-app picker includes disabled files only from its own app", %{root: root} do
-    id = "com.gezim.bowser.site.0123456789abcdef"
+    id = "com.foxwiseai.bowser.site.0123456789abcdef"
     app = %{"id" => id, "url" => "https://example.com", "name" => "Example"}
     dir = Path.join([root, "app-mods", id])
     File.mkdir_p!(dir)
@@ -332,7 +332,7 @@ end
   end
 
   test "saved app has its own history, revisions and CSS/JS scope" do
-    app = %{"id" => "com.gezim.bowser.site.0123456789abcdef", "url" => "https://example.com"}
+    app = %{"id" => "com.foxwiseai.bowser.site.0123456789abcdef", "url" => "https://example.com"}
     event("submit", %{"app" => app, "text" => "App reading mode"})
     assert_receive {:runner, pid, token, _, nil, ^app}, 1000
 
@@ -445,7 +445,7 @@ end
 
     assert hd(state.data["projects"])["status"] == "failed"
     assert ModRevision.read("sites/example.com/reading.css") == nil
-    app = %{"id" => "com.gezim.bowser.site.0123456789abcdef", "url" => "https://example.com"}
+    app = %{"id" => "com.foxwiseai.bowser.site.0123456789abcdef", "url" => "https://example.com"}
     event("submit", %{"app" => app, "text" => "App mod"})
     assert_receive {:runner, pid, _, _, _, _}, 1000
     state = complete(pid, [%{"path" => "mods/global.ex", "content" => "defmodule Demo do end"}])

@@ -13,7 +13,7 @@ struct SiteAppConfiguration: Codable, Equatable {
         guard info["BowserAppVersion"] as? Int == 2,
               let value = info["BowserSavedURL"] as? String, let url = URL(string: value),
               ["http", "https"].contains(url.scheme ?? ""), url.host != nil,
-              let id = info["CFBundleIdentifier"] as? String, id.hasPrefix("com.gezim.bowser.site."),
+              let id = info["CFBundleIdentifier"] as? String, id.hasPrefix("com.foxwiseai.bowser.site."),
               let app = info["BowserMainApp"] as? String else { return nil }
         return Self(url: url, profile: info["BowserProfile"] as? String ?? "default",
                     identifier: id, mainApp: URL(fileURLWithPath: app))
@@ -21,7 +21,7 @@ struct SiteAppConfiguration: Codable, Equatable {
 
     var home: URL {
         BowserPaths.home.appendingPathComponent("site-apps")
-            .appendingPathComponent(identifier.replacingOccurrences(of: "com.gezim.bowser.site.", with: ""))
+            .appendingPathComponent(identifier.replacingOccurrences(of: "com.foxwiseai.bowser.site.", with: ""))
     }
 }
 
@@ -53,7 +53,7 @@ final class SiteAppRuntime {
         } catch { NSLog("Bowser: site registration failed: %@", error.localizedDescription) }
         // Keep the main browser available to supply this profile's login and
         // mods. Do not activate it or steal focus from the saved app.
-        if NSRunningApplication.runningApplications(withBundleIdentifier: "com.gezim.bowser").isEmpty {
+        if NSRunningApplication.runningApplications(withBundleIdentifier: "com.foxwiseai.bowser").isEmpty {
             let options = NSWorkspace.OpenConfiguration()
             options.activates = false
             Task { @MainActor in

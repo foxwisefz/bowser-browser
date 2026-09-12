@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
             ) { notification in
                 guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                      app.bundleIdentifier?.hasPrefix("com.gezim.bowser.site.") == true else { return }
+                      app.bundleIdentifier?.hasPrefix("com.foxwiseai.bowser.site.") == true else { return }
                 MainActor.assumeIsolated { TabAppBundle.upgradeSavedApps() }
             }
         }

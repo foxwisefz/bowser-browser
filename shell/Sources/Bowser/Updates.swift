@@ -80,7 +80,7 @@ enum UpdateInstaller {
         }
         try run("/usr/bin/hdiutil", ["attach", image.path, "-readonly", "-nobrowse", "-mountpoint", mount.path])
         let app = mount.appendingPathComponent("Bowser.app"), runtime = app.appendingPathComponent("Contents/Resources/runtime")
-        guard let installed = Bundle(url: app), installed.bundleIdentifier == "com.gezim.bowser",
+        guard let installed = Bundle(url: app), installed.bundleIdentifier == "com.foxwiseai.bowser",
               installed.infoDictionary?["CFBundleVersion"] as? String == release.build,
               installed.infoDictionary?["CFBundleShortVersionString"] as? String == release.version else { throw UpdateError.invalidRelease }
         for file in ["bin/bowser", "bin/apply-update", "bin/backend-host", "brain/bin/bowser_brain"] {
@@ -102,10 +102,10 @@ enum UpdateInstaller {
         guard rename(next.path, watcher.path) == 0 else { throw UpdateError.commandFailed }
         let agents = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents")
         try fm.createDirectory(at: agents, withIntermediateDirectories: true)
-        let plist = agents.appendingPathComponent("com.gezim.bowser.pending-update.plist")
+        let plist = agents.appendingPathComponent("com.foxwiseai.bowser.pending-update.plist")
         try run(helper.path, ["watcher-plist", plist.path, root.path])
         try run(watcher.path, [pending.path, "--refresh-watcher"])
-        let domain = "gui/\(getuid())", label = domain + "/com.gezim.bowser.pending-update"
+        let domain = "gui/\(getuid())", label = domain + "/com.foxwiseai.bowser.pending-update"
         try run("/bin/launchctl", ["bootout", label], allowFailure: true)
         try run("/bin/launchctl", ["bootstrap", domain, plist.path])
         try run("/bin/launchctl", ["kickstart", label])

@@ -4,9 +4,9 @@ import XCTest
 final class TelemetryTests: XCTestCase {
     func testSavedAppsUseSeparateQueues() {
         let home = URL(fileURLWithPath: "/tmp/fixture")
-        let main = Telemetry.queueDirectory(home: home, bundleID: "com.gezim.bowser")
-        let first = Telemetry.queueDirectory(home: home, bundleID: "com.gezim.bowser.site.0123456789abcdef")
-        let second = Telemetry.queueDirectory(home: home, bundleID: "com.gezim.bowser.site.1123456789abcdef")
+        let main = Telemetry.queueDirectory(home: home, bundleID: "com.foxwiseai.bowser")
+        let first = Telemetry.queueDirectory(home: home, bundleID: "com.foxwiseai.bowser.site.0123456789abcdef")
+        let second = Telemetry.queueDirectory(home: home, bundleID: "com.foxwiseai.bowser.site.1123456789abcdef")
         XCTAssertNotEqual(main, first)
         XCTAssertNotEqual(first, second)
         XCTAssertEqual(Telemetry.queueDirectory(home: home, bundleID: "../../private"), main)

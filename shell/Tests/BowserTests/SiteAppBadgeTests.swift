@@ -16,7 +16,7 @@ final class SiteAppBadgeTests: XCTestCase {
 
     func testSavedAppOriginScope() {
         let config = SiteAppConfiguration(url: URL(string: "https://example.com/signin")!, profile: "work",
-            identifier: "com.gezim.bowser.site.fixture", mainApp: URL(fileURLWithPath: "/tmp/Bowser.app"))
+            identifier: "com.foxwiseai.bowser.site.fixture", mainApp: URL(fileURLWithPath: "/tmp/Bowser.app"))
         XCTAssertTrue(SiteAppBadge.allows(URL(string: "https://app.example.com/client"), configuration: config))
         for url in ["https://example.com.evil.invalid", "https://notexample.com", "http://example.com"] {
             XCTAssertFalse(SiteAppBadge.allows(URL(string: url), configuration: config))

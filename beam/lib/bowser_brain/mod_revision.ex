@@ -51,7 +51,7 @@ defmodule BowserBrain.ModRevision do
 
   def allowed?(path) when is_binary(path) do
     Regex.match?(
-      ~r/^(assets\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.svg|sites\/[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.(css|js)|mods\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex|app-mods\/com\.gezim\.bowser\.site\.[0-9a-f]{16}\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.(css|js))(\.off)?$/,
+      ~r/^(assets\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.svg|sites\/[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.(css|js)|mods\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.ex|app-mods\/com\.foxwiseai\.bowser\.site\.[0-9a-f]{16}\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.(css|js))(\.off)?$/,
       path
     ) and not String.contains?(path, "..")
   end

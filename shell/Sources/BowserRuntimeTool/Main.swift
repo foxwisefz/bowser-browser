@@ -25,7 +25,7 @@ import BackendRuntime
             case "watcher-plist":
                 guard args.count == 2 else { throw RuntimeFailure("watcher-plist PATH UPDATE_ROOT") }
                 let root = args[1]
-                let plist: Message = ["Label": "com.gezim.bowser.pending-update", "ProgramArguments": [root + "/apply-update", root + "/pending.json", "--wait"], "RunAtLoad": true, "KeepAlive": ["PathState": [root + "/pending.json": true]], "ThrottleInterval": 10, "StandardOutPath": root + "/install.log", "StandardErrorPath": root + "/install.log"]
+                let plist: Message = ["Label": "com.foxwiseai.bowser.pending-update", "ProgramArguments": [root + "/apply-update", root + "/pending.json", "--wait"], "RunAtLoad": true, "KeepAlive": ["PathState": [root + "/pending.json": true]], "ThrottleInterval": 10, "StandardOutPath": root + "/install.log", "StandardErrorPath": root + "/install.log"]
                 try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: URL(fileURLWithPath: args[0]), options: .atomic)
             default: throw RuntimeFailure("unknown runtime tool: \(mode)")
             }
