@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 120
     environment: release
     permissions:
       contents: write
@@ -60,14 +60,24 @@ jobs:
               file.write(value)
           PY
           echo "BOWSER_UPDATE_PUBLIC_KEY=$(bin/sign-update --public-key "$RUNNER_TEMP/bowser-update.key")" >> "$GITHUB_ENV"
+      - name: Prepare Apple signing and notarization
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bin/setup-release-signing
       - name: Verify release contracts
         run: |
           swift test --package-path shell --filter 'UpdateTests|TelemetryTests|ModSmithTests|OnboardingTests'
           swift build --package-path shell --product BowserRuntimeTool
           python3 -m unittest discover -s tests -p test_apply_update.py
+          python3 -m unittest discover -s tests -p test_notarize.py
       - name: Build fresh application and runtime
         run: bin/install --stage-only
-      - name: Package DMG and sign update metadata
+      - name: Sign and notarize DMG, then sign final update metadata
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -94,13 +104,17 @@ jobs:
           cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
           Apple Silicon build. Contains the standalone browser and bundled runtime.
 
-          This DMG is ad-hoc signed, not Developer ID signed/notarized. Keep this release as a draft until public distribution signing is configured and validated.
+          Developer ID signed and Apple-notarized. Both Bowser.app and the DMG carry stapled notarization tickets. Review this draft before publishing.
 
           The Ed25519-signed stable.json is paired with this exact DMG and expires after 30 days. To activate updates, serve both files at the configured bowser.app update endpoints. Publishing this GitHub release alone does not activate the update feed.
           NOTES
           gh release create "v$BOWSER_VERSION" dist/Bowser.dmg dist/stable.json dist/SHA256SUMS \
             --draft --target "$RELEASE_COMMIT" --title "Bowser $BOWSER_VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
-      - name: Remove signing key
+      - name: Remove signing credentials
         if: always()
-        run: rm -f "$RUNNER_TEMP/bowser-update.key"
+        run: |
+          rm -f "$RUNNER_TEMP/bowser-update.key" "$RUNNER_TEMP/bowser-signing.p12"
+          if [ -f "$RUNNER_TEMP/bowser-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/bowser-signing.keychain-db"
+          fi

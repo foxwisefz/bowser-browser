@@ -1,0 +1,33 @@
+#!/bin/bash
+# GitHub-hosted release runner only. Never imports into the login keychain.
+set -euo pipefail
+: "${RUNNER_TEMP:?}" "${GITHUB_ENV:?}"
+: "${APPLE_CERTIFICATE_BASE64:?}" "${APPLE_CERTIFICATE_PASSWORD:?}"
+: "${APPLE_SIGN_IDENTITY:?}" "${APPLE_ID:?}" "${APPLE_TEAM_ID:?}" "${APPLE_APP_SPECIFIC_PASSWORD:?}"
+case "$APPLE_SIGN_IDENTITY" in 'Developer ID Application: '*) ;; *) echo 'A Developer ID Application identity is required' >&2; exit 2;; esac
+umask 077
+keychain="$RUNNER_TEMP/bowser-signing.keychain-db"
+certificate="$RUNNER_TEMP/bowser-signing.p12"
+trap 'rm -f "$certificate"' EXIT
+python3 - "$certificate" <<'PY'
+import os, base64, sys
+with open(sys.argv[1], 'xb') as file:
+    file.write(base64.b64decode(os.environ['APPLE_CERTIFICATE_BASE64'], validate=True))
+PY
+password="$(openssl rand -hex 32)"
+echo "::add-mask::$password"
+security create-keychain -p "$password" "$keychain"
+security set-keychain-settings -lut 7200 "$keychain"
+security unlock-keychain -p "$password" "$keychain"
+security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+xcrun notarytool store-credentials bowser-release --keychain "$keychain" \
+  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+# Do not permit multiline values to inject additional GITHUB_ENV entries.
+[[ "$APPLE_SIGN_IDENTITY" != *$'\n'* && "$APPLE_SIGN_IDENTITY" != *$'\r'* ]]
+{
+  echo "BOWSER_SIGN_KEYCHAIN=$keychain"
+  echo "BOWSER_SIGN_IDENTITY=$APPLE_SIGN_IDENTITY"
+  echo 'BOWSER_NOTARY_PROFILE=bowser-release'
+  echo 'BOWSER_NOTARIZE=1'
+} >> "$GITHUB_ENV"

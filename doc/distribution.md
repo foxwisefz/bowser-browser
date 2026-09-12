@@ -15,8 +15,13 @@ packaging script. Existing external development installations still work.
 
 By default this creates an ad-hoc-signed local testing artifact. It is not a
 publicly distributable notarized release. `BOWSER_SIGN_IDENTITY` selects a
-signing identity; Developer ID/hardened-runtime entitlements and notarization
-still need release validation before public distribution.
+Developer ID Application identity. Set `BOWSER_NOTARIZE=1` and
+`BOWSER_NOTARY_PROFILE` to require Apple acceptance and stapling. Optional
+`BOWSER_SIGN_KEYCHAIN` selects a dedicated keychain. Signed builds enable hardened
+runtime and secure timestamps; only `beam.smp` receives the JIT entitlement.
+The app is signed, notarized and stapled before DMG creation. The final DMG is
+then signed, notarized, stapled and assessed by Gatekeeper before update hashing.
+Never modify the DMG after generating its update manifest.
 
 ## Signed update channel
 
@@ -56,8 +61,8 @@ before atomically replacing the manifest; a client fetching during replacement
 may retry, but a mismatched image cannot install. Manifests expire after 30 days;
 re-sign the current release before expiry. Rollbacks require a **higher build
 number** signed release. Existing staged updater `.previous` copies remain local
-recovery artifacts. Public DNS/server deployment, Developer ID/notarization,
-and production signing-key provisioning are separate activation steps.
+recovery artifacts. Public DNS/server deployment and production signing credential
+provisioning remain activation steps.
 
 Validation: `swift test --package-path shell --filter UpdateTests` covers signed
 metadata, wrong-key/tamper rejection, expiry, downgrade prevention and image
@@ -68,7 +73,7 @@ size/hash checks. `tests/test_apply_update.py` covers staged activation/rollback
 `.github/workflows/desktop-release.yml` builds on GitHub's Apple Silicon
 `macos-26` runner. Run **Actions → Build desktop release → Run workflow**, with
 a version such as `0.1.0`. The workflow tests the release contracts, creates a
-fresh standalone app/runtime, packages `Bowser.dmg`, signs `stable.json`, and
+fresh standalone app/runtime, signs and notarizes `Bowser.dmg`, signs `stable.json`, and
 uploads both plus `SHA256SUMS` as workflow artifacts and a **draft GitHub Release**.
 Use a new version for each run: existing release tags/assets are not overwritten.
 [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
@@ -93,10 +98,50 @@ home, reads no installed runtime, and does not publish a pending update or regis
 LaunchAgents. `BOWSER_VERSION` and `BOWSER_BUILD` supply artifact identity;
 `BOWSER_STAGE_FILE` receives the completed stage path for subsequent packaging.
 
-The first workflow produces an **ad-hoc-signed test DMG**, not an Apple-notarized
-public distribution. Update metadata signing and Apple Developer ID/notarization
-are separate. Draft release notes call out this limit; public signing remains an
-activation requirement. This workflow does not connect to the Ubuntu host or
-change DNS. Copy its matched DMG/manifest to the configured `bowser.app` endpoints
+The release workflow **requires Developer ID signing and notarization**; missing
+credentials, rejection, timeout, stapling failure or Gatekeeper rejection stops
+it before artifacts or a draft release are uploaded. Local packaging without these
+options remains ad-hoc signed. This workflow does not connect to the Ubuntu host
+or change DNS. Copy its matched DMG/manifest to the configured `bowser.app` endpoints
 as described above. A GitHub Release URL alone will not work with the current
 updater's origin and redirect restrictions.
+
+## Apple credentials
+
+Bowser uses bundle ID `com.foxwiseai.bowser`; new saved apps use
+`com.foxwiseai.bowser.site.<id>`. This is a pre-release namespace change, with no
+migration from the former development identifiers.
+
+In the same GitHub `release` environment, configure:
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_CERTIFICATE_BASE64` | Base64 of an exported Developer ID Application `.p12`, including its private key |
+| `APPLE_CERTIFICATE_PASSWORD` | Password protecting that `.p12` |
+| `APPLE_SIGN_IDENTITY` | Exact `Developer ID Application: Company or Name (TEAMID)` identity |
+| `APPLE_ID` | Apple Developer account email used for notarization |
+| `APPLE_TEAM_ID` | Team associated with the Developer ID certificate |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization; not your Apple account password |
+
+Apple Developer Program membership and a Developer ID Application certificate
+are required. The displayed signing name comes from that certificate; setting
+a company bundle ID alone does not change Apple's displayed developer name.
+Do not paste credentials into chat or commit them. The setup script imports into
+a temporary keychain, grants codesign access, stores the notarization profile
+there, and deletes the keychain and certificate file after the job. It does not
+use or modify the login keychain.
+
+Update signing uses the separate `BOWSER_UPDATE_PRIVATE_KEY_BASE64` secret.
+Notarization proves Apple accepted the signed application; Ed25519 authenticates
+the final DMG and update metadata to Bowser. Neither replaces the other.
+
+A notary submission waits up to 25 minutes. On timeout Apple may continue working;
+inspect the submission with `xcrun notarytool info`/`log` using the same account,
+then rerun the workflow after resolving any errors. A timeout never publishes
+an unverified release. Actual Developer ID signing and Apple acceptance must be
+validated by the first credentialed GitHub run; local fixture checks do not prove
+Apple acceptance.
+
+References: [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
+[custom notarization workflows](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow),
+[JIT entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit).

@@ -2,6 +2,13 @@
 # Package a complete bin/install stage; never reads browser state or changes installs.
 set -euo pipefail
 if [ "$#" -ne 2 ]; then echo "usage: bin/package-dmg STAGE OUTPUT.dmg" >&2; exit 2; fi
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+identity="${BOWSER_SIGN_IDENTITY:--}"
+notarize="${BOWSER_NOTARIZE:-0}"
+if [ "$notarize" = 1 ]; then
+  case "$identity" in 'Developer ID Application: '*) ;; *) echo 'Notarization requires Developer ID Application signing' >&2; exit 2;; esac
+  : "${BOWSER_NOTARY_PROFILE:?Set a notarytool profile for notarization}"
+fi
 stage="$(cd "$1" && pwd -P)"
 output="$2"
 case "$output" in /*) ;; *) output="$PWD/$output";; esac
@@ -38,19 +45,41 @@ while IFS= read -r -d '' nif; do
 done < <(find "$runtime" -type f -name '*.so' -print0)
 # Native runtime executables and bundled ERTS need signatures, including files
 # with no .dylib extension. Sign inner binaries first, then the outer app.
-identity="${BOWSER_SIGN_IDENTITY:--}"
+sign_args=(--force --sign "$identity")
+if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then sign_args+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
+if [ "$identity" != - ]; then sign_args+=(--options runtime --timestamp); fi
 while IFS= read -r -d '' file; do
   if /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
     if otool -L "$file" | tail -n +2 | grep -Eq '/opt/homebrew/|/usr/local/|/Users/'; then
       echo "unbundled dependency in $file" >&2; exit 1
     fi
-    codesign --force --sign "$identity" "$file"
+    # BEAM's Apple Silicon JIT uses MAP_JIT. Only the VM gets this exception;
+    # all bundled NIFs/dylibs are signed by the same identity.
+    if [ "$identity" != - ] && [ "$(basename "$file")" = beam.smp ]; then
+      codesign "${sign_args[@]}" --entitlements "$repo/bin/beam-entitlements.plist" "$file"
+    else
+      codesign "${sign_args[@]}" "$file"
+    fi
   fi
 done < <(find "$root/image/Bowser.app/Contents/Resources/runtime" -type f -print0)
-codesign --force --deep --sign "$identity" "$root/image/Bowser.app"
+codesign "${sign_args[@]}" "$root/image/Bowser.app"
 codesign --verify --deep --strict "$root/image/Bowser.app"
+if [ "$notarize" = 1 ]; then
+  ditto -c -k --keepParent "$root/image/Bowser.app" "$root/Bowser.zip"
+  "$repo/bin/notarize" "$root/Bowser.zip" "$root/image/Bowser.app"
+  spctl --assess --type execute --verbose=2 "$root/image/Bowser.app"
+fi
 ln -s /Applications "$root/image/Applications"
 hdiutil create -volname Bowser -srcfolder "$root/image" -format UDZO "$output"
+if [ "$identity" != - ]; then
+  dmg_sign=(--force --sign "$identity" --timestamp)
+  if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then dmg_sign+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
+  codesign "${dmg_sign[@]}" "$output"
+fi
+if [ "$notarize" = 1 ]; then
+  "$repo/bin/notarize" "$output" "$output"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$output"
+fi
 hdiutil verify "$output"
 echo "Created $output"
 if [ "$identity" = - ]; then echo "Local-test artifact: ad-hoc signed, not notarized."; fi
