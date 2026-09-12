@@ -122,9 +122,13 @@ defmodule BowserBrain.Handoff do
     end
   end
   defp command(%{"op" => "restore", "snapshot" => encoded}, []) do
+    # One restore attempt per disposable candidate bounds atom admission across
+    # failures as well as successes. The host discards rejected candidates.
+    if Process.get(:handoff_restore_attempted), do: raise("candidate restore already attempted")
+    Process.put(:handoff_restore_attempted, true)
+    if byte_size(encoded) > 10_666_668, do: raise("checkpoint too large")
     bytes = Base.decode64!(encoded)
-    if byte_size(bytes) > 8_000_000, do: raise("checkpoint too large")
-    %{schema: @schema, states: states, mods: mods, mod_hashes: hashes, icon_latest: latest} = snapshot = :erlang.binary_to_term(bytes, [:safe])
+    %{schema: @schema, states: states, mods: mods, mod_hashes: hashes, icon_latest: latest} = snapshot = BowserBrain.HandoffCheckpoint.decode!(bytes)
     unless Enum.all?(states, fn {_, s} -> portable?(s) end), do: raise("nonportable checkpoint")
     for module <- @core -- [BowserBrain.ShellTheme, BowserBrain.Toolbars],
       do: :sys.replace_state(module, fn _ -> Map.fetch!(states, module) end)

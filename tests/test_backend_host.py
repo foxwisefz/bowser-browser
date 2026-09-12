@@ -84,7 +84,9 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
             %{count: 0}
           end
           def handle_event(%{"event" => "counter"}, state) do
-            next = %{state | count: state.count + 1}
+            # Created only by live interaction, never by candidate compilation.
+            runtime_key = String.to_atom("runtime_" <> Integer.to_string(state.count + 1))
+            next = Map.put(%{state | count: state.count + 1}, runtime_key, true)
             BowserBrain.Store.put(__MODULE__, "count", next.count)
             next
           end
@@ -135,7 +137,13 @@ class ReleaseTests(unittest.IsolatedAsyncioTestCase):
     async def count(self, wanted):
         async def check():
             while True:
-                value = await self.tool('store_get', mod='HandoffCounter', key='count')
+                # Commit schedules listener startup after restoring authority.
+                # The native relay stays connected during this brief gap.
+                try:
+                    value = await self.tool('store_get', mod='HandoffCounter', key='count')
+                except (ConnectionRefusedError, FileNotFoundError):
+                    await asyncio.sleep(.02)
+                    continue
                 if value.get('value') == wanted:
                     return
                 await asyncio.sleep(.02)
