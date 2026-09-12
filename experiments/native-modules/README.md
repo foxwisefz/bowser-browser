@@ -13,8 +13,9 @@ The stable host owns NSApplication, NSWindow, WKWebView, and the loaded page.
 Versioned Swift modules own a small AppKit view and its button behavior. V1
 increments by one; V2 changes the label/color and increments by two. A C ABI
 exports version/create/step/read/health/destroy functions. Only scalars, a C callback,
-and an explicitly retained Objective-C view pointer cross the boundary. All
-calls and authority transfers happen on the main actor.
+and an explicitly retained Objective-C view pointer cross the boundary. Library mapping and symbol lookup run on a dedicated serial worker queue.
+UI calls and authority transfers happen on the main actor. Module initializers
+must not touch AppKit or synchronously wait for the main thread.
 
 Before replacement, the host reads the old counter, checks ABI compatibility,
 and prepares a candidate view. Once preparation succeeds it switches the
@@ -38,7 +39,8 @@ scroll, fullscreen focus, advancing playback, interruption events, and video
 frame-callback gaps below 250 ms. `loadMS` measures loading four candidate
 libraries. `swapMS` measures view/authority transfer and old-view destruction,
 excluding loading and candidate preparation; it is not an end-to-end update
-latency claim.
+latency claim. `preparationAndSwapMS` includes every complete replacement
+attempt, including preparation, rejection, health checks and retirement.
 
 ## What this does not prove
 
@@ -118,3 +120,45 @@ not a crash, arbitrary side effects, or failure long after admission.
 
 Reproduce with `experiments/native-modules/run`. This extension is tracked as
 `bowser-browser-4mnc`; it changes only the isolated experiment, not installed Bowser.
+
+## Background loading experiment (2026-09-13)
+
+The host now awaits `dlopen` and `dlsym` on a dedicated serial worker while
+retaining the old active toolbar. An immutable module record crosses back to
+the main actor; view creation, button actions, health admission, rollback and
+view destruction stay there. Handles remain mapped until exit. This depends on
+the controlled fixture modules having no UI work in load-time initializers;
+it is not permission to load arbitrary Swift/AppKit modules on a worker.
+
+A 10 ms main-actor heartbeat records actual scheduling gaps throughout loading.
+It dispatches the old toolbar's native button action once and checks that the
+same toolbar stays authoritative; the resulting counter must survive later
+swaps and rollback. The button uses normal target/action dispatch instead of
+`performClick`, avoiding that method's artificial highlight delay. This tests
+native action responsiveness, not physical mouse input, typing or dragging.
+The heartbeat must stay below 100 ms; this is an experiment failure threshold,
+not a native-feel latency target. Fullscreen video/draft/selection assertions
+remain enabled, with the existing 250 ms frame-callback gap threshold.
+
+Fresh-process run results are recorded in `results/background-load-*.json`.
+Each run compiles fresh libraries into a distinct temporary directory. This
+exercises first loading into a new process, not a guaranteed cold filesystem
+cache. Timings are local observations, not general performance guarantees.
+
+Tracked as `bowser-browser-7vaw`. No installed browser or updater is changed.
+
+Measured results (three runs):
+
+| Run | Four-library load | Maximum main heartbeat gap | Maximum full replacement attempt | Maximum video frame gap |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1640 ms | 12.0 ms | 6.4 ms | 56 ms |
+| 2 | 1551 ms | 11.6 ms | 6.3 ms | 51 ms |
+| 3 | 1546 ms | 11.7 ms | 7.2 ms | 51 ms |
+
+All runs passed 12 swaps, 12 health rollbacks and 24 preparation/ABI rejections,
+with unchanged draft/selection and the same page/player/window. The old toolbar
+accepted one action during loading; final counter 19 includes that increment.
+The full-attempt maximum includes initial view creation. These results support
+the worker-loading boundary for these modules; production signed-module
+admission, real typing/dragging latency and long-lived module retirement remain
+separate gates (`bowser-browser-kgu9`).

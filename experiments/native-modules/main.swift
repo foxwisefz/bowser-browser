@@ -16,7 +16,9 @@ func receive(_ generation: Int64, _ counter: Int64) {
         else { experiment.staleEvents += 1 }
     }
 }
-struct Module {
+// Immutable loader output crosses the queue boundary once. UI function pointers
+// are invoked only by the main-actor Experiment; handles remain mapped.
+struct Module: @unchecked Sendable {
     let handle: UnsafeMutableRawPointer
     let abi: ABI, healthy: ABI, create: Create, step: Step, read: Read, destroy: Destroy
     init(_ path: String) throws {
@@ -34,6 +36,16 @@ struct Module {
         destroy = try symbol("module_destroy", Destroy.self)
     }
 }
+let moduleLoader = DispatchQueue(label: "bowser.experiment.module-loader", qos: .utility)
+func loadModule(_ path: String) async throws -> Module {
+    try await withCheckedThrowingContinuation { continuation in
+        moduleLoader.async {
+            precondition(!Thread.isMainThread)
+            do { continuation.resume(returning: try Module(path)) }
+            catch { continuation.resume(throwing: error) }
+        }
+    }
+}
 func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperiment", code: 1, userInfo: [NSLocalizedDescriptionKey: text]) }
 @MainActor final class WeakView { weak var view: NSView?; init(_ view: NSView) { self.view = view } }
 @MainActor final class Experiment {
@@ -45,6 +57,10 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
     var active: (Module, UnsafeMutableRawPointer)?
     var retired: [WeakView] = []
     var swapMS: [Double] = []
+    var preparationAndSwapMS: [Double] = []
+    var loadHeartbeatGapsMS: [Double] = []
+    var interactionsDuringLoad = 0
+    var loading = false
     let window: NSWindow
     let web: WKWebView
     let container = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 760))
@@ -73,6 +89,8 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
     }
     func snapshot() async throws -> [String: Any] { try await web.evaluateJavaScript("probe.snapshot()") as! [String: Any] }
     @discardableResult func replace(_ module: Module) -> Bool {
+        let attemptStart = ProcessInfo.processInfo.systemUptime
+        defer { preparationAndSwapMS.append((ProcessInfo.processInfo.systemUptime - attemptStart) * 1000) }
         guard module.abi() == 1 else { return false }
         let saved = active.map { $0.0.read($0.1) } ?? counter
         nextGeneration += 1
@@ -107,7 +125,7 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
             if let (module, pointer) = active { module.destroy(pointer) }; active = nil
             web.stopLoading(); window.close(); running = nil
         }
-        let v1 = try Module(directory.appendingPathComponent("V1.dylib").path)
+        let v1 = try await loadModule(directory.appendingPathComponent("V1.dylib").path)
         try check(replace(v1), "Initial module failed")
         window.makeKeyAndOrderFront(nil); NSApp.activate()
         web.loadFileURL(directory.appendingPathComponent("fixture.html"), allowingReadAccessTo: directory)
@@ -124,12 +142,37 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         _ = try await web.evaluateJavaScript("probe.reset();true")
         let before = try await snapshot()
         let loadStart = ProcessInfo.processInfo.systemUptime
-        let v2 = try Module(directory.appendingPathComponent("V2.dylib").path)
-        let bad = try Module(directory.appendingPathComponent("BAD_ABI.dylib").path)
-        let failed = try Module(directory.appendingPathComponent("FAIL_CREATE.dylib").path)
-        let unhealthy = try Module(directory.appendingPathComponent("BAD_HEALTH.dylib").path)
+        loading = true
+        let originalPointer = active!.1, originalGeneration = generation
+        let heartbeat = Task { @MainActor in
+            var last = ProcessInfo.processInfo.systemUptime
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(10)) } catch { break }
+                let now = ProcessInfo.processInfo.systemUptime
+                loadHeartbeatGapsMS.append((now - last) * 1000); last = now
+                if loading {
+                    // Exercise the old native button once while the loader runs.
+                    // Read it on every subsequent tick without mutating state.
+                    if interactionsDuringLoad == 0 {
+                        v1.step(originalPointer)
+                        interactionsDuringLoad += 1
+                    }
+                    if active?.1 != originalPointer || generation != originalGeneration || v1.read(originalPointer) != counter {
+                        return false
+                    }
+                } else { break }
+            }
+            return true
+        }
+        defer { heartbeat.cancel() }
+        let v2 = try await loadModule(directory.appendingPathComponent("V2.dylib").path)
+        let bad = try await loadModule(directory.appendingPathComponent("BAD_ABI.dylib").path)
+        let failed = try await loadModule(directory.appendingPathComponent("FAIL_CREATE.dylib").path)
+        let unhealthy = try await loadModule(directory.appendingPathComponent("BAD_HEALTH.dylib").path)
+        loading = false
+        let oldToolbarStayedActive = await heartbeat.value
         let loadMS = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000
-        var expected: Int64 = 0
+        var expected: Int64 = counter
         for index in 0..<12 {
             let module = index.isMultiple(of: 2) ? v2 : v1
             try check(replace(module), "Valid replacement rejected")
@@ -146,7 +189,9 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         }
         try await Task.sleep(for: .milliseconds(1100))
         let after = try await snapshot()
-        try JSONSerialization.data(withJSONObject: ["before": before, "after": after, "loadMS": loadMS, "swapMS": swapMS, "rollbacks": rollbacks], options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("measurements.json"))
+        try JSONSerialization.data(withJSONObject: ["before": before, "after": after, "loadMS": loadMS, "swapMS": swapMS, "rollbacks": rollbacks, "loadHeartbeatGapsMS": loadHeartbeatGapsMS, "preparationAndSwapMS": preparationAndSwapMS, "interactionsDuringLoad": interactionsDuringLoad], options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("measurements.json"))
+        try check(oldToolbarStayedActive && interactionsDuringLoad == 1 && counter == 19, "Old toolbar interaction failed during loading")
+        try check((loadHeartbeatGapsMS.max() ?? .infinity) < 100, "Main-thread heartbeat gap >=100ms during background load")
         try check(before["draft"] as? String == after["draft"] as? String && (after["draft"] as? String)?.contains("Second line") == true, "Unsent draft lost")
         try check(after["selectionStart"] as? Int == 7 && after["selectionEnd"] as? Int == 12, "Draft selection lost")
         try check(before["token"] as? String == after["token"] as? String, "Page replaced")
@@ -167,7 +212,9 @@ func failure(_ text: String) -> NSError { NSError(domain: "NativeModuleExperimen
         let result: [String: Any] = ["passed": true, "replacements": 12, "rejectedCandidates": 24,
             "rollbacks": rollbacks, "draftPreserved": true, "draftSelectionPreserved": true,
             "counter": counter, "staleEventsRejected": staleEvents, "retiredViewsReleased": retired.count,
-            "swapMS": swapMS, "loadMS": loadMS, "before": before, "after": after,
+            "swapMS": swapMS, "preparationAndSwapMS": preparationAndSwapMS,
+            "loadHeartbeatGapsMS": loadHeartbeatGapsMS, "interactionsDuringLoad": interactionsDuringLoad,
+            "loadMS": loadMS, "before": before, "after": after,
             "initialScroll": initialScroll, "restoredScroll": restoredScroll, "sameWindowAndWebView": true, "scope": "Ad hoc signed isolated Swift modules; C ABI; retained dylib mappings; local muted HTML fullscreen video. No production updater integration."]
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted,.sortedKeys]).write(to: directory.appendingPathComponent("result.json"))
         try await Task.sleep(for: .seconds(1))

@@ -50,7 +50,12 @@ let increment: Int64 = 1
 }
 @_cdecl("module_step") public func step(_ pointer: UnsafeMutableRawPointer) {
     let address = UInt(bitPattern: pointer)
-    MainActor.assumeIsolated { Unmanaged<ModuleView>.fromOpaque(UnsafeMutableRawPointer(bitPattern: address)!).takeUnretainedValue().button.performClick(nil) }
+    MainActor.assumeIsolated {
+        let view = Unmanaged<ModuleView>.fromOpaque(UnsafeMutableRawPointer(bitPattern: address)!).takeUnretainedValue()
+        // Dispatch the real native action without performClick's artificial
+        // highlight delay, which would contaminate the responsiveness probe.
+        _ = view.button.sendAction(#selector(ModuleView.clicked), to: view)
+    }
 }
 @_cdecl("module_read") public func read(_ pointer: UnsafeMutableRawPointer) -> Int64 {
     let address = UInt(bitPattern: pointer)
