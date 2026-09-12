@@ -1,7 +1,7 @@
 defmodule BowserBrain.Handoff do
   @moduledoc """
   Installed release handoff. Candidates boot without listeners, watchers or mods.
-  State crosses VMs only at a quiescent boundary. Schema 5 migrates symbolic theme/toolbar owners and excludes mobile services and requires data-only
+  State crosses VMs only at a quiescent boundary. Schema 5 migrates symbolic theme/toolbar owners and requires data-only
   mod state and an explicit `handoff: true` contract: no untracked timers, tasks,
   ports or external processes. Restored mods skip init_mod and hello.
   Bump the schema when changing migrated core state incompatibly.

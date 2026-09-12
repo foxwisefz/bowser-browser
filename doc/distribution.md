@@ -10,8 +10,7 @@ bin/package-dmg /path/to/updates/build.ABC123 /tmp/Bowser.dmg
 The image contains `Bowser.app` and an Applications shortcut. The app includes
 its BEAM release and native helpers in `Contents/Resources/runtime`; clean
 machines do not need Elixir, Python, developer tools, or a preinstalled runtime.
-User data remains under `~/.bowser`. Mobile experiments are rejected by the
-packaging script.
+User data remains under `~/.bowser`.
 
 By default, local packaging uses ad-hoc signing without notarization. `BOWSER_SIGN_IDENTITY` selects a
 Developer ID Application identity. Set `BOWSER_NOTARIZE=1` and

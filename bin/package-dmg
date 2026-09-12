@@ -16,9 +16,6 @@ case "$output" in /*) ;; *) output="$PWD/$output";; esac
 for file in bundle/Contents/MacOS/Bowser runtime/bin/bowser runtime/bin/backend-host runtime/brain/bin/bowser_brain; do
   [ -x "$stage/$file" ] || { echo "incomplete stage: $file" >&2; exit 1; }
 done
-if find "$stage/runtime" -name 'Elixir.BowserBrain.XFeed.beam' -o -name 'Elixir.BowserBrain.XServer.beam' -o -name 'Elixir.BowserBrain.SDUI.beam' -o -name 'Elixir.BowserBrain.XAdapter.beam' | grep -q .; then
-  echo "refusing to package mobile experiment modules" >&2; exit 1
-fi
 root="$(mktemp -d /tmp/bowser-dmg.XXXXXX)"
 trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/image" "$(dirname "$output")"

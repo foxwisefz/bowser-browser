@@ -7,7 +7,7 @@
 The fixture compiles the production native sources with a separate entry point.
 It launches the complete BEAM application supervision tree, with separate runtime
 homes. The 21 production children start; automatic host spawning and checkout
-watchers are disabled, and the XServer listener does not open the shared 4808 port.
+watchers are disabled.
 User mod directories are empty. A test observer is added to acknowledge durable
 receipt of events. This is not a simulation of the BEAM application.
 
