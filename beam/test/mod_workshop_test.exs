@@ -256,6 +256,80 @@ end
     assert ModRevision.read("mods/audited.ex") == data["source"]
   end
 
+  test "refinement audits include owner history and stable original plus latest draft sources" do
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      data = JSON.decode!(prompt)
+      send(owner, {:review_context, data})
+      decision = if String.contains?(data["source"], "reject_change"), do: "reject", else: "allow"
+      {:ok, JSON.encode!(%{verdict: decision, reason: "Fixture", sha256: data["sha256"], nonce: data["nonce"]})}
+    end)
+    path = "mods/context.ex"
+    source = "defmodule AuditContextFixture do use BowserBrain.Mod end"
+    tagged = BowserBrain.ModScope.tag(source, "default")
+    event("submit", %{"text" => "Create private notes", "scope" => "browser"})
+    assert_receive {:runner, pid, _, _, _, _}, 1000
+    state = complete(pid, [%{"path" => path, "content" => source}])
+    assert_receive {:review_context, creation}
+    assert creation["prior_requests"] == []
+    assert creation["previous_source"] == nil
+    assert creation["revision_start_source"] == nil
+    [project] = state.data["projects"]
+    id = project["id"]
+    initial_status = hd(project["revisions"])["status"]
+
+    event("submit", %{"project" => id, "text" => "Make the editor darker"})
+    assert_receive {:runner, pid, token, _, _, _}, 1000
+    draft = source <> "\n# dark palette"
+    assert %{ok: true} = ModWorkshop.tool(token, "put_mod", %{"name" => "context.ex", "content" => draft})
+    assert_receive {:review_context, refinement}
+    assert refinement["request"] == "Make the editor darker"
+    assert refinement["prior_requests"] == [%{"request" => "Create private notes", "status" => initial_status}]
+    assert refinement["previous_source"] == tagged
+    assert refinement["revision_start_source"] == tagged
+
+    assert %{ok: false} = ModWorkshop.tool(token, "put_mod", %{"name" => "context.ex", "content" => draft <> "\n# reject_change"})
+    assert_receive {:review_context, rejected}
+    assert rejected["previous_source"] == refinement["source"]
+    assert rejected["revision_start_source"] == tagged
+    assert ModRevision.read(path) == refinement["source"]
+    complete(pid, [%{"path" => path, "content" => draft}])
+    event("undo", %{"project" => id})
+    assert ModRevision.read(path) == tagged
+
+    event("submit", %{"project" => id, "text" => "Use a lighter editor"})
+    assert_receive {:runner, pid, _, _, _, _}, 1000
+    complete(pid, [%{"path" => path, "content" => source <> "\n# light palette"}])
+    assert_receive {:review_context, after_undo}
+    assert after_undo["prior_requests"] == [
+      %{"request" => "Create private notes", "status" => initial_status},
+      %{"request" => "Make the editor darker", "status" => "undone"}
+    ]
+    assert after_undo["previous_source"] == tagged
+    assert after_undo["revision_start_source"] == tagged
+  end
+
+  test "editing an existing disabled mod supplies its actual source without invented history" do
+    source = "defmodule ExistingAuditFixture do use BowserBrain.Mod end"
+    ModRevision.write("mods/existing_audit.ex.off", source)
+    owner = self()
+    Application.put_env(:bowser_brain, :modsmith_auditor, fn prompt ->
+      send(owner, {:existing_context, JSON.decode!(prompt)})
+      {:error, :unavailable}
+    end)
+    state = event("edit_existing", %{"path" => "mods/existing_audit.ex"})
+    [project] = state.data["projects"]
+    event("submit", %{"project" => project["id"], "text" => "Adjust spacing"})
+    assert_receive {:runner, pid, _, _, _, _}, 1000
+    complete(pid, [%{"path" => "mods/existing_audit.ex", "content" => source <> "\n# spacing"}])
+    assert_receive {:existing_context, context}
+    assert context["path"] == "mods/existing_audit.ex.off"
+    assert context["prior_requests"] == []
+    assert context["previous_source"] == source
+    assert context["revision_start_source"] == source
+    assert ModRevision.read("mods/existing_audit.ex.off") == source
+  end
+
   test "rejected and unavailable audits leave draft and final batches inert", %{root: root} do
     Application.put_env(:bowser_brain, :modsmith_auditor, fn _ -> {:error, :unavailable} end)
     event("submit", %{"text" => "A native control", "scope" => "browser"})

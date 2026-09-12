@@ -851,9 +851,22 @@ defmodule BowserBrain.ModWorkshop do
           token = state.run.token
           p = project(state, state.run.project)
           [revision | _] = p["revisions"]
-          context = %{request: revision["request"], scope: p["scope"], host: URI.parse(p["url"]).host}
+          context = %{request: revision["request"], scope: p["scope"], host: URI.parse(p["url"]).host,
+            prior_requests: p["revisions"] |> tl() |> Enum.reverse() |> Enum.map(fn prior ->
+              %{request: prior["request"], status: prior["status"]}
+            end)}
+          # Read baselines before the worker starts. Draft writes retain the original
+          # revision snapshot, while previous_source reflects the latest on-disk draft.
+          reviews = Enum.map(needed, fn {path, source} ->
+            previous = ModRevision.read(path)
+            original = case revision["files"][path] do
+              nil -> previous
+              file -> file["before"]
+            end
+            {path, source, Map.merge(context, %{previous_source: previous, revision_start_source: original})}
+          end)
           pid = spawn(fn ->
-            result = Enum.reduce_while(needed, :ok, fn {path, source}, :ok ->
+            result = Enum.reduce_while(reviews, :ok, fn {path, source, context}, :ok ->
               case BowserBrain.ModAuditor.review(context, path, source) do
                 :ok -> {:cont, :ok}
                 error -> {:halt, error}

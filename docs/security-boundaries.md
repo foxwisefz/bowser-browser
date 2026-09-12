@@ -16,6 +16,13 @@ accepted; review failure or uncertainty blocks activation. This is the chosen
 audit-only policy, not enforced isolation. Accepted mods retain OS privileges.
 An enforced capability boundary is planned separately.
 
+For refinements, the audit receives the project's earlier owner requests in
+chronological order with revision status, the latest request, the current file,
+and its source before the refinement began. Undone and failed requests remain
+labelled as context. The latest request supersedes conflicting earlier intent.
+The reviewer examines the entire proposed source, including unchanged code;
+previous source and requests do not imply approval or bypass the audit policy.
+
 ## Local access and secrets
 
 Local socket directories are mode `0700`, and socket files are mode `0600`.
