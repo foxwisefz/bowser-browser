@@ -5,6 +5,7 @@ import IconRendering
 
 final class TabAppDragTests: XCTestCase {
     @MainActor func testOptionDragClosesWithoutPublishingPasteboardAndEscapeCancels() throws {
+        SurfaceHostServices.configure()
         let host = BrowserWindowController(profile: .defaultProfile)
         let target = host.openTab(activate: false)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 100, width: 48, height: 300),
@@ -31,6 +32,26 @@ final class TabAppDragTests: XCTestCase {
         view.mouseUp(with: try event(.leftMouseUp, x: 180))
         XCTAssertFalse(host.tabs.contains { $0 === target })
         XCTAssertEqual(pasteboard.changeCount, changeCount)
+    }
+
+    @MainActor func testMouseGestureDefersReplacementUntilReleaseAndRejectsRetiredInput() throws {
+        let view = TabAppDragView(frame: NSRect(x: 0, y: 0, width: 32, height: 32))
+        let slot = NativeModuleSlot(fallback: NSView(), kind: .surfaces)
+        slot.setSnapshot(Data("{}".utf8))
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        var selections = 0
+        view.select = { selections += 1 }
+        view.mouseDown(with: event)
+        XCTAssertTrue(SurfaceServices.shared.hasInteractions)
+        XCTAssertFalse(slot.canReplace)
+        view.mouseUp(with: event)
+        XCTAssertFalse(SurfaceServices.shared.hasInteractions)
+        XCTAssertEqual(selections, 1)
+        view.isAuthorized = { false }
+        view.mouseDown(with: event); view.mouseUp(with: event)
+        XCTAssertFalse(SurfaceServices.shared.hasInteractions)
+        XCTAssertEqual(selections, 1)
     }
 
     @MainActor func testInsertionPreviewReservesOneFullSlotAndClearsOnlyItsTarget() {

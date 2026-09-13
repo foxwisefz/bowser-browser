@@ -5,10 +5,10 @@ and WebKit views alive:
 
 - **CommandToolbar** renders the command/navigation cluster beside the traffic lights.
 - **SurfaceRenderer** renders Deck Tabs, mod sidebars/toolbars, floating surfaces,
-  and settings view trees. The built-in fallback uses the same rendering source.
+  and settings view trees, plus tab drag gestures and their presentation. The built-in fallback uses the same rendering source.
 
-The executable owns windows, WebKit, profiles, IPC, action routing and drag
-sessions. `BowserSurfaceKit`, a library loaded with the host, owns surface models,
+The executable owns windows, WebKit, profiles, IPC and validated tab operations. The surface module owns drag views,
+gesture decisions, reorder targeting, close cues and dust animations. `BowserSurfaceKit`, a library loaded with the host, owns surface models,
 form submissions, cursor/drag state, the image cache and native editor instances. Renderer changes
 reuse those objects. Changes to this state library or other host code require a
 normal host update.
@@ -30,11 +30,12 @@ The surface module must match the running state library exactly.
 
 Publishing is not an activation acknowledgement. A compatible signed host polls
 every two seconds, loads candidates on a worker, and swaps them when interactions
-permit. Rejections are logged as `Native module update rejected`. Saved site apps
+permit. An interaction lease spans mouse-down through release or the final drag-session
+callback, so a drag retains its original implementation. Rejections are logged as `Native module update rejected`. Saved site apps
 bundle their matching state library and use the built-in surface renderer.
 
 Renderer sources are `shell/NativeModules/CommandToolbar/Toolbar.swift` and
-`shell/Sources/Bowser/Surface{Renderer,Forms,Composition,TextEditor}.swift`.
+`shell/Sources/Bowser/Surface{Renderer,Forms,Composition,TextEditor,TabDrag}.swift` and `TabDustEffect.swift`.
 The surface bundle's C entry points are in `shell/NativeModules/Surfaces/Exports.swift`.
 The stable contracts live in `shell/SurfaceKit/`.
 

@@ -16,11 +16,8 @@ import BowserSurfaceKit
 @MainActor func descendants<T: NSView>(_ view: NSView, _: T.Type) -> [T] {
     (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, T.self) }
 }
-@MainActor final class ClickTarget: NSView {
-    var select: () -> Void = {}
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) {}
-    override func mouseUp(with event: NSEvent) { select() }
+@MainActor func dragTargets(_ view: NSView) -> [NSView] {
+    (view is any SurfaceTabDragSource ? [view] : []) + view.subviews.flatMap { dragTargets($0) }
 }
 @MainActor final class Probe: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -41,9 +38,9 @@ import BowserSurfaceKit
         let dock: [String: Any] = ["t":"magnify_strip", "event":"select", "items":[["id":"1", "symbol":"globe", "active":true], ["id":"2", "symbol":"star"]]]
         var actions: [[String: Any]] = []
         SurfaceServices.shared.emit = { actions.append($0) }
-        SurfaceServices.shared.dragView = { _, select in
-            let target = ClickTarget(); target.select = select; return target
-        }
+        var closed: [UInt64] = []
+        SurfaceServices.shared.closeTab = { closed.append($0); return true }
+        SurfaceServices.shared.tabSnapshot = { _ in SurfaceTabSnapshot(icon: nil, canExport: false) }
         let sidebar = NSHostingView(rootView: LiveSurfaceTree(surfaceId: "notes", node: note))
         sidebar.frame = NSRect(x: 770, y: 0, width: 330, height: 700); content.addSubview(sidebar)
         let deck = NSHostingView(rootView: LiveSurfaceTree(surfaceId: "edge_dock", node: dock))
@@ -80,11 +77,11 @@ import BowserSurfaceKit
         let metadata = try NativeModuleLibrary.validate(second, team: NativeModuleLibrary.runningTeam(), bundled: false, kind: .surfaces)
         try FileManager.default.copyItem(at: second, to: publisher.appendingPathComponent(metadata.0 + ".bundle"))
         // A pending drag must defer both view replacements.
-        TabDragPreview.shared.source = 1
+        let interaction = SurfaceServices.shared.beginInteraction()
         try metadata.0.write(to: publisher.appendingPathComponent("current"), atomically: true, encoding: .utf8)
         try await Task.sleep(for: .seconds(5))
         try require(slots.allSatisfy { $0.build == initial }, "swapped during drag")
-        TabDragPreview.shared.finish()
+        SurfaceServices.shared.endInteraction(interaction)
         try await waitFor("second renderer") { slots.allSatisfy { $0.build == metadata.0 } }
         try require(model.editor("body").textView === editor, "editor identity changed")
         try require(editor.string == "Unsent note" && model.values["body"] as? String == "Unsent note", "draft lost")
@@ -101,7 +98,7 @@ import BowserSurfaceKit
         try require(editor.string != "Unsent note after", "undo failed or was overwritten")
         try require(model.values["body"] as? String == editor.string, "undo did not update the draft model")
         // Real mouse events hit the newly installed Deck Tabs renderer.
-        let targets = descendants(deck, ClickTarget.self)
+        let targets = dragTargets(deck)
         try require(!targets.isEmpty, "deck drag targets missing")
         let target = targets[0]
         try require(target.bounds.width > 0 && target.bounds.height > 0, "deck target has no geometry")
@@ -122,12 +119,30 @@ import BowserSurfaceKit
             content.cacheDisplay(in: content.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])?.write(to: root.appendingPathComponent("surfaces.png"))
         }
+        let pasteboardCount = NSPasteboard(name: .drag).changeCount
+        func dragEvent(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: .option,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        let outside = NSPoint(x: window.frame.width + 200, y: p.y)
+        target.mouseDown(with: dragEvent(.leftMouseDown, p))
+        target.mouseDragged(with: dragEvent(.leftMouseDragged, outside))
+        try require(SurfaceServices.shared.hasInteractions && slots.allSatisfy { !$0.canReplace }, "live drag not leased")
+        target.cancelOperation(nil)
+        target.mouseUp(with: dragEvent(.leftMouseUp, outside))
+        try require(closed.isEmpty && !SurfaceServices.shared.hasInteractions, "cancelled drag closed or leaked lease")
+        target.mouseDown(with: dragEvent(.leftMouseDown, p))
+        target.mouseDragged(with: dragEvent(.leftMouseDragged, outside))
+        target.mouseUp(with: dragEvent(.leftMouseUp, outside))
+        try require(closed.count == 1 && !SurfaceServices.shared.hasInteractions, "new module close gesture failed")
+        try require(NSPasteboard(name: .drag).changeCount == pasteboardCount, "close gesture exported pasteboard data")
         let after = try await web.evaluateJavaScript("probe.snapshot()") as! [String: Any]
         try require(before["token"] as? String == after["token"] as? String, "page replaced")
         try require(after["paused"] as? Bool == false && (after["time"] as? Double ?? 0) > (before["time"] as? Double ?? 0), "video stopped")
         let result: [String: Any] = ["passed":true, "developerID":true, "libraryValidationDisabled":false,
             "initialBuild":initial, "activeBuild":metadata.0, "sameEditor":true, "draftAndSelectionRetained":true,
-            "typingAndUndoAfterSwap":true, "dragDeferred":true, "deckAction":true, "before":before, "after":after]
+            "typingAndUndoAfterSwap":true, "dragDeferred":true, "deckAction":true, "moduleCloseAndCancel":true, "before":before, "after":after]
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted,.sortedKeys]).write(to: root.appendingPathComponent("result.json"))
     }
 }

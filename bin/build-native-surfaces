@@ -17,6 +17,8 @@ swiftc -target arm64-apple-macos15.0 -swift-version 6 -O -parse-as-library -emit
   -Xlinker -rpath -Xlinker /usr/lib/swift \
   -I "$kit/Modules" -L "$kit" -lBowserSurfaceKit \
   "$repo/shell/Sources/Bowser/SurfaceRenderer.swift" \
+  "$repo/shell/Sources/Bowser/SurfaceTabDrag.swift" \
+  "$repo/shell/Sources/Bowser/TabDustEffect.swift" \
   "$repo/shell/Sources/Bowser/SurfaceForms.swift" \
   "$repo/shell/Sources/Bowser/SurfaceComposition.swift" \
   "$repo/shell/Sources/Bowser/SurfaceTextEditor.swift" \

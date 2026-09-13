@@ -6,7 +6,16 @@ import SwiftUI
 @MainActor public final class SurfaceServices: ObservableObject {
     public static let shared = SurfaceServices()
     public var emit: ([String: Any]) -> Void = { _ in }
-    public var dragView: (UInt64, @escaping () -> Void) -> NSView = { _, _ in NSView() }
+    public var tabSnapshot: (UInt64) -> SurfaceTabSnapshot? = { _ in nil }
+    public var closeTab: (UInt64) -> Bool = { _ in false }
+    public var canMoveTab: (UInt64, UInt64) -> Bool = { _, _ in false }
+    public var moveTab: (UInt64, UInt64, Bool) -> Bool = { _, _, _ in false }
+    public var exportTab: (UInt64) throws -> URL = { _ in throw CocoaError(.fileNoSuchFile) }
+    public var edgeDragging: (Bool) -> Void = { _ in }
+    private var interactions = Set<UUID>()
+    public var hasInteractions: Bool { !interactions.isEmpty }
+    public func beginInteraction() -> UUID { let id = UUID(); interactions.insert(id); return id }
+    public func endInteraction(_ id: UUID) { interactions.remove(id) }
     public var portrait: (String, CGFloat) -> AnyView = { _, _ in AnyView(EmptyView()) }
     @Published public var profiles: [SurfaceProfile] = []
     public var presentations = 0
@@ -34,4 +43,12 @@ public extension EnvironmentValues {
         get { self[SurfaceDispatchKey.self] }
         set { self[SurfaceDispatchKey.self] = newValue }
     }
+}
+
+/// Shared identity works across simultaneously mounted module generations.
+@MainActor public protocol SurfaceTabDragSource: AnyObject { var draggedID: UInt64? { get } }
+@MainActor public struct SurfaceTabSnapshot {
+    public let icon: NSImage?
+    public let canExport: Bool
+    public init(icon: NSImage?, canExport: Bool) { self.icon = icon; self.canExport = canExport }
 }

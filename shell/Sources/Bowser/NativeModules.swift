@@ -190,7 +190,7 @@ final class NativeModuleLibrary: @unchecked Sendable {
         }
     }
     var canReplace: Bool {
-        guard NSApp != nil, SurfaceServices.shared.presentations == 0, interactionInProgress?() != true, !snapshot.isEmpty, NSEvent.pressedMouseButtons == 0, NSApp.modalWindow == nil,
+        guard NSApp != nil, SurfaceServices.shared.presentations == 0, !SurfaceServices.shared.hasInteractions, interactionInProgress?() != true, !snapshot.isEmpty, NSEvent.pressedMouseButtons == 0, NSApp.modalWindow == nil,
               window?.attachedSheet == nil, window?.parent?.attachedSheet == nil, window?.inLiveResize != true, window?.parent?.inLiveResize != true,
               (window?.firstResponder as? NSTextView)?.isFieldEditor != true,
               (window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }

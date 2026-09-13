@@ -893,18 +893,17 @@ enum SurfaceColorPickerHexBridge {
     nonisolated static func hex(_ color: NSColor) -> String { SurfaceColorPicker.hex(color) }
 }
 
-/// The drag session stays in the stable host while its surrounding view changes.
+/// Gesture implementation belongs to this renderer generation.
 private struct SurfaceDragTarget: NSViewRepresentable {
     let webviewID: UInt64
     let select: () -> Void
-    final class Coordinator { var select: () -> Void = {} }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeNSView(context: Context) -> NSView {
-        context.coordinator.select = select
-        let coordinator = context.coordinator
-        return SurfaceServices.shared.dragView(webviewID) { coordinator.select() }
+    @Environment(\.surfaceRenderOwner) private var owner
+    @Environment(\.surfaceRenderGeneration) private var generation
+    func makeNSView(context: Context) -> TabAppDragView { TabAppDragView() }
+    func updateNSView(_ view: TabAppDragView, context: Context) {
+        view.webviewID = webviewID; view.select = select
+        view.isAuthorized = { owner.isEmpty || SurfaceRenderContext.contexts[owner]?.generation == generation }
     }
-    func updateNSView(_ view: NSView, context: Context) { context.coordinator.select = select }
 }
 
 /// The same tree interpreter supplies the built-in fallback and signed modules.

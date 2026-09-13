@@ -14,7 +14,7 @@ codesign --force --options runtime --sign "$BOWSER_SIGN_IDENTITY" "$app/Contents
 "$repo/bin/build-native-surfaces" "$root/Second.bundle"
 cp -f "$repo/experiments/native-modules/fixture.html" "$root/fixture.html"
 ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=320x180:rate=30' -t 45 -c:v libx264 -pix_fmt yuv420p "$root/video.mp4"
-swiftc -O -swift-version 6 -I "$kit/Modules" -L "$kit" -lBowserSurfaceKit -Xlinker -rpath -Xlinker @executable_path/../Frameworks "$repo/shell/Sources/Bowser/NativeModules.swift" "$repo/shell/Sources/Bowser/BowserPaths.swift" "$repo/shell/Sources/Bowser/SurfaceRenderer.swift" "$repo/shell/Sources/Bowser/SurfaceForms.swift" "$repo/shell/Sources/Bowser/SurfaceComposition.swift" "$repo/shell/Sources/Bowser/SurfaceTextEditor.swift" "$repo/shell/Sources/Bowser/LiveSurface.swift" "$repo/tests/native-surfaces/main.swift" -o "$app/Contents/MacOS/SurfaceCheck"
+swiftc -O -swift-version 6 -I "$kit/Modules" -L "$kit" -lBowserSurfaceKit -Xlinker -rpath -Xlinker @executable_path/../Frameworks "$repo/shell/Sources/Bowser/NativeModules.swift" "$repo/shell/Sources/Bowser/BowserPaths.swift" "$repo/shell/Sources/Bowser/SurfaceRenderer.swift" "$repo/shell/Sources/Bowser/SurfaceTabDrag.swift" "$repo/shell/Sources/Bowser/TabDustEffect.swift" "$repo/shell/Sources/Bowser/SurfaceForms.swift" "$repo/shell/Sources/Bowser/SurfaceComposition.swift" "$repo/shell/Sources/Bowser/SurfaceTextEditor.swift" "$repo/shell/Sources/Bowser/LiveSurface.swift" "$repo/tests/native-surfaces/main.swift" -o "$app/Contents/MacOS/SurfaceCheck"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.foxwiseai.bowser.surfaces-check</string>
