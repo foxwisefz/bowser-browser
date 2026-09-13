@@ -175,6 +175,7 @@ final class NativeModuleLibrary: @unchecked Sendable {
         self.fallback = fallback
         super.init(frame: .zero)
         mount(fallback)
+        (fallback as? BrowserScreenActivating)?.activateScreen()
         runtime.register(self)
     }
     required init?(coder: NSCoder) { fatalError("init(fallback:)") }
@@ -186,7 +187,7 @@ final class NativeModuleLibrary: @unchecked Sendable {
         snapshot = data
         if let (library, pointer, _) = instance {
             let accepted = data.withUnsafeBytes { library.update(pointer, $0.bindMemory(to: UInt8.self).baseAddress!, Int32(data.count)) }
-            if accepted != 1 { rejected.insert(library.build); retire(); mount(fallback) }
+            if accepted != 1 { rejected.insert(library.build); retire(); mount(fallback); (fallback as? BrowserScreenActivating)?.activateScreen() }
         }
     }
     var canReplace: Bool {
@@ -217,6 +218,7 @@ final class NativeModuleLibrary: @unchecked Sendable {
         instance = (library, pointer, generation); build = library.build
         rejected.remove(library.build)
         runtime.authorize(generation, slot: self)
+        (view as? BrowserScreenActivating)?.activateScreen()
         onGenerationChange?(generation)
         view.layoutSubtreeIfNeeded()
         if let retainedResponder, retainedResponder.isDescendant(of: self) {

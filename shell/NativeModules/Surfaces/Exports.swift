@@ -18,8 +18,14 @@ public func surfaceCreate(_ bytes: UnsafePointer<UInt8>, _ count: Int32, _ gener
     let address = MainActor.assumeIsolated { () -> UInt in
         if let value = try? JSONSerialization.jsonObject(with: data) as? [String: String],
            let id = value["screen"], let screen = BrowserScreenContext.contexts[id] {
-            let view = NSHostingView(rootView: BrowserScreenRoot(context: screen))
-            view.sizingOptions = []
+            let view: NSView
+            if screen.kind == "palette", let state = screen.model as? CommandPaletteState {
+                view = CommandPaletteRenderer(state: state)
+            } else {
+                let hosting = NSHostingView(rootView: BrowserScreenRoot(context: screen))
+                hosting.sizingOptions = []
+                view = hosting
+            }
             view.identifier = NSUserInterfaceItemIdentifier(id)
             return UInt(bitPattern: Unmanaged.passRetained(view).toOpaque())
         }
