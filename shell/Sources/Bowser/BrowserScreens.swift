@@ -627,13 +627,19 @@ struct PermissionsScreen: View {
     @State private var confirmReset = false
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Website Permissions").font(.title2.weight(.semibold))
-                Spacer()
-                Picker("Profile", selection: Binding(get: { model.selectedProfile }, set: { model.selectedProfile = $0 })) {
-                    ForEach(model.profiles, id: \.id) { Text($0.name).tag($0.id) }
-                }.frame(maxWidth: 220)
+            Text("Website Permissions").font(.title2.weight(.semibold))
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(model.profiles, id: \.id) { profile in
+                        PermissionProfileTab(profile: profile, selected: model.selectedProfile == profile.id) {
+                            model.selectedProfile = profile.id
+                        }
+                    }
+                }.padding(3)
             }
+            .scrollIndicators(.automatic)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel("Profiles")
             HSplitView {
                 List(selection: Binding(get: { model.selectedOrigin }, set: { model.selectedOrigin = $0 })) {
                     ForEach(model.sites, id: \.self) { Text($0).lineLimit(2).tag($0) }
@@ -677,5 +683,39 @@ struct PermissionsScreen: View {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) { model.resetProfile() }
         } message: { Text("Sites will ask again. Camera and microphone capture in this profile will stop.") }
+    }
+}
+
+private struct PermissionProfileTab: View {
+    let profile: SurfaceProfile
+    let selected: Bool
+    let select: () -> Void
+    @State private var hovering = false
+    private var tint: Color { Color(nsColor: screenColor(hex: profile.tint) ?? .controlAccentColor) }
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                Group {
+                    if let avatar = profile.avatar {
+                        SurfaceServices.shared.portrait(avatar, 24)
+                    } else if let icon = profile.icon {
+                        Text(icon).font(.system(size: 21))
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").font(.system(size: 22)).foregroundStyle(tint)
+                    }
+                }.frame(width: 24, height: 24)
+                Text(profile.name).font(.system(size: 13, weight: selected ? .semibold : .medium)).lineLimit(1)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(selected ? tint.opacity(0.16) : Color.primary.opacity(hovering ? 0.07 : 0.03), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? tint.opacity(0.65) : .clear, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel("\(profile.name) profile")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .help("Website permissions for \(profile.name)")
     }
 }
