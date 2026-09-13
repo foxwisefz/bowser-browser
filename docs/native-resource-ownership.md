@@ -106,3 +106,41 @@ Controllers negotiate resource protocol version 1 from the native hello before
 polling or publishing policy. The advertised capability survives backend handoff;
 resource topology itself stays native. Internal topology is removed from the
 hello broadcast to user mods and is delivered only to the resource controller.
+
+## Replaceable browser screens
+
+The signed surface renderer also contains the command palette, ModSmith workspace,
+Settings/profile forms and character chooser, onboarding form, built-in and dynamic
+menu presentation, browser prompt construction, and website split containers.
+The Settings toolbar's item presentation uses the same renderer generation.
+
+`BrowserScreenContext` keeps screen models and persistent presentation values in
+SurfaceKit. Host models retain requests, drafts and selections. A screen update
+waits while a text field/editor has focus, marked text is active, a sheet is open,
+a menu is tracking or an interaction is underway. This preserves the active
+editing session; it is a deferred update, not a promise to replace every screen
+in the middle of typing. ModSmith details/chooser state and new-profile drafts
+are stored outside transient rendering views.
+
+AppKit palette generations take over callbacks only after the module slot commits
+replacement. The host retains the palette panel and performs validated browser
+actions. Native menu and prompt factories change for subsequent interactions;
+an already-open prompt keeps its original callback and approval decision.
+
+Website layouts snapshot current divider weights and replace their container
+hierarchy after activation. The host retains the same EngineView/WKWebView
+objects and restores the existing responder. Single-webview layouts keep their
+leaf mounted. Layout validation, profile membership and website data-store
+selection remain native enforcement.
+
+`bin/check-native-screens` builds and loads two real signed renderer generations.
+It exercises persistent ModSmith/profile drafts, a palette action after replacement,
+and retained website identity, pane proportions and playing local video through
+split-container replacement. It uses isolated test windows and local fixtures.
+
+Changing these renderer implementations now takes the native-module update path.
+Changing the shared presentation contract or host-owned window/platform service
+implementation still requires a normal quit/reopen. System-provided file choosers,
+WebKit permission callbacks and the app's startup/recovery machinery remain host
+responsibilities. Modules remain subject to the existing signature, exact SurfaceKit
+identity, generation-count and mapped-byte limits.

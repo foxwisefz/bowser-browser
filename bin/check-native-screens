@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+fixture="$(mktemp -d /tmp/bowser-screen-check.XXXXXX)"
+"$repo/bin/build-native-surfaces" "$fixture/a.bundle"
+"$repo/bin/build-native-surfaces" "$fixture/b.bundle"
+cp -f "$repo/experiments/native-modules/fixture.html" "$fixture/fixture.html"
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=320x180:rate=30' -t 15 -c:v libx264 -pix_fmt yuv420p "$fixture/video.mp4"
+BOWSER_TEST_SCREEN_A="$fixture/a.bundle" BOWSER_TEST_SCREEN_B="$fixture/b.bundle" BOWSER_SCREEN_FIXTURE="$fixture/fixture.html" \
+  swift test --package-path "$repo/shell" --filter ScreenReplacementTests

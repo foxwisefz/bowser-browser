@@ -304,23 +304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// pushes a changed list.
     func rebuildProfileMenu() {
         guard let profileMenu else { return }
-        profileMenu.removeAllItems()
-        for profile in Profile.all {
-            let item = NSMenuItem(title: profile.label, action: #selector(newWindowInProfile(_:)), keyEquivalent: "")
-            item.representedObject = profile.id
-            if let portrait = profile.avatar?.image?.copy() as? NSImage {
-                portrait.size = NSSize(width: 20, height: 20)
-                item.image = portrait
-            } else if let color = profile.color {
-                let dot = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
-                    color.setFill(); NSBezierPath(ovalIn: rect).fill(); return true
-                }
-                item.image = dot
-            }
-            profileMenu.addItem(item)
+        let entries: [[String: Any]] = Profile.all.map { profile in
+            ["id": profile.id, "label": profile.label,
+             "portrait": profile.avatar?.image as Any, "color": profile.color as Any]
         }
-        profileMenu.addItem(.separator())
-        profileMenu.addItem(NSMenuItem(title: "New Profile…", action: #selector(showProfiles), keyEquivalent: ""))
+        NativeUIHost.shared.state.profileMenu?(profileMenu, entries)
     }
 
     @objc func showProfiles() {
@@ -377,32 +365,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var viewMenu: NSMenu?
-    /// Mod-owned View-menu entries (tagged so rebuilds only touch ours).
-    private static let modItemTag = 777
-
     func rebuildModMenuItems() {
         guard let viewMenu else { return }
-        while let index = viewMenu.items.firstIndex(where: { $0.tag == Self.modItemTag }) {
-            viewMenu.removeItem(at: index)
+        let entries: [[String: Any]] = ChromeSurface.menus(for: currentController?.profile.id ?? "default").map {
+            ["id": $0.id, "title": $0.title, "key": $0.key ?? "", "checked": $0.checked as Any]
         }
-        let items = ChromeSurface.menus(for: currentController?.profile.id ?? "default")
-        guard !items.isEmpty else { return }
-        let separator = NSMenuItem.separator()
-        separator.tag = Self.modItemTag
-        viewMenu.addItem(separator)
-        for item in items {
-            let menuItem = NSMenuItem(
-                title: item.title,
-                action: #selector(modMenuClick(_:)),
-                keyEquivalent: item.key ?? ""
-            )
-            menuItem.tag = Self.modItemTag
-            menuItem.representedObject = item.id
-            if let checked = item.checked {
-                menuItem.state = checked ? .on : .off
-            }
-            viewMenu.addItem(menuItem)
-        }
+        NativeUIHost.shared.state.modMenu?(viewMenu, entries)
     }
 
     private func buildMenu() {

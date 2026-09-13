@@ -51,6 +51,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     /// Open (or front) the window; `select` picks a section. Tells the brain
     /// so every section re-renders fresh.
     func show(select id: String? = nil) {
+        NativeUIHost.shared.state.settingsChanged = { [weak self] in
+            guard let self, let toolbar = self.preferencesToolbar else { return }
+            while !toolbar.items.isEmpty { toolbar.removeItem(at: 0) }
+            self.refreshToolbar()
+        }
         DefaultBrowserSettingsModel.shared.refresh()
         if window == nil {
             let w = NSWindow(
@@ -107,20 +112,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         guard let section = model.sections.first(where: { $0.id == id.rawValue }) else { return nil }
-        let item = NSToolbarItem(itemIdentifier: id)
-        item.label = section.title
-        item.paletteLabel = section.title
-        let symbol: String
-        switch section.id {
-        case "settings": symbol = "gearshape"
-        case "profiles": symbol = "person.crop.rectangle"
-        case "mods": symbol = "puzzlepiece.extension"
-        default: symbol = "slider.horizontal.3"
-        }
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: section.title)
-        item.target = self
-        item.action = #selector(selectToolbarSection(_:))
-        return item
+        return NativeUIHost.shared.state.settingsItem?(section, self)
     }
 
     @objc private func selectToolbarSection(_ sender: NSToolbarItem) {

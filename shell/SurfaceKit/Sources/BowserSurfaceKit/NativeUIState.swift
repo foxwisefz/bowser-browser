@@ -20,6 +20,10 @@ import Combine
     }
 }
 @MainActor public final class NativeUIState: ObservableObject {
+    public var profileMenu: ((NSMenu, [[String: Any]]) -> Void)?
+    public var modMenu: ((NSMenu, [[String: Any]]) -> Void)?
+    public var settingsItem: ((SettingsSection, NSObject) -> NSToolbarItem)?
+    public var settingsChanged: () -> Void = {}
     public var menus: ((NativeMenuContext) -> NativeMenus)?
     public var alert: ((String, [String: String]) -> NSAlert)?
     public var layout: ((WebsiteLayoutNode, NSRect, [UInt64: NSView]) -> NSView)?

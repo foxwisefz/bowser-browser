@@ -7,6 +7,10 @@ import BowserSurfaceKit
     init(state: NativeUIState) { model = state; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(state:)") }
     func activateScreen() {
+        model.profileMenu = NativeUIPresentation.profileMenu
+        model.modMenu = NativeUIPresentation.modMenu
+        model.settingsItem = NativeUIPresentation.settingsItem
+        model.settingsChanged()
         model.menus = NativeUIPresentation.menus
         model.alert = NativeUIPresentation.alert
         model.layout = WebsiteSplitRenderer.build
@@ -173,5 +177,44 @@ import BowserSurfaceKit
         alert.messageText = title; alert.informativeText = detail
         buttons.forEach { alert.addButton(withTitle: $0) }
         return alert
+    }
+}
+
+@MainActor extension NativeUIPresentation {
+    static func profileMenu(_ menu: NSMenu, _ entries: [[String: Any]]) {
+        menu.removeAllItems()
+        for entry in entries {
+            let item = NSMenuItem(title: entry["label"] as? String ?? "", action: NSSelectorFromString("newWindowInProfile:"), keyEquivalent: "")
+            item.representedObject = entry["id"]
+            if let image = (entry["portrait"] as? NSImage)?.copy() as? NSImage {
+                image.size = NSSize(width: 20, height: 20); item.image = image
+            } else if let color = entry["color"] as? NSColor {
+                item.image = NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
+                    color.setFill(); NSBezierPath(ovalIn: rect).fill(); return true
+                }
+            }
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "New Profile…", action: NSSelectorFromString("showProfiles"), keyEquivalent: ""))
+    }
+    static func modMenu(_ menu: NSMenu, _ entries: [[String: Any]]) {
+        for item in menu.items where item.tag == 777 { menu.removeItem(item) }
+        guard !entries.isEmpty else { return }
+        let separator = NSMenuItem.separator(); separator.tag = 777; menu.addItem(separator)
+        for entry in entries {
+            let item = NSMenuItem(title: entry["title"] as? String ?? "", action: NSSelectorFromString("modMenuClick:"), keyEquivalent: entry["key"] as? String ?? "")
+            item.tag = 777; item.representedObject = entry["id"]
+            if let checked = entry["checked"] as? Bool { item.state = checked ? .on : .off }
+            menu.addItem(item)
+        }
+    }
+    static func settingsItem(_ section: SettingsSection, _ target: NSObject) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier(section.id))
+        item.label = section.title; item.paletteLabel = section.title
+        let symbol = ["settings": "gearshape", "profiles": "person.crop.rectangle", "mods": "puzzlepiece.extension"][section.id] ?? "slider.horizontal.3"
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: section.title)
+        item.target = target; item.action = NSSelectorFromString("selectToolbarSection:")
+        return item
     }
 }

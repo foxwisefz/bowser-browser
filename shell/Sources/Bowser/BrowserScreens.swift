@@ -60,7 +60,9 @@ struct OnboardingScreen: View {
             }
         }
         .padding(36).frame(width: 480, alignment: .leading)
-        .onAppear { emailFocused = true }
+        .onAppear {
+            if context.values["hasAppeared"] as? Bool != true { emailFocused = true; context.values["hasAppeared"] = true }
+        }
     }
 }
 
@@ -90,7 +92,9 @@ struct ModSmithScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear { composerFocused = true }
+        .onAppear {
+            if context.values["hasAppeared"] as? Bool != true { composerFocused = true; context.values["hasAppeared"] = true }
+        }
         .sheet(isPresented: context.binding("showExisting", default: false)) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Continue working on a mod").font(.title2.weight(.semibold))
@@ -566,6 +570,8 @@ struct NativeProfileCharacterChooser: View {
                 }
             }
         }.padding(18)
+            .onAppear { SurfaceServices.shared.presentations += 1 }
+            .onDisappear { SurfaceServices.shared.presentations = max(0, SurfaceServices.shared.presentations - 1) }
     }
 }
 

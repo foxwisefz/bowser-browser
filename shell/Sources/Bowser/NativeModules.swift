@@ -195,6 +195,7 @@ final class NativeModuleLibrary: @unchecked Sendable {
               window?.attachedSheet == nil, window?.parent?.attachedSheet == nil, window?.inLiveResize != true, window?.parent?.inLiveResize != true,
               (window?.firstResponder as? NSTextView)?.isFieldEditor != true,
               (window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
+        guard !NSApp.windows.contains(where: { $0 is NSColorPanel && $0.isVisible }) else { return false }
         return true
     }
     @discardableResult func install(_ library: NativeModuleLibrary) -> Bool {
