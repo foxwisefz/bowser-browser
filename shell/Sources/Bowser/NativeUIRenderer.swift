@@ -9,6 +9,8 @@ import BowserSurfaceKit
     func activateScreen() {
         model.menus = NativeUIPresentation.menus
         model.alert = NativeUIPresentation.alert
+        model.layout = WebsiteSplitRenderer.build
+        model.layoutChanged()
         model.changed()
     }
 }

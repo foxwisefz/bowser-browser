@@ -41,6 +41,27 @@ final class WebsiteLayoutTests: XCTestCase {
         XCTAssertTrue(host.tabs[4] === views[4])
     }
 
+    @MainActor func testContainerReplacementRetainsViewsWeightsAndLeafRoots() throws {
+        let host = BrowserWindowController(profile: .defaultProfile)
+        defer { host.window?.close() }
+        let first = host.activeTab!, second = host.openTab(activate: false)
+        try host.applyWebsiteLayout(tree: row([leaf(first.webviewId, weight: 3), leaf(second.webviewId)]))
+        let layout = try XCTUnwrap(host.websiteLayout)
+        let original = layout.content
+        let ratio = first.frame.width / layout.bounds.width
+        layout.replaceContainers()
+        XCTAssertFalse(layout.content === original)
+        XCTAssertTrue(first.isDescendant(of: layout))
+        XCTAssertTrue(second.isDescendant(of: layout))
+        XCTAssertEqual(first.frame.width / layout.bounds.width, ratio, accuracy: 0.01)
+        XCTAssertTrue(host.tabs[0] === first)
+        try host.applyWebsiteLayout(tree: leaf(first.webviewId))
+        let single = try XCTUnwrap(host.websiteLayout)
+        single.replaceContainers()
+        XCTAssertTrue(single.content === first)
+        XCTAssertTrue(first.isDescendant(of: single))
+    }
+
     @MainActor func testConstraintsAndFixedDividers() throws {
         let host = BrowserWindowController(profile: .defaultProfile)
         defer { host.window?.close() }
