@@ -7,18 +7,12 @@ import SwiftUI
 final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     static let shared = SettingsWindow()
 
-    struct Section: Identifiable, Equatable {
-        let id: String
-        var title: String
-        var order: Int
-        var tree: [String: Any]
+    typealias Section = SettingsSection
 
-        static func == (a: Section, b: Section) -> Bool {
-            a.id == b.id && a.title == b.title && a.order == b.order
-        }
-    }
+    final class Model: ObservableObject, SettingsPresentation {
+        lazy var profilesContext = BrowserScreenContext(kind: "profiles", model: ProfileSettingsModel.shared)
+        lazy var defaultContext = BrowserScreenContext(kind: "default-browser", model: DefaultBrowserSettingsModel.shared)
 
-    final class Model: ObservableObject {
         @Published var sections: [Section] = []
         @Published var selected: String?
         /// Bumped on every tree update so the detail re-renders (trees are
@@ -78,7 +72,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             w.minSize = NSSize(width: 760, height: 600)
             w.center()
             w.setFrameAutosaveName("BowserSettingsWindow")
-            let content = NSHostingView(rootView: SettingsRootView(model: model))
+            let content = NSHostingView(rootView: LiveBrowserScreen(kind: "settings", model: model))
             content.sizingOptions = []
             w.contentView = content
             w.delegate = self
@@ -142,36 +136,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
 }
 
-struct SettingsRootView: View {
-    @ObservedObject var model: SettingsWindow.Model
-
-    var body: some View {
-        Group {
-            if model.selected == "profiles" {
-                ProfilesSettingsView(model: .shared)
-            } else if let section = model.sections.first(where: { $0.id == model.selected }) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if section.id == "settings" {
-                            DefaultBrowserSettingsView(model: .shared)
-                        }
-                        LiveSurfaceTree(surfaceId: section.id, node: section.tree)
-                            .id(section.id)
-                    }
-                    .padding(32)
-                    .frame(maxWidth: 720, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                ProgressView("Loading settings…")
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 @MainActor
-final class DefaultBrowserSettingsModel: ObservableObject {
+final class DefaultBrowserSettingsModel: ObservableObject, DefaultBrowserPresentation {
+    var isDefault: Bool { status == .isDefault }
     static let shared = DefaultBrowserSettingsModel()
 
     enum Status: Equatable {
@@ -254,24 +221,3 @@ final class DefaultBrowserSettingsModel: ObservableObject {
     }
 }
 
-private struct DefaultBrowserSettingsView: View {
-    @ObservedObject var model: DefaultBrowserSettingsModel
-
-    var body: some View {
-        GroupBox("Default Browser") {
-            HStack(spacing: 16) {
-                Text(model.statusText)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if model.isSetting {
-                    ProgressView()
-                        .controlSize(.small)
-                } else if model.status != .isDefault {
-                    Button("Set as Default Browser") { model.setDefault() }
-                        .disabled(!model.canSetDefault)
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-}
