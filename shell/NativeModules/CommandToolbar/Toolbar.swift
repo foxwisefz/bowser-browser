@@ -44,10 +44,53 @@ struct ToolbarTheme {
 }
 @MainActor final class ToolbarView: NSHostingView<CommandToolbar> {
     let model: ToolbarModel
+    private var trailingButton: NSHostingView<WhatsNewButton>?
+    private var trailingConstraints: [NSLayoutConstraint] = []
     init(model: ToolbarModel, generation: UInt64, event: @escaping ToolbarEvent) {
         self.model = model
         let emit: (String) -> Void = { text in text.withCString { event(generation, $0) } }
         super.init(rootView: CommandToolbar(model: model, openBar: { emit("command") }, goBack: { emit("back") }, goForward: { emit("forward") }, reload: { emit("reload") }, modClick: { emit("mod:" + $0) }, onHoverChanged: { emit($0 ? "hover:1" : "hover:0") }))
+    }
+    // The host retains a fixed-width command cluster. This generation owns
+    // a companion view in the same titlebar, removed on rollback/retirement.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, trailingButton == nil, let titlebar = superview?.superview else { return }
+        // Locate the host's trailing profile label by its layout contract,
+        // without depending on the user's profile name or localized text.
+        guard let profile = titlebar.subviews.compactMap({ $0 as? NSTextField }).first(where: { label in
+            titlebar.constraints.contains { constraint in
+                constraint.firstItem as? NSView === label && constraint.firstAttribute == .trailing &&
+                constraint.secondItem as? NSView === titlebar && constraint.secondAttribute == .trailing &&
+                constraint.constant == -14
+            }
+        }) else { return }
+        let portrait = titlebar.subviews.compactMap { $0 as? NSImageView }.first { image in
+            titlebar.constraints.contains { constraint in
+                constraint.firstItem as? NSView === image && constraint.firstAttribute == .trailing &&
+                constraint.secondItem as? NSView === profile && constraint.secondAttribute == .leading
+            }
+        }
+        let button = NSHostingView(rootView: WhatsNewButton())
+        button.translatesAutoresizingMaskIntoConstraints = false
+        titlebar.addSubview(button)
+        trailingButton = button
+        trailingConstraints = [
+            button.trailingAnchor.constraint(equalTo: (portrait ?? profile).leadingAnchor, constant: -10),
+            button.centerYAnchor.constraint(equalTo: profile.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 112),
+            button.heightAnchor.constraint(equalToConstant: 24),
+        ]
+        NSLayoutConstraint.activate(trailingConstraints)
+    }
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil {
+            NSLayoutConstraint.deactivate(trailingConstraints)
+            trailingConstraints = []
+            trailingButton?.removeFromSuperview()
+            trailingButton = nil
+        }
+        super.viewWillMove(toSuperview: newSuperview)
     }
     required init(rootView: CommandToolbar) { fatalError("use module_create") }
     required init?(coder: NSCoder) { fatalError("use module_create") }
@@ -132,11 +175,6 @@ struct CommandToolbar: View {
                 }
             }
             Spacer(minLength: 0)
-            Button("What's new?") {}
-                .font(.system(size: 11, weight: .medium))
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("whats-new")
         }
         .animation(.easeOut(duration: 0.15), value: model.revealed)
         .frame(maxHeight: .infinity)
@@ -166,5 +204,34 @@ struct CommandToolbar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct WhatsNewButton: View {
+    @State private var hovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Button {} label: {
+            HStack(spacing: 5) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("What's new?")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(hovered ? Color.accentColor : Color.primary.opacity(0.8))
+            .padding(.horizontal, 10)
+            .frame(height: 23)
+            .background {
+                Capsule().fill(Color.accentColor.opacity(hovered ? 0.17 : 0.07))
+            }
+            .overlay {
+                Capsule().strokeBorder(Color.accentColor.opacity(hovered ? 0.4 : 0.18), lineWidth: 0.75)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: hovered)
+        .accessibilityIdentifier("whats-new")
     }
 }
