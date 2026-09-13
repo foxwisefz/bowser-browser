@@ -10,13 +10,13 @@ defmodule BowserBrain.ResourceController do
     %{}
   end
   def handle_info(:ready, state) do
-    BowserBrain.Bridge.cast_msg(%{op: "resource_snapshot"})
+    if BowserBrain.Bridge.resource_protocol() == 1, do: BowserBrain.Bridge.cast_msg(%{op: "resource_snapshot"})
     Process.send_after(self(), :ready, 1_000)
     {:noreply, state}
   end
   def handle_info(message, state), do: super(message, state)
-  def handle_event(%{"event" => "hello", "resources" => snapshot}, state), do: publish(snapshot, state)
-  def handle_event(%{"event" => "resources", "snapshot" => snapshot}, state), do: publish(snapshot, state)
+  def handle_event(%{"event" => "hello", "resources" => %{"version" => 1} = snapshot}, state), do: publish(snapshot, state)
+  def handle_event(%{"event" => "resources", "snapshot" => %{"version" => 1} = snapshot}, state), do: publish(snapshot, state)
   def handle_event(%{"event" => "resource_intent"} = event, state) do
     BowserBrain.Bridge.cast_msg(decision(event))
     state

@@ -101,3 +101,8 @@ The remaining restart boundary is changes to native object storage/lifetime,
 platform delegate integration, the shared SurfaceKit contract, IPC transport and
 native UI not extracted into signed modules. Elixir policy and existing native
 module behavior can update independently; this does not replace WebKit itself.
+
+Controllers negotiate resource protocol version 1 from the native hello before
+polling or publishing policy. The advertised capability survives backend handoff;
+resource topology itself stays native. Internal topology is removed from the
+hello broadcast to user mods and is delivered only to the resource controller.

@@ -67,6 +67,17 @@ defmodule BowserBrain.Bridge do
   def socket_path, do: Path.join(System.get_env("BOWSER_RELAY_DIR") || BowserBrain.Paths.home(), "brain.sock")
 
   @doc "Is the engine currently connected?"
+  def resource_protocol do
+    GenServer.call(__MODULE__, :resource_protocol)
+  catch
+    :exit, _ -> nil
+  end
+
+  def resource_identity(hello) do
+    hello |> Map.take(["engine_build_id", "engine_binary", "resource_protocol"])
+      |> Map.put("resource_protocol", get_in(hello, ["resources", "version"]) || hello["resource_protocol"])
+  end
+
   def connected?, do: GenServer.call(__MODULE__, :connected?)
 
   @impl true
@@ -146,8 +157,9 @@ defmodule BowserBrain.Bridge do
             "bridge: engine hello, protocol v#{v}, webviews #{inspect(hello["webviews"])}"
           )
 
-          broadcast(Map.put(hello, "event", "hello"))
-          state = state |> Map.put(:engine_hello, Map.take(hello, ["engine_build_id", "engine_binary"])) |> Map.put(:last_urls, %{})
+          if pid = Process.whereis(BowserBrain.ResourceController), do: send(pid, {:browser_event, Map.put(hello, "event", "hello")})
+          broadcast(hello |> Map.delete("resources") |> Map.put("event", "hello"))
+          state = state |> Map.put(:engine_hello, resource_identity(hello)) |> Map.put(:last_urls, %{})
           unless Map.get(state, :build_check_scheduled, false), do: Process.send_after(self(), :check_engine_build, 3_000)
           check_engine_build(Map.put(state, :build_check_scheduled, true))
 
@@ -192,9 +204,11 @@ defmodule BowserBrain.Bridge do
   @impl true
   def handle_call({:restore_engine_identity, hello}, _from, state) do
     unless Map.get(state, :build_check_scheduled, false), do: Process.send_after(self(), :check_engine_build, 3_000)
-    state = state |> Map.put(:engine_hello, Map.take(hello, ["engine_build_id", "engine_binary"])) |> Map.put(:build_check_scheduled, true)
+    state = state |> Map.put(:engine_hello, resource_identity(hello)) |> Map.put(:build_check_scheduled, true)
     {:reply, :ok, check_engine_build(state)}
   end
+
+  def handle_call(:resource_protocol, _from, state), do: {:reply, get_in(state, [:engine_hello, "resource_protocol"]), state}
 
   def handle_call(:connected?, _from, state), do: {:reply, state.sock != nil, state}
 

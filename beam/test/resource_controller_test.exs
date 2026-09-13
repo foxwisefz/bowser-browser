@@ -2,6 +2,15 @@ defmodule BowserBrain.ResourceControllerTest do
   use ExUnit.Case, async: true
   alias BowserBrain.ResourceController, as: Controller
   defp window, do: %{"id" => "w", "profile" => "work", "tabs" => [1, 2, 3], "active" => 2, "panes" => []}
+  test "resource capability is explicit and retained in handoff identity" do
+    alias BowserBrain.Bridge
+    assert Bridge.resource_identity(%{})["resource_protocol"] == nil
+    identity = Bridge.resource_identity(%{"engine_build_id" => "host", "resources" => %{"version" => 1, "windows" => [%{"profile" => "work"}]}})
+    assert identity["resource_protocol"] == 1
+    refute Map.has_key?(identity, "resources")
+    assert Bridge.resource_identity(identity) == identity
+    assert Bridge.resource_identity(%{"resources" => %{"version" => 2}})["resource_protocol"] == 2
+  end
   test "download policy survives missing source tabs and sanitizes filenames" do
     event = %{"request" => "d", "intent" => %{"action" => "download_destination", "download" => "download-id"},
       "snapshot" => %{"windows" => [], "session" => "native", "next" => 2, "revision" => "rev", "downloads" => [
