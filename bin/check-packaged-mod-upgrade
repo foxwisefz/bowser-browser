@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+probe="$(mktemp -d /tmp/bowser-packaged-upgrade.XXXXXX)"
+trap 'rm -rf "$probe"' EXIT
+export BOWSER_HOME="$probe" BOWSER_NO_SPAWN=1
+export BOWSER_UPGRADE_PROBE="$repo/tests/native-resources/packaged_mod_upgrade.exs"
+"$repo/beam/_build/prod/rel/bowser_brain/bin/bowser_brain" eval 'Code.eval_file(System.fetch_env!("BOWSER_UPGRADE_PROBE"))'

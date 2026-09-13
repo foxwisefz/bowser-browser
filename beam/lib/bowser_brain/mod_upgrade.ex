@@ -8,8 +8,11 @@ defmodule BowserBrain.ModUpgrade do
   @timeout 5_000
 
   def load(path) do
-    args = [~c"+S", ~c"2"] ++ Enum.flat_map(:code.get_path(), &[~c"-pa", &1])
-    {:ok, peer, _} = :peer.start_link(%{connection: :standard_io, args: args, wait_boot: @timeout})
+    root = to_string(:code.root_dir())
+    boot = Path.join([root, "releases", to_string(Application.spec(:bowser_brain, :vsn)), "start_clean"])
+    boot_args = if File.regular?(boot <> ".boot"), do: [~c"-boot", String.to_charlist(boot), ~c"-boot_var", ~c"RELEASE_LIB", String.to_charlist(Path.join(root, "lib"))], else: []
+    args = [~c"+S", ~c"2"] ++ boot_args ++ Enum.flat_map(:code.get_path(), &[~c"-pa", &1])
+    {:ok, peer, _} = :peer.start_link(%{connection: :standard_io, args: args, wait_boot: @timeout, env: [{~c"ERL_CRASH_DUMP", ~c"/dev/null"}]})
     try do
       {:ok, _} = :peer.call(peer, :application, :ensure_all_started, [:elixir], @timeout)
       candidates = :peer.call(peer, Code, :compile_file, [path], @timeout)
