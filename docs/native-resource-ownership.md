@@ -47,3 +47,33 @@ Mailboxes retain queued events. Successful upgrades emit `mod_reloaded` for UI
 reassertion; `init_mod/1` does not run again. Runtime handles in mod state require
 an explicit redesign of that mod's state ownership before it can use this path.
 Whole-brain checkpoint handoff remains a separate upgrade mechanism.
+
+## Tab controller
+
+`ResourceController` is a supervised, reconstructible Elixir service. Tab order,
+new-tab placement, activation/cycling and close-successor selection are pure
+policy functions there. The native process allocates webviews synchronously when
+WebKit requires one, then asks the controller to arrange/activate them. The first
+tab of a new window is bootstrap resource creation. Saved site apps retain their
+single-app native behavior.
+
+After `resource_ready`, native tab gestures and commands enqueue intents (up to
+256) instead of making policy decisions locally. One head intent is issued at a
+time with a fresh topology snapshot. `resource_decision` must reference that
+request. A stale topology retries with a fresh snapshot; a completed request ID
+cannot be applied again. Pending intents stay native through controller death,
+reconnection and whole-brain replacement. A one-second readiness heartbeat recovers
+a controller restart without requiring a new socket connection. Browser-internal
+resource intents go only to the controller, not to mod event subscribers.
+
+The controller contains no authoritative resource state, so it reconstructs from
+native snapshots rather than joining the whole-brain checkpoint's state schema.
+Native drag feedback and text input continue while it is disconnected; queued tab
+operations resume when it returns. The owner validates window/profile membership
+and complete tab-order permutations before applying decisions to existing views.
+
+`bin/check-resource-controller` runs actual Elixir code replacement and controller
+process reconnection against an isolated native browser window. It checks changed
+policy behavior, single application of a queued close, retained webview/document,
+editor draft/selection/focus/undo and advancing video. This is synthetic input and
+local media, not a physical-input or DRM qualification.

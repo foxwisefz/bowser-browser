@@ -29,6 +29,7 @@ defmodule BowserBrain.Application do
       BowserBrain.Settings,
       BowserBrain.ModWorkshop,
       BowserBrain.TabDeck,
+      BowserBrain.ResourceController,
       BowserBrain.ModControls,
       BowserBrain.PanelMenu,
       # Every core event subscriber must exist before the first native hello.

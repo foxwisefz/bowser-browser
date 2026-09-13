@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+fixture="$(mktemp -d /tmp/bowser-resource-check.XXXXXX)"
+cp -f "$repo/experiments/native-modules/fixture.html" "$fixture/fixture.html"
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=320x180:rate=30' -t 45 -c:v libx264 -pix_fmt yuv420p "$fixture/video.mp4"
+BOWSER_RESOURCE_FIXTURE="$fixture/fixture.html" BOWSER_TEST_ROOT="$repo" swift test --package-path "$repo/shell" --filter NativeControllerIntegrationTests

@@ -118,10 +118,16 @@ defmodule BowserBrain.Bridge do
           end
           Map.put(state, :quitting, true)
 
+        {:ok, %{"op" => "event", "event" => "resource_intent"} = event} ->
+          if pid = Process.whereis(BowserBrain.ResourceController), do: send(pid, {:browser_event, event})
+          state
+
         {:ok, %{"op" => "event"} = event} ->
           {emit?, state} = accept_event(event, state)
           if emit?, do: broadcast(event)
           state
+
+        {:ok, %{"op" => "resource_result"}} -> state
 
         {:ok, %{"op" => "js_result", "id" => id} = result} ->
           {from, pending} = Map.pop(state.pending, id)

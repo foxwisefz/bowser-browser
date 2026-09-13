@@ -14,7 +14,7 @@ final class BrainBridge {
     /// Stable across backend reconnects, different for every native launch.
     private let engineSessionID = UUID().uuidString
 
-    private lazy var resources = NativeResources(session: engineSessionID)
+    lazy var resources = NativeResources(session: engineSessionID)
 
     // Written by the socket thread, read under lock by send().
     private let connLock = NSLock()
@@ -242,6 +242,8 @@ final class BrainBridge {
         }
 
         switch op {
+        case "resource_ready": resources.ready()
+        case "resource_decision": resources.decide(message)
         case "resource_snapshot":
             send(["op": "resource_result", "snapshot": resources.snapshot()])
         case "resource_command":

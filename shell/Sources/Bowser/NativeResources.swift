@@ -33,11 +33,35 @@ import Foundation
 /// Resource ownership stays here; callers supply policy decisions over stable IDs.
 @MainActor final class NativeResources {
     let journal: NativeResourceJournal
+    var enabled = false
+    private(set) var applying = false
+    var emit: ([String: Any]) -> Void = { BrainBridge.shared.send($0) }
+    private var pending: [(String, [String: Any])] = []
+    var shouldCoordinate: Bool { enabled && !applying && SiteAppConfiguration.current == nil }
+    @discardableResult func request(_ intent: [String: Any]) -> Bool {
+        guard shouldCoordinate, pending.count < 256 else { return false }
+        pending.append((UUID().uuidString, intent))
+        if pending.count == 1 { replay() }
+        return true
+    }
+    func ready() { enabled = true; replay() }
+    func replay() {
+        guard let (id, intent) = pending.first else { return }
+        emit(["op":"event", "event":"resource_intent", "request":id, "intent":intent, "snapshot":snapshot()])
+    }
+    func decide(_ message: [String: Any]) {
+        guard let (id, _) = pending.first, message["request"] as? String == id else { return }
+        if message["discard"] as? Bool == true { pending.removeFirst(); replay(); return }
+        let result = apply(message)
+        emit(["op":"resource_result", "result":result, "snapshot":snapshot()])
+        if ["stale_resources", "sequence_gap"].contains(result["error"] as? String ?? "") { replay(); return }
+        pending.removeFirst(); replay()
+    }
     init(session: String) { journal = NativeResourceJournal(session: session) }
     func snapshot() -> [String: Any] {
         let windows: [[String: Any]] = BrowserWindowController.all.map { host in
             ["id": host.resourceID, "profile": host.profile.id,
-             "tabs": host.tabs.map(\.webviewId), "active": host.activeTab?.webviewId ?? 0]
+             "tabs": host.tabs.map(\.webviewId), "panes": host.websiteLayout?.ids ?? [], "active": host.activeTab?.webviewId ?? 0]
         }
         let data = (try? JSONSerialization.data(withJSONObject: windows, options: [.sortedKeys])) ?? Data()
         let revision = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -51,13 +75,22 @@ import Foundation
                   let host = BrowserWindowController.all.first(where: { $0.resourceID == window && $0.profile.id == profile }),
                   let id = command["tab"] as? UInt64,
                   host.tabs.contains(where: { $0.webviewId == id }) else { return ["ok": false, "error": "unknown_resource"] }
+            applying = true
+            defer { applying = false }
             switch command["action"] as? String {
             case "activate":
                 _ = host.activateTab(id: id)
             case "move":
                 guard let target = command["target"] as? UInt64, let after = command["after"] as? Bool,
                       host.moveTab(id: id, relativeTo: target, after: after) else { return ["ok": false, "error": "invalid_move"] }
-            case "close": host.closeTab(id: id)
+            case "arrange":
+                guard let order = command["order"] as? [UInt64], let active = command["active"] as? UInt64,
+                      host.arrangeTabs(order: order, active: active, focusPage: command["focus_page"] as? Bool ?? true) else { return ["ok":false, "error":"invalid_arrangement"] }
+            case "close":
+                let remaining = host.tabs.filter { $0.webviewId != id }
+                let next = command["active"] as? UInt64
+                guard remaining.isEmpty || remaining.contains(where: { $0.webviewId == next }) else { return ["ok":false, "error":"invalid_successor"] }
+                host.closeTab(id: id, selecting: next)
             default: return ["ok": false, "error": "unknown_action"]
             }
             return ["ok": true]

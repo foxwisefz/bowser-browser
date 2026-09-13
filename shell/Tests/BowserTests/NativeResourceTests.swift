@@ -19,6 +19,30 @@ import AppKit
         XCTAssertEqual(apply(1)["error"] as? String, "acknowledgement_expired")
         XCTAssertEqual(effects, 130)
     }
+    func testPendingIntentSurvivesReconnectAndDuplicateCloseCannotCloseSuccessor() throws {
+        let host = BrowserWindowController(profile: .defaultProfile)
+        defer { host.window?.close() }
+        let first = host.activeTab!
+        let second = host.openTab(activate: false)
+        let service = NativeResources(session: "intent-test")
+        var events: [[String: Any]] = []
+        service.emit = { events.append($0) }
+        service.ready()
+        XCTAssertTrue(service.request(["action":"close", "tab":second.webviewId]))
+        let original = try XCTUnwrap(events.last)
+        service.ready() // replacement controller reconnects
+        XCTAssertEqual(events.last?["request"] as? String, original["request"] as? String)
+        XCTAssertEqual(host.tabs.count, 2)
+        let snapshot = try XCTUnwrap(original["snapshot"] as? [String: Any])
+        let decision: [String: Any] = ["request":original["request"]!, "version":1, "session":"intent-test", "sequence":1,
+            "command":["revision":snapshot["revision"]!, "window":host.resourceID, "profile":"default",
+                       "tab":second.webviewId, "action":"close", "active":first.webviewId]]
+        service.decide(decision); service.decide(decision)
+        XCTAssertEqual(host.tabs.count, 1)
+        XCTAssertTrue(host.activeTab === first)
+        XCTAssertTrue(host.tabs[0] === first)
+    }
+
     func testResourcesPreserveViewsAndRejectStaleOrCrossProfileCommands() throws {
         let host = BrowserWindowController(profile: .defaultProfile)
         defer { host.window?.close() }

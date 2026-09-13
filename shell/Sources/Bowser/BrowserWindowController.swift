@@ -256,7 +256,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         view.autoresizingMask = [.width, .height]
         wire(view)
         let anchor = activeTab.flatMap { active in tabs.firstIndex { $0 === active } }
-        tabs.insert(view, at: append ? tabs.count : anchor.map { $0 + 1 } ?? tabs.count)
+        let coordinate = activeTab != nil && BrainBridge.shared.resources.shouldCoordinate
+        tabs.insert(view, at: coordinate || append ? tabs.count : anchor.map { $0 + 1 } ?? tabs.count)
 
         // Emit BEFORE it can be mounted: consumers must see tab_opened
         // before the first tab_activated for this webview.
@@ -268,13 +269,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         opened["order"] = Self.orderedTabIDs
         BrainBridge.shared.send(opened)
 
-        if shouldActivate { activate(view) }
+        if coordinate {
+            _ = BrainBridge.shared.resources.request(["action":"opened", "tab":view.webviewId,
+                "anchor":activeTab?.webviewId ?? 0, "activate":shouldActivate, "append":append])
+        } else if shouldActivate { activate(view) }
         return view
     }
 
     /// Focus a visible pane, or mount a tab and leave the current arrangement.
     func activate(_ view: EngineView, focusPage: Bool = true) {
         guard tabs.contains(where: { $0 === view }) else { return }
+        if BrainBridge.shared.resources.shouldCoordinate, activeTab != nil {
+            _ = BrainBridge.shared.resources.request(["action":"activate", "tab":view.webviewId, "focus_page":focusPage]); return
+        }
         if let layout = websiteLayout, !layout.ids.contains(view.webviewId) {
             detachWebsiteLayout()
             activeTab = nil
@@ -424,6 +431,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     /// ⌘⇧←/→: cycle the window's tab order, wrapping at the ends.
     func activateAdjacentTab(offset: Int) {
+        if BrainBridge.shared.resources.shouldCoordinate, let active = activeTab {
+            _ = BrainBridge.shared.resources.request(["action":"cycle", "tab":active.webviewId, "offset":offset]); return
+        }
         guard tabs.count > 1, let active = activeTab,
               let index = tabs.firstIndex(where: { $0 === active })
         else { return }
@@ -444,6 +454,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Reorder without activating, reloading, or detaching any live page.
     @discardableResult
     func moveTab(id: UInt64, relativeTo target: UInt64, after: Bool) -> Bool {
+        if BrainBridge.shared.resources.shouldCoordinate {
+            guard id != target, tabs.contains(where: { $0.webviewId == id }), tabs.contains(where: { $0.webviewId == target }) else { return false }
+            return BrainBridge.shared.resources.request(["action":"move", "tab":id, "target":target, "after":after])
+        }
         guard id != target, let source = tabs.firstIndex(where: { $0.webviewId == id }),
               tabs.contains(where: { $0.webviewId == target }) else { return false }
         let view = tabs.remove(at: source)
@@ -453,9 +467,25 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
+    /// Apply a validated controller decision without replacing any webview.
+    func arrangeTabs(order: [UInt64], active: UInt64, focusPage: Bool) -> Bool {
+        guard order.count == tabs.count, Set(order) == Set(tabs.map(\.webviewId)),
+              let selected = tabs.first(where: { $0.webviewId == active }) else { return false }
+        let byID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.webviewId, $0) })
+        tabs = order.map { byID[$0]! }
+        BrainBridge.shared.send(["op":"event", "event":"tabs_reordered", "order":Self.orderedTabIDs])
+        // A command palette opened after a new-tab intent keeps its focus.
+        activate(selected, focusPage: focusPage && !(window?.firstResponder is NSTextView && window?.firstResponder !== activeTab?.webView))
+        return true
+    }
+
     /// Close one tab. The window goes with the last one.
-    func closeTab(_ view: EngineView) {
+    func closeTab(_ view: EngineView, selecting preferred: UInt64? = nil) {
+        if BrainBridge.shared.resources.shouldCoordinate {
+            _ = BrainBridge.shared.resources.request(["action":"close", "tab":view.webviewId]); return
+        }
         guard let index = tabs.firstIndex(where: { $0 === view }) else { return }
+        let wasActive = activeTab === view
         let wasPane = websiteLayout?.ids.contains(view.webviewId) == true
         let remainingTree = wasPane ? (try? WebsiteLayoutNode.parse(websiteLayout!.tree))?.removing(view.webviewId) : nil
         if wasPane { detachWebsiteLayout() }
@@ -467,22 +497,23 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             window?.close()
             return
         }
+        if let preferred, wasActive { activeTab = tabs.first(where: { $0.webviewId == preferred }) }
         if let remainingTree {
             // The remaining IDs still belong to this window. Recompose without
             // reloading their pages, retaining dragged sizes from the snapshot.
             do { try applyWebsiteLayout(tree: remainingTree.json); return }
             catch { NSLog("Bowser: layout recomposition failed: %@", error.localizedDescription) }
         }
-        if wasPane || activeTab == nil || activeTab === view {
+        if wasActive || wasPane || activeTab == nil || activeTab === view {
             let selected = activeTab.flatMap { active in tabs.first { $0 === active } } ?? tabs[min(index, tabs.count - 1)]
             activeTab = nil
             activate(selected)
         }
     }
 
-    func closeTab(id: UInt64) {
+    func closeTab(id: UInt64, selecting: UInt64? = nil) {
         guard let view = tabs.first(where: { $0.webviewId == id }) else { return }
-        closeTab(view)
+        closeTab(view, selecting: selecting)
     }
 
     /// Window chrome follows the mounted tab only — background tabs are free
