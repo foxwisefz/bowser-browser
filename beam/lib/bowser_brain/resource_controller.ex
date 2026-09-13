@@ -10,20 +10,40 @@ defmodule BowserBrain.ResourceController do
     %{}
   end
   def handle_info(:ready, state) do
-    BowserBrain.Bridge.cast_msg(%{op: "resource_ready"})
+    BowserBrain.Bridge.cast_msg(%{op: "resource_snapshot"})
     Process.send_after(self(), :ready, 1_000)
     {:noreply, state}
   end
   def handle_info(message, state), do: super(message, state)
-  def handle_event(%{"event" => "hello", "resources" => _}, state) do
-    BowserBrain.Bridge.cast_msg(%{op: "resource_ready"})
-    state
-  end
+  def handle_event(%{"event" => "hello", "resources" => snapshot}, state), do: publish(snapshot, state)
+  def handle_event(%{"event" => "resources", "snapshot" => snapshot}, state), do: publish(snapshot, state)
   def handle_event(%{"event" => "resource_intent"} = event, state) do
     BowserBrain.Bridge.cast_msg(decision(event))
     state
   end
   def handle_event(_, state), do: state
+
+  defp publish(snapshot, state) do
+    BowserBrain.Bridge.cast_msg(%{op: "resource_policy", version: 1, session: snapshot["session"], navigation: navigation_rules()})
+    BowserBrain.Bridge.cast_msg(%{op: "resource_ready"})
+    state
+  end
+  def navigation_rules do
+    [%{required: ["command", "shift"], forbidden: [], action: "foreground_tab"},
+     %{required: ["command"], forbidden: [], action: "background_tab"}]
+  end
+  def download_filename(suggested) do
+    name = suggested |> String.replace("\\", "/") |> String.split("/") |> List.last() |> String.replace(~r/[\p{Cc}\p{Cf}]/u, "") |> String.slice(0, 180)
+    if name in ["", ".", ".."], do: "download", else: name
+  end
+  def decision(%{"request" => request, "intent" => %{"action" => "download_destination", "download" => id}, "snapshot" => snapshot}) do
+    base = %{op: "resource_decision", request: request, version: 1, session: snapshot["session"], sequence: snapshot["next"]}
+    case Enum.find(Map.get(snapshot, "downloads", []), &(&1["id"] == id && &1["awaiting_destination"])) do
+      nil -> Map.put(base, :discard, true)
+      download -> Map.put(base, :command, %{action: "download_destination", download: id, profile: download["profile"],
+          revision: snapshot["revision"], filename: download_filename(download["suggested"])})
+    end
+  end
 
   def decision(%{"request" => request, "intent" => intent, "snapshot" => snapshot}) do
     tab = intent["tab"]

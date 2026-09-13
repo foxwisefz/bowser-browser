@@ -50,11 +50,12 @@ import Foundation
         emit(["op":"event", "event":"resource_intent", "request":id, "intent":intent, "snapshot":snapshot()])
     }
     func decide(_ message: [String: Any]) {
-        guard let (id, _) = pending.first, message["request"] as? String == id else { return }
+        guard let (id, intent) = pending.first, message["request"] as? String == id else { return }
         if message["discard"] as? Bool == true { pending.removeFirst(); replay(); return }
         let result = apply(message)
         emit(["op":"resource_result", "result":result, "snapshot":snapshot()])
         if ["stale_resources", "sequence_gap"].contains(result["error"] as? String ?? "") { replay(); return }
+        if result["ok"] as? Bool != true, let download = intent["download"] as? String { NativeDownloads.shared.cancelDestination(download) }
         pending.removeFirst(); replay()
     }
     init(session: String) { journal = NativeResourceJournal(session: session) }
@@ -63,13 +64,16 @@ import Foundation
             ["id": host.resourceID, "profile": host.profile.id,
              "tabs": host.tabs.map(\.webviewId), "panes": host.websiteLayout?.ids ?? [], "active": host.activeTab?.webviewId ?? 0]
         }
-        let data = (try? JSONSerialization.data(withJSONObject: windows, options: [.sortedKeys])) ?? Data()
+        let data = (try? JSONSerialization.data(withJSONObject: ["windows":windows, "downloads":NativeDownloads.shared.snapshot], options: [.sortedKeys])) ?? Data()
         let revision = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        return ["version": 1, "session": journal.session, "next": journal.next, "revision": revision, "windows": windows]
+        return ["version": 1, "session": journal.session, "next": journal.next, "revision": revision, "windows": windows, "downloads":NativeDownloads.shared.snapshot]
     }
     func apply(_ message: [String: Any]) -> [String: Any] {
         journal.apply(message) { command in
             guard command["revision"] as? String == snapshot()["revision"] as? String else { return ["ok": false, "error": "stale_resources"] }
+            if command["action"] as? String == "download_destination" {
+                return NativeDownloads.shared.choose(command) ? ["ok":true] : ["ok":false, "error":"invalid_download"]
+            }
             guard let window = command["window"] as? String,
                   let profile = command["profile"] as? String,
                   let host = BrowserWindowController.all.first(where: { $0.resourceID == window && $0.profile.id == profile }),

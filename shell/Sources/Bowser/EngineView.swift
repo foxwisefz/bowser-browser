@@ -59,7 +59,7 @@ private final class PageRelay: NSObject, WKScriptMessageHandler {
 /// rendering, and process isolation; this class owns identity, user content,
 /// and event flow to the brain.
 @MainActor
-final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     private(set) static var live: [UInt64: EngineView] = [:]
     private static var nextId: UInt64 = 1
 
@@ -512,10 +512,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
         navigationType: WKNavigationType,
         modifierFlags: NSEvent.ModifierFlags
     ) -> TabIntent {
-        guard navigationType == .linkActivated,
-              modifierFlags.contains(.command)
-        else { return .sameTab }
-        return modifierFlags.contains(.shift) ? .foregroundTab : .backgroundTab
+        NavigationPolicy.shared.intent(type: navigationType, modifiers: modifierFlags)
     }
 
     nonisolated static func shouldOpenExternally(_ url: URL?) -> Bool {
@@ -585,61 +582,14 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate, WKDownloadDe
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        download.delegate = self
+        NativeDownloads.shared.attach(download, tab: webviewId, profile: profileId)
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        download.delegate = self
+        NativeDownloads.shared.attach(download, tab: webviewId, profile: profileId)
     }
 
-    // MARK: WKDownloadDelegate — save to ~/Downloads, collision-safe.
-
-    func download(
-        _ download: WKDownload,
-        decideDestinationUsing response: URLResponse,
-        suggestedFilename: String,
-        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
-    ) {
-        let dest = Self.uniqueDownloadURL(suggestedFilename)
-        BrainBridge.shared.send([
-            "op": "event", "event": "download", "webview": webviewId,
-            "state": "started", "filename": dest.lastPathComponent,
-        ])
-        NSLog("Bowser: downloading \(dest.lastPathComponent)")
-        completionHandler(dest)
-    }
-
-    func downloadDidFinish(_ download: WKDownload) {
-        BrainBridge.shared.send([
-            "op": "event", "event": "download", "webview": webviewId, "state": "finished",
-        ])
-        NSLog("Bowser: download finished")
-    }
-
-    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        BrainBridge.shared.send([
-            "op": "event", "event": "download", "webview": webviewId,
-            "state": "failed", "error": error.localizedDescription,
-        ])
-        NSLog("Bowser: download failed — \(error.localizedDescription)")
-    }
-
-    // A non-clobbering path in ~/Downloads: "file.zip", "file (1).zip", …
-    static func uniqueDownloadURL(_ suggested: String) -> URL {
-        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        let name = suggested.isEmpty ? "download" : suggested
-        var url = dir.appendingPathComponent(name)
-        let ext = url.pathExtension
-        let base = url.deletingPathExtension().lastPathComponent
-        var n = 1
-        while FileManager.default.fileExists(atPath: url.path) {
-            let candidate = ext.isEmpty ? "\(base) (\(n))" : "\(base) (\(n)).\(ext)"
-            url = dir.appendingPathComponent(candidate)
-            n += 1
-        }
-        return url
-    }
+    static func uniqueDownloadURL(_ suggested: String) -> URL { NativeDownloads.uniqueURL(suggested) }
 
     // MARK: - File picker (Safari parity)
 

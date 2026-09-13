@@ -242,6 +242,10 @@ final class BrainBridge {
         }
 
         switch op {
+        case "resource_policy":
+            guard message["version"] as? Int == 1, message["session"] as? String == engineSessionID,
+                  let rules = message["navigation"] as? [[String: Any]] else { return }
+            _ = NavigationPolicy.shared.update(rules)
         case "resource_ready": resources.ready()
         case "resource_decision": resources.decide(message)
         case "resource_snapshot":

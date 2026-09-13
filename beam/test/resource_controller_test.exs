@@ -2,6 +2,15 @@ defmodule BowserBrain.ResourceControllerTest do
   use ExUnit.Case, async: true
   alias BowserBrain.ResourceController, as: Controller
   defp window, do: %{"id" => "w", "profile" => "work", "tabs" => [1, 2, 3], "active" => 2, "panes" => []}
+  test "download policy survives missing source tabs and sanitizes filenames" do
+    event = %{"request" => "d", "intent" => %{"action" => "download_destination", "download" => "download-id"},
+      "snapshot" => %{"windows" => [], "session" => "native", "next" => 2, "revision" => "rev", "downloads" => [
+        %{"id" => "download-id", "profile" => "work", "suggested" => "../../file.bin", "awaiting_destination" => true}]}}
+    assert %{command: %{filename: "file.bin", profile: "work", download: "download-id"}} = Controller.decision(event)
+    assert Controller.download_filename("..") == "download"
+    assert Controller.download_filename("a\u0000b") == "ab"
+    assert length(Controller.navigation_rules()) == 2
+  end
   test "opening follows current tab and restore append remains explicit" do
     intent = %{"action" => "opened", "tab" => 3, "anchor" => 1, "activate" => false}
     assert %{order: [1, 3, 2], active: 2} = Controller.tab_command(intent, window())

@@ -93,6 +93,36 @@ import XCTest
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 3))
         XCTAssertTrue(editor.undoManager === undo)
         XCTAssertTrue(host.window?.firstResponder === editor)
+        if let value = ProcessInfo.processInfo.environment["BOWSER_DOWNLOAD_URL"], let downloadURL = URL(string: value) {
+            let downloads = NativeDownloads.shared
+            downloads.destinationDirectory = url.deletingLastPathComponent()
+            defer { downloads.destinationDirectory = nil }
+            let download: WKDownload = await withCheckedContinuation { continuation in
+                third.webView.startDownload(using: URLRequest(url: downloadURL)) { continuation.resume(returning: $0) }
+            }
+            downloads.attach(download, tab: third.webviewId, profile: "default")
+            for _ in 0..<100 {
+                if downloads.snapshot.contains(where: { $0["awaiting_destination"] as? Bool == true }) { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let downloadIntent = try XCTUnwrap(events.last(where: { ($0["intent"] as? [String: Any])?["action"] as? String == "download_destination" }))
+            service.decide(try peer.call(downloadIntent))
+            peer.stop()
+            host.closeTab(id: third.webviewId)
+            peer = try ControllerPeer(root: root)
+            service.ready()
+            let close = try XCTUnwrap(events.last(where: { $0["event"] as? String == "resource_intent" }))
+            service.decide(try peer.call(close))
+            XCTAssertEqual(host.tabs.count, 1)
+            for _ in 0..<300 {
+                if downloads.snapshot.isEmpty { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertTrue(downloads.snapshot.isEmpty)
+            let file = url.deletingLastPathComponent().appendingPathComponent("resource-download.bin")
+            XCTAssertEqual(try Data(contentsOf: file).count, 1024 * 1024)
+            print("RESOURCE_DOWNLOAD_PROOF completed 1MiB after source tab close and controller restart")
+        }
         try await Task.sleep(for: .milliseconds(250))
         let after = try await web.evaluateJavaScript("probe.snapshot()") as! [String: Any]
         XCTAssertEqual(before["token"] as? String, after["token"] as? String)

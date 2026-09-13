@@ -127,7 +127,9 @@ defmodule BowserBrain.Bridge do
           if emit?, do: broadcast(event)
           state
 
-        {:ok, %{"op" => "resource_result"}} -> state
+        {:ok, %{"op" => "resource_result"} = result} ->
+          if pid = Process.whereis(BowserBrain.ResourceController), do: send(pid, {:browser_event, Map.put(result, "event", "resources")})
+          state
 
         {:ok, %{"op" => "js_result", "id" => id} = result} ->
           {from, pending} = Map.pop(state.pending, id)

@@ -77,3 +77,27 @@ process reconnection against an isolated native browser window. It checks change
 policy behavior, single application of a queued close, retained webview/document,
 editor draft/selection/focus/undo and advancing video. This is synthetic input and
 local media, not a physical-input or DRM qualification.
+
+## Navigation and downloads
+
+Elixir publishes ordered navigation rules with required/forbidden modifier names
+and a native tab action. The native owner validates the complete rule set before
+replacing its cached policy, then answers WebKit synchronously. External-scheme
+approval, WebKit-required popup allocation and non-displayable-response handling
+remain native enforcement. Policy refresh does not replace any webview.
+
+`NativeDownloads` owns WKDownload delegates and pending destination callbacks
+independently of source tabs. Destination naming is decided by the Elixir
+controller from a native download snapshot. The native owner enforces profile
+identity, basename-only filenames, collision avoidance (including reserved paths)
+and single completion of each callback. Once started, a transfer continues
+without the controller. A source tab closing does not retire its download.
+
+The native integration check also streams a real 1 MiB WebKit download from a
+loopback fixture, closes its source tab and restarts the controller before
+completion. Files are written only to the temporary fixture directory.
+
+The remaining restart boundary is changes to native object storage/lifetime,
+platform delegate integration, the shared SurfaceKit contract, IPC transport and
+native UI not extracted into signed modules. Elixir policy and existing native
+module behavior can update independently; this does not replace WebKit itself.

@@ -1,0 +1,11 @@
+2026-09-13, macOS arm64, isolated native/Elixir integration.
+Actual Elixir policy code replaced while native window/webview/editor stayed alive.
+Policy command round trip: 1.4614 ms (one local synthetic sample, not a latency distribution).
+Controller process restarted with a native-owned close intent pending; applied once.
+Native draft, selection, focus, undo manager and webview/document identities retained.
+Video continued advancing.
+Actual WKDownload transferred 1 MiB after its source tab closed and controller restarted.
+Full native suite: 198 tests, 14 optional skips, 0 failures.
+Focused BEAM suite: 43 tests, 0 failures.
+Run: bin/check-resource-controller
+Broader physical input, DRM, notarization and soak qualification remain separate.
