@@ -8,6 +8,7 @@ import WebKit
 @MainActor
 final class BrowserWindowController: NSWindowController, NSWindowDelegate {
     /// Every live window, in creation order. Strong: this is what owns them.
+    let resourceID = UUID().uuidString
     private(set) static var all: [BrowserWindowController] = []
 
     /// The window holding a given webview, if any.

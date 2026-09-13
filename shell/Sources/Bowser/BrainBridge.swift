@@ -14,9 +14,15 @@ final class BrainBridge {
     /// Stable across backend reconnects, different for every native launch.
     private let engineSessionID = UUID().uuidString
 
+    private lazy var resources = NativeResources(session: engineSessionID)
+
     // Written by the socket thread, read under lock by send().
     private let connLock = NSLock()
     nonisolated(unsafe) private var connFD: Int32 = -1
+    nonisolated(unsafe) private var connectionID = UUID()
+    nonisolated private func isCurrent(_ id: UUID) -> Bool {
+        connLock.lock(); defer { connLock.unlock() }; return connectionID == id && connFD >= 0
+    }
 
     func start() {
         let dir = SiteAppConfiguration.current?.home ?? BowserPaths.home
@@ -139,10 +145,11 @@ final class BrainBridge {
             NSLog("Bowser: brain connected")
             connLock.lock()
             connFD = fd
+            let connection = UUID(); connectionID = connection
             connLock.unlock()
 
-            DispatchQueue.main.async { BrainBridge.shared.sendHello() }
-            readLoop(fd: fd)
+            DispatchQueue.main.async { if self.isCurrent(connection) { self.sendHello() } }
+            readLoop(fd: fd, connection: connection)
 
             connLock.lock()
             if connFD == fd { connFD = -1 }
@@ -153,7 +160,7 @@ final class BrainBridge {
         close(listenFD)
     }
 
-    nonisolated private func readLoop(fd: Int32) {
+    nonisolated private func readLoop(fd: Int32, connection: UUID) {
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 1 << 16)
 
@@ -171,6 +178,7 @@ final class BrainBridge {
 
                 // Data is Sendable; parse on the main actor where handling lives.
                 DispatchQueue.main.async {
+                    guard self.isCurrent(connection) else { return }
                     if let object = try? JSONSerialization.jsonObject(with: payload),
                        let message = object as? [String: Any] {
                         BrainBridge.shared.handle(message)
@@ -211,6 +219,7 @@ final class BrainBridge {
         }
         var hello: [String: Any] = ["op": "hello", "v": 1, "webviews": ids, "tabs": tabs,
                                     "engine_session_id": engineSessionID]
+        hello["resources"] = resources.snapshot()
         hello["engine_build_id"] = EngineBuild.identifier
         hello["engine_binary"] = Bundle.main.executableURL?.path
         if let active = (NSApp.delegate as? AppDelegate)?.currentWebviewId {
@@ -233,6 +242,11 @@ final class BrainBridge {
         }
 
         switch op {
+        case "resource_snapshot":
+            send(["op": "resource_result", "snapshot": resources.snapshot()])
+        case "resource_command":
+            let result = resources.apply(message)
+            send(["op": "resource_result", "result": result, "snapshot": resources.snapshot()])
         case "quit_ready":
             BackendLifecycle.shared.quitAcknowledged = true
 
