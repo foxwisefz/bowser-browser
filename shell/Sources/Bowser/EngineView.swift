@@ -470,6 +470,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     }
 
     func tearDown() {
+        stopMediaCapture()
         SiteAppBadge.shared.clear(id: webviewId)
         EngineView.live.removeValue(forKey: webviewId)
         BrainBridge.shared.send([
@@ -620,7 +621,66 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    private var cancelMediaPermission: (() -> Void)?
+
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void) {
+        let requested = SitePermissionKey.origin(origin)
+        guard cancelMediaPermission == nil, let window,
+              SitePermissionKey.validRequest(top: SitePermissionKey.origin(webView.url), request: requested,
+                  frame: SitePermissionKey.origin(frame.securityOrigin)), let requested else {
+            decisionHandler(.deny); return
+        }
+        let kinds: [String]
+        switch type {
+        case .camera: kinds = ["camera"]
+        case .microphone: kinds = ["microphone"]
+        case .cameraAndMicrophone: kinds = ["camera", "microphone"]
+        @unknown default: decisionHandler(.deny); return
+        }
+        let store = SitePermissionStore.shared
+        let decision = store.mediaDecision(profile: profileId, origin: requested, kinds: kinds)
+        guard decision == .prompt else { decisionHandler(decision); return }
+        let revision = store.revision
+        let alert = NativeUIHost.alert("media-permission", ["origin": requested, "devices": kinds.joined(separator: " and ")])
+        var resolved = false
+        let finish: (WKPermissionDecision) -> Void = { [weak self] value in
+            guard !resolved else { return }; resolved = true
+            self?.cancelMediaPermission = nil
+            decisionHandler(value)
+        }
+        cancelMediaPermission = { [weak window] in
+            finish(.deny)
+            if let window { window.endSheet(alert.window, returnCode: .abort) }
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard !resolved else { return }
+            guard let self, EngineView.live[self.webviewId] === self, self.window != nil,
+                  SitePermissionKey.origin(webView.url) == requested, store.revision == revision else {
+                finish(.deny); return
+            }
+            switch response {
+            case .alertFirstButtonReturn: finish(.grant)
+            case .alertSecondButtonReturn:
+                do { try store.set(profile: self.profileId, origin: requested, kinds: kinds, decision: "allow"); finish(.grant) }
+                catch { finish(.deny) }
+            case .alertThirdButtonReturn:
+                try? store.set(profile: self.profileId, origin: requested, kinds: kinds, decision: "block")
+                finish(.deny)
+            default: finish(.deny)
+            }
+        }
+    }
+
+    func stopMediaCapture() {
+        cancelMediaPermission?()
+        webView.setCameraCaptureState(.none, completionHandler: nil)
+        webView.setMicrophoneCaptureState(.none, completionHandler: nil)
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        cancelMediaPermission?()
         faviconGeneration = UUID()
         iconCandidates = []
         faviconICNSPath = nil

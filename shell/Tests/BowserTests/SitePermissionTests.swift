@@ -1,0 +1,42 @@
+import XCTest
+import WebKit
+@testable import Bowser
+
+@MainActor final class SitePermissionTests: XCTestCase {
+    func testOriginsAndFrameIsolation() {
+        XCTAssertEqual(SitePermissionKey.origin(URL(string: "https://EXAMPLE.com:443/path?q=1")), "https://example.com")
+        XCTAssertEqual(SitePermissionKey.origin(URL(string: "https://example.com:8443")), "https://example.com:8443")
+        XCTAssertNil(SitePermissionKey.origin(URL(string: "http://example.com")))
+        XCTAssertNil(SitePermissionKey.origin(URL(string: "https://user:secret@example.com")))
+        XCTAssertFalse(SitePermissionKey.validRequest(top: "https://example.com", request: "https://sub.example.com", frame: "https://sub.example.com"))
+        XCTAssertFalse(SitePermissionKey.validRequest(top: nil, request: nil, frame: nil))
+        XCTAssertTrue(SitePermissionKey.validRequest(top: "https://example.com", request: "https://example.com", frame: "https://example.com"))
+    }
+    func testStoreScopesPersistsAndCombinesMediaDecisions() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("permissions.json"), origin = "https://example.com"
+        let store = SitePermissionStore(file: file)
+        XCTAssertEqual(store.mediaDecision(profile: "default", origin: origin, kinds: ["camera"]), .prompt)
+        try store.set(profile: "default", origin: origin, kinds: ["camera"], decision: "allow")
+        XCTAssertEqual(store.mediaDecision(profile: "default", origin: origin, kinds: ["camera"]), .grant)
+        XCTAssertEqual(store.mediaDecision(profile: "work", origin: origin, kinds: ["camera"]), .prompt)
+        XCTAssertEqual(store.mediaDecision(profile: "default", origin: "https://sub.example.com", kinds: ["camera"]), .prompt)
+        XCTAssertEqual(store.mediaDecision(profile: "default", origin: origin, kinds: ["camera", "microphone"]), .prompt)
+        try store.set(profile: "default", origin: origin, kinds: ["microphone"], decision: "block")
+        XCTAssertEqual(store.mediaDecision(profile: "default", origin: origin, kinds: ["camera", "microphone"]), .deny)
+        let loaded = SitePermissionStore(file: file)
+        XCTAssertEqual(loaded.decision(profile: "default", origin: origin, kind: "microphone"), "block")
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+        try store.set(profile: "work", origin: origin, kinds: ["camera"], decision: "allow")
+        try store.reset(profile: "default")
+        XCTAssertEqual(store.decision(profile: "work", origin: origin, kind: "camera"), "allow")
+        XCTAssertEqual(store.decision(profile: "default", origin: origin, kind: "camera"), "ask")
+        XCTAssertThrowsError(try store.set(profile: "default", origin: origin + "/path", kinds: ["camera"], decision: "allow"))
+    }
+    func testWebKitMediaDelegateIsActuallyExported() {
+        let engine = EngineView(frame: .zero)
+        defer { engine.tearDown() }
+        XCTAssertTrue(engine.responds(to: NSSelectorFromString("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:")))
+    }
+}

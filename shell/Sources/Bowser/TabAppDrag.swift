@@ -33,6 +33,8 @@ enum TabAppBundle {
             "CFBundleVersion": "2", "BowserAppVersion": 2,
             "BowserEngineBuild": try engineBuild(bowser),
             "BowserMainApp": bowser.path, "CFBundleIconFile": "SiteIcon.icns",
+            "NSCameraUsageDescription": "Allow websites you approve to use your camera.",
+            "NSMicrophoneUsageDescription": "Allow websites you approve to use your microphone.",
             "BowserSavedURL": url.absoluteString, "BowserProfile": profile,
         ]
         if let iconData {

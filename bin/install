@@ -123,7 +123,7 @@ if [ "$BRAIN_ONLY" = 0 ]; then
   if [ "$BOWSER_SIGN_IDENTITY" != - ]; then native_sign+=(--options runtime); fi
   if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then native_sign+=(--keychain "$BOWSER_SIGN_KEYCHAIN"); fi
   codesign "${native_sign[@]}" "$STAGE/Bowser.app/Contents/Frameworks/libBowserSurfaceKit.dylib"
-  codesign "${native_sign[@]}" "$STAGE/Bowser.app"
+  codesign "${native_sign[@]}" --entitlements "$REPO/bin/shell-entitlements.plist" "$STAGE/Bowser.app"
   codesign --verify --deep --strict "$STAGE/Bowser.app"
   # Assemble inside the unpublished generation.
   rm -rf "$BUNDLE.new"; mv "$STAGE/Bowser.app" "$BUNDLE.new"; rm -rf "$BUNDLE.old"

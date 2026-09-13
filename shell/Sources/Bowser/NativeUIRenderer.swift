@@ -146,6 +146,10 @@ import BowserSurfaceKit
         let alert = NSAlert()
         let title: String, detail: String, buttons: [String]
         switch kind {
+        case "media-permission":
+            title = "Allow \(values["devices"] ?? "media") access?"
+            detail = "\(values["origin"] ?? "This site") wants to use your \(values["devices"] ?? "devices")."
+            buttons = ["Allow Once", "Always Allow", "Block", "Cancel"]
         case "external":
             let name = values["name"] ?? "application"
             title = "Open \(name)?"; detail = "\(values["source"] ?? "This website") wants to open a link in \(name)."

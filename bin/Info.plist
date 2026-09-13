@@ -39,6 +39,8 @@
       </array>
     </dict>
   </array>
+  <key>NSCameraUsageDescription</key><string>Allow websites you approve to use your camera.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Allow websites you approve to use your microphone.</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
   <key>NSHumanReadableCopyright</key><string>Personal build</string>
