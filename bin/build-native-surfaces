@@ -16,6 +16,7 @@ mkdir -p "$output/Contents/MacOS"
 swiftc -target arm64-apple-macos15.0 -swift-version 6 -O -parse-as-library -emit-library -module-name "BowserSurfaces_$build" \
   -Xlinker -rpath -Xlinker /usr/lib/swift \
   -I "$kit/Modules" -L "$kit" -lBowserSurfaceKit \
+  "$repo/shell/Sources/Bowser/BrowserScreens.swift" \
   "$repo/shell/Sources/Bowser/SurfaceRenderer.swift" \
   "$repo/shell/Sources/Bowser/SurfaceTabDrag.swift" \
   "$repo/shell/Sources/Bowser/TabDustEffect.swift" \

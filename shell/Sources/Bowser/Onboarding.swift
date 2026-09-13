@@ -99,7 +99,11 @@ struct RegistrationStore: Sendable {
 }
 
 @MainActor
-final class OnboardingModel: ObservableObject {
+final class OnboardingModel: ObservableObject, OnboardingPresentation {
+    var completed: Bool { receipt != nil }
+    var termsURL: URL { policy.termsURL }
+    var onFinish: () -> Void = {}
+    func finish() { onFinish() }
     @Published var email = ""
     @Published var acceptedTerms = false
     @Published var trainingConsent = false
@@ -154,50 +158,10 @@ final class OnboardingModel: ObservableObject {
 }
 
 struct OnboardingView: View {
-    @ObservedObject var model: OnboardingModel
+    let model: OnboardingModel
     let finished: () -> Void
-    @FocusState private var emailFocused: Bool
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
-                .resizable().frame(width: 64, height: 64)
-            Text(model.receipt == nil ? "Welcome to Bowser" : "You’re ready to browse")
-                .font(.system(size: 28, weight: .semibold))
-            if model.receipt != nil {
-                Text("Your registration and Terms acceptance are saved.").foregroundStyle(.secondary)
-                Button("Start browsing", action: finished).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            } else {
-                Text("Enter your email to get started.").foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Email address").font(.headline)
-                    TextField("you@example.com", text: $model.email)
-                        .textFieldStyle(.roundedBorder).focused($emailFocused)
-                        .accessibilityLabel("Email address").disabled(model.submitting)
-                        .onSubmit { Task { await model.submit() } }
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle("I agree to the Terms of Service", isOn: $model.acceptedTerms)
-                        .toggleStyle(.checkbox).disabled(model.submitting)
-                    HStack(spacing: 18) {
-                        Link("Terms of Service", destination: model.policy.termsURL)
-                    }
-                    Toggle("Help improve and train models (optional)", isOn: $model.trainingConsent)
-                        .toggleStyle(.checkbox).disabled(model.submitting)
-                }
-                if let error = model.error {
-                    Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                }
-                HStack {
-                    Spacer()
-                    if model.submitting { ProgressView().controlSize(.small).accessibilityLabel("Finishing setup") }
-                    Button(model.submitting ? "Finishing setup…" : "Continue") {
-                        Task { await model.submit() }
-                    }.buttonStyle(.borderedProminent).disabled(!model.canSubmit).keyboardShortcut(.defaultAction)
-                }
-            }
-        }
-        .padding(36).frame(width: 480, alignment: .leading)
-        .onAppear { emailFocused = true }
+        LiveBrowserScreen(kind: "onboarding", model: model)
+            .onAppear { model.onFinish = finished }
     }
 }

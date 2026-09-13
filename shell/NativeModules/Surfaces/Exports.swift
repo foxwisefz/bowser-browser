@@ -16,6 +16,13 @@ public func surfaceCreate(_ bytes: UnsafePointer<UInt8>, _ count: Int32, _ gener
     guard count > 0, count <= 65536 else { return nil }
     let data = Data(bytes: bytes, count: Int(count))
     let address = MainActor.assumeIsolated { () -> UInt in
+        if let value = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+           let id = value["screen"], let screen = BrowserScreenContext.contexts[id] {
+            let view = NSHostingView(rootView: BrowserScreenRoot(context: screen))
+            view.sizingOptions = []
+            view.identifier = NSUserInterfaceItemIdentifier(id)
+            return UInt(bitPattern: Unmanaged.passRetained(view).toOpaque())
+        }
         guard let context = context(data) else { return 0 }
         let view = NSHostingView(rootView: SurfaceGenerationRoot(context: context, generation: generation) { message in
             guard let data = try? JSONSerialization.data(withJSONObject: message), data.count <= 1_048_576,
@@ -32,6 +39,11 @@ public func surfaceUpdate(_ pointer: UnsafeMutableRawPointer, _ bytes: UnsafePoi
     guard count > 0, count <= 65536 else { return 0 }
     let data = Data(bytes: bytes, count: Int(count)), address = UInt(bitPattern: pointer)
     return MainActor.assumeIsolated {
+        if let value = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+           let id = value["screen"], BrowserScreenContext.contexts[id] != nil {
+            let view = Unmanaged<NSView>.fromOpaque(UnsafeMutableRawPointer(bitPattern: address)!).takeUnretainedValue()
+            return view.identifier?.rawValue == id ? 1 : 0
+        }
         guard let context = context(data) else { return 0 }
         let view = Unmanaged<NSView>.fromOpaque(UnsafeMutableRawPointer(bitPattern: address)!).takeUnretainedValue()
         return view.identifier?.rawValue == context.id ? 1 : 0
