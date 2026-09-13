@@ -631,6 +631,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
             "tint": tint.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } as Any? ?? NSNull(),
             "buttonStyle": theme.buttonStyle, "cornerRadius": theme.cornerRadius,
             "showNavigation": theme.showNavigation,
+            "permissionsAvailable": true,
+            "capturing": tabs.contains { $0.webView.cameraCaptureState != .none || $0.webView.microphoneCaptureState != .none },
             "buttons": ChromeSurface.buttons(for: profile.id).prefix(128).map { ["id": $0.id, "title": $0.title, "symbol": $0.symbol as Any? ?? NSNull()] }
         ]
         if let data = try? JSONSerialization.data(withJSONObject: payload) { nativeToolbar?.setSnapshot(data) }
@@ -638,6 +640,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate {
 
     private func nativeToolbarAction(_ event: String) {
         switch event {
+        case "permissions":
+            let capturing = tabs.first { $0.webView.cameraCaptureState != .none || $0.webView.microphoneCaptureState != .none }
+            SitePermissionsWindow.shared.open(engine: capturing ?? activeTab)
         case "command": focusOmnibar()
         case "back": activeTab?.webView.goBack()
         case "forward": activeTab?.webView.goForward()

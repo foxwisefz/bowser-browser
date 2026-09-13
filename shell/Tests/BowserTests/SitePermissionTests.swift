@@ -34,6 +34,22 @@ import WebKit
         XCTAssertEqual(store.decision(profile: "default", origin: origin, kind: "camera"), "ask")
         XCTAssertThrowsError(try store.set(profile: "default", origin: origin + "/path", kinds: ["camera"], decision: "allow"))
     }
+    func testSettingsEditsAndResetsOnlySelectedProfile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SitePermissionStore(file: dir.appendingPathComponent("permissions.json"))
+        let model = PermissionSettingsModel(store: store)
+        model.selectedOrigin = "https://example.com"
+        model.set("camera", choice: "allow")
+        XCTAssertEqual(model.controls.first { $0.id == "camera" }?.choice, "allow")
+        model.selectedProfile = "work"; model.selectedOrigin = "https://example.com"
+        XCTAssertEqual(model.controls.first { $0.id == "camera" }?.choice, "ask")
+        model.set("camera", choice: "block")
+        model.resetSite()
+        XCTAssertEqual(model.controls.first { $0.id == "camera" }?.choice, "ask")
+        XCTAssertEqual(store.decision(profile: "default", origin: "https://example.com", kind: "camera"), "allow")
+    }
+
     func testWebKitMediaDelegateIsActuallyExported() {
         let engine = EngineView(frame: .zero)
         defer { engine.tearDown() }

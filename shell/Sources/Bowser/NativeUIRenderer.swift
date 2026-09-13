@@ -76,6 +76,8 @@ import BowserSurfaceKit
         let modsmith = NSMenuItem(title: "ModSmith…", action: NSSelectorFromString("open:"), keyEquivalent: "")
         modsmith.target = context.targets["modsmith"]
         view.addItem(modsmith)
+        let permissions = view.addItem(withTitle: "Website Permissions…", action: NSSelectorFromString("show:"), keyEquivalent: "")
+        permissions.target = context.targets["permissions"]
         view.addItem(.separator())
         view.addItem(withTitle: "Reload Page", action: NSSelectorFromString("reloadPage:"), keyEquivalent: "r")
         view.addItem(.separator())
@@ -216,7 +218,7 @@ import BowserSurfaceKit
     static func settingsItem(_ section: SettingsSection, _ target: NSObject) -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier(section.id))
         item.label = section.title; item.paletteLabel = section.title
-        let symbol = ["settings": "gearshape", "profiles": "person.crop.rectangle", "mods": "puzzlepiece.extension"][section.id] ?? "slider.horizontal.3"
+        let symbol = ["websites": "globe", "settings": "gearshape", "profiles": "person.crop.rectangle", "mods": "puzzlepiece.extension"][section.id] ?? "slider.horizontal.3"
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: section.title)
         item.target = target; item.action = NSSelectorFromString("selectToolbarSection:")
         return item

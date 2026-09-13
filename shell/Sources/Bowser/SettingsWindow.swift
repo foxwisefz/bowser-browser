@@ -10,10 +10,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     typealias Section = SettingsSection
 
     final class Model: ObservableObject, SettingsPresentation {
+        lazy var permissionsContext = BrowserScreenContext(kind: "permissions", model: PermissionSettingsModel.shared)
         lazy var profilesContext = BrowserScreenContext(kind: "profiles", model: ProfileSettingsModel.shared)
         lazy var defaultContext = BrowserScreenContext(kind: "default-browser", model: DefaultBrowserSettingsModel.shared)
 
-        @Published var sections: [Section] = []
+        @Published var sections: [Section] = [Section(id: "websites", title: "Websites", order: 30, tree: [:])]
         @Published var selected: String?
         /// Bumped on every tree update so the detail re-renders (trees are
         /// [String: Any], not Equatable).
@@ -56,6 +57,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             while !toolbar.items.isEmpty { toolbar.removeItem(at: 0) }
             self.refreshToolbar()
         }
+        PermissionSettingsModel.shared.start()
         DefaultBrowserSettingsModel.shared.refresh()
         if window == nil {
             let w = NSWindow(

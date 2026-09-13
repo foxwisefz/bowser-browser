@@ -73,6 +73,7 @@ public struct SettingsSection: Identifiable, Equatable {
 @MainActor public protocol SettingsPresentation: AnyObject {
     var sections: [SettingsSection] { get }
     var selected: String? { get }
+    var permissionsContext: BrowserScreenContext { get }
     var profilesContext: BrowserScreenContext { get }
     var defaultContext: BrowserScreenContext { get }
 }

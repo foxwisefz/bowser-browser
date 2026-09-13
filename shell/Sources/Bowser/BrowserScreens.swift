@@ -6,6 +6,7 @@ struct BrowserScreenRoot: View {
     @ObservedObject var context: BrowserScreenContext
     var body: some View {
         switch context.kind {
+        case "permissions": PermissionsScreen(context: context)
         case "settings": SettingsScreen(context: context)
         case "profiles": ProfilesScreen(context: context)
         case "modsmith": ModSmithScreen(context: context)
@@ -304,7 +305,9 @@ struct SettingsScreen: View {
 
     var body: some View {
         Group {
-            if model.selected == "profiles" {
+            if model.selected == "websites" {
+                PermissionsScreen(context: model.permissionsContext)
+            } else if model.selected == "profiles" {
                 ProfilesScreen(context: model.profilesContext)
             } else if let section = model.sections.first(where: { $0.id == model.selected }) {
                 ScrollView {
@@ -616,4 +619,63 @@ struct NewProfileSheet: View {
 private func screenColor(hex: String?) -> NSColor? {
     guard let hex, hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
     return NSColor(srgbRed: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
+}
+
+struct PermissionsScreen: View {
+    @ObservedObject var context: BrowserScreenContext
+    private var model: any PermissionsPresentation { context.model as! any PermissionsPresentation }
+    @State private var confirmReset = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Website Permissions").font(.title2.weight(.semibold))
+                Spacer()
+                Picker("Profile", selection: Binding(get: { model.selectedProfile }, set: { model.selectedProfile = $0 })) {
+                    ForEach(model.profiles, id: \.id) { Text($0.name).tag($0.id) }
+                }.frame(maxWidth: 220)
+            }
+            HSplitView {
+                List(selection: Binding(get: { model.selectedOrigin }, set: { model.selectedOrigin = $0 })) {
+                    ForEach(model.sites, id: \.self) { Text($0).lineLimit(2).tag($0) }
+                }.frame(minWidth: 190, idealWidth: 240)
+                VStack(alignment: .leading, spacing: 18) {
+                    if let origin = model.selectedOrigin {
+                        Text(origin).font(.headline).textSelection(.enabled)
+                        ForEach(model.controls) { control in
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Label(control.title, systemImage: control.id == "camera" ? "video" : control.id == "microphone" ? "mic" : "bell")
+                                    Spacer()
+                                    Picker(control.title, selection: Binding(get: { control.choice }, set: { model.set(control.id, choice: $0) })) {
+                                        Text("Ask").tag("ask"); Text("Allow").tag("allow"); Text("Block").tag("block")
+                                    }.labelsHidden().frame(width: 110).disabled(!control.available)
+                                }
+                                Text(control.status).font(.caption).foregroundStyle(.secondary)
+                                if control.active {
+                                    HStack {
+                                        Label("In use", systemImage: "circle.fill").foregroundStyle(.green)
+                                        Button("Stop") { model.stop(control.id) }
+                                    }.font(.caption)
+                                }
+                            }
+                            Divider()
+                        }
+                        Button("Reset This Site to Ask") { model.resetSite() }
+                    } else {
+                        ContentUnavailableView("No websites yet", systemImage: "globe", description: Text("Open a secure website to manage its permissions."))
+                    }
+                    Spacer(minLength: 0)
+                }.padding(18).frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            HStack {
+                if let error = model.error { Text(error).foregroundStyle(.red) }
+                Spacer()
+                Button("Reset All in This Profile…") { confirmReset = true }
+            }
+        }.padding(24)
+        .alert("Reset this profile’s website permissions?", isPresented: $confirmReset) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) { model.resetProfile() }
+        } message: { Text("Sites will ask again. Camera and microphone capture in this profile will stop.") }
+    }
 }

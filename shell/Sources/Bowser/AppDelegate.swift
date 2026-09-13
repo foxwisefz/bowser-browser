@@ -377,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = NativeUIHost.shared.state
         state.changed = { [weak self] in self?.buildMenu() }
         let context = NativeMenuContext(target: self, siteHost: SiteAppConfiguration.current?.url.host,
-            targets: ["updates": AppUpdates.shared, "notifications": SiteAppNotifications.shared,
+            targets: ["permissions": SitePermissionsWindow.shared, "updates": AppUpdates.shared, "notifications": SiteAppNotifications.shared,
                       "modsmith": ModSmithWindow.shared, "siteCommands": SiteAppCommands.shared],
             siteActions: [SiteAppCommands.Action.back, .forward, .openInBowser, .createMod].map(\.rawValue))
         guard let menus = state.menus?(context) else { return }

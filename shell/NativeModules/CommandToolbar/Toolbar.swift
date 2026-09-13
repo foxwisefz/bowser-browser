@@ -6,6 +6,8 @@ import SwiftUI
 public typealias ToolbarEvent = @convention(c) @Sendable (UInt64, UnsafePointer<CChar>) -> Void
 struct ToolbarButton: Decodable, Identifiable { let id: String; let title: String; let symbol: String? }
 struct ToolbarSnapshot: Decodable {
+    let permissionsAvailable: Bool?
+    let capturing: Bool?
     let revealed: Bool
     let tint: [Double]?
     let colors: [String: String]
@@ -25,6 +27,8 @@ struct ToolbarTheme {
     }
 }
 @MainActor final class ToolbarModel: ObservableObject {
+    var permissionsAvailable = false
+    var capturing = false
     @Published var revealed = false
     var theme = ToolbarTheme()
     var tint: NSColor?
@@ -38,6 +42,7 @@ struct ToolbarTheme {
         if let c = value.tint, c.count == 4, c.allSatisfy({ $0.isFinite && (0...1).contains($0) }) {
             tint = NSColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
         } else { tint = nil }
+        permissionsAvailable = value.permissionsAvailable ?? false; capturing = value.capturing ?? false
         buttons = value.buttons; revealed = value.revealed
         return true
     }
@@ -49,7 +54,7 @@ struct ToolbarTheme {
     init(model: ToolbarModel, generation: UInt64, event: @escaping ToolbarEvent) {
         self.model = model
         let emit: (String) -> Void = { text in text.withCString { event(generation, $0) } }
-        super.init(rootView: CommandToolbar(model: model, openBar: { emit("command") }, goBack: { emit("back") }, goForward: { emit("forward") }, reload: { emit("reload") }, modClick: { emit("mod:" + $0) }, onHoverChanged: { emit($0 ? "hover:1" : "hover:0") }))
+        super.init(rootView: CommandToolbar(model: model, openBar: { emit("command") }, goBack: { emit("back") }, goForward: { emit("forward") }, reload: { emit("reload") }, modClick: { emit("mod:" + $0) }, permissions: { emit("permissions") }, onHoverChanged: { emit($0 ? "hover:1" : "hover:0") }))
     }
     // The host retains a fixed-width command cluster. This generation owns
     // a companion view in the same titlebar, removed on rollback/retirement.
@@ -129,6 +134,7 @@ struct CommandToolbar: View {
     let goForward: () -> Void
     let reload: () -> Void
     let modClick: (String) -> Void
+    let permissions: () -> Void
     let onHoverChanged: (Bool) -> Void
 
     var body: some View {
@@ -173,6 +179,14 @@ struct CommandToolbar: View {
                     }
                     .help(button.title)
                 }
+            }
+            if model.permissionsAvailable {
+                Button(action: permissions) {
+                    Image(systemName: model.capturing ? "record.circle.fill" : "slider.horizontal.3")
+                        .foregroundStyle(model.capturing ? Color.green : Color.secondary)
+                        .font(.system(size: 12, weight: .medium)).frame(width: 24, height: 22)
+                }.buttonStyle(.plain).help(model.capturing ? "Camera or microphone in use — website permissions" : "Website permissions")
+                    .accessibilityLabel("Website permissions")
             }
             Spacer(minLength: 0)
         }

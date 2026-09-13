@@ -80,6 +80,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
     private let pageRelay = PageRelay()
     fileprivate var didWarmMediaRecovery = false
     private var urlObservation: NSKeyValueObservation?
+    private var mediaObservations: [NSKeyValueObservation] = []
     private var titleObservation: NSKeyValueObservation?
     private var currentScripts: [ModScript] = []
     private var currentStyles: [String] = []
@@ -244,6 +245,11 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
                 ])
             }
         }
+        mediaObservations = [webView.observe(\.cameraCaptureState) { [weak self] _, _ in
+            Task { @MainActor in if let self { BrowserWindowController.host(of: self.webviewId)?.syncModButtons() } }
+        }, webView.observe(\.microphoneCaptureState) { [weak self] _, _ in
+            Task { @MainActor in if let self { BrowserWindowController.host(of: self.webviewId)?.syncModButtons() } }
+        }]
         titleObservation = webView.observe(\.title) { [weak self] view, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -478,6 +484,7 @@ final class EngineView: NSView, WKNavigationDelegate, WKUIDelegate {
         ])
         urlObservation = nil
         titleObservation = nil
+        mediaObservations = []
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "bowserConsole")
         controller.removeScriptMessageHandler(forName: "bowserEmit")
