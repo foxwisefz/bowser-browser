@@ -1,0 +1,46 @@
+#!/bin/bash
+# Isolated system-WebKit diagnostic; never launches or changes installed Bowser.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+out="$(mktemp -d /tmp/bowser-push-proof.XXXXXXXX)"
+identity="${BOWSER_SIGN_IDENTITY:?Set BOWSER_SIGN_IDENTITY to a normal Developer ID identity}"
+app="$out/BowserPushProbe.app"
+mkdir -p "$app/Contents/MacOS" "$out/home"
+clang -fobjc-arc -fmodules -framework AppKit -framework WebKit \
+  "$repo/tests/web-push-probe/Probe.m" -o "$app/Contents/MacOS/Probe"
+cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0"?><plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.foxwiseai.bowser.pushprobe</string>
+<key>CFBundleExecutable</key><string>Probe</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+</dict></plist>
+PLIST
+codesign --force --options runtime --sign "$identity" "$app"
+codesign --verify --strict "$app"
+codesign -d --entitlements - "$app" > "$out/signing.txt" 2>&1
+python3 "$repo/tests/web-push-probe/serve.py" "$out/port" > "$out/worker.jsonl" 2>&1 &
+server_pid=$!
+trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+for i in {1..50}; do [ -f "$out/port" ] && break; sleep 0.1; done
+PROBE_ORIGIN="http://127.0.0.1:$(cat "$out/port")" CFFIXED_USER_HOME="$out/home" \
+  "$app/Contents/MacOS/Probe" > "$out/native.jsonl" 2> "$out/stderr.log"
+echo "Evidence: $out"
+cat "$out/native.jsonl" "$out/worker.jsonl"
+python3 - "$out" <<'PY'
+import json, pathlib, sys
+out = pathlib.Path(sys.argv[1])
+native = [json.loads(line) for line in (out/'native.jsonl').read_text().splitlines()]
+worker = [json.loads(line) for line in (out/'worker.jsonl').read_text().splitlines()]
+events = {item['event']: item['value'] for item in native}
+assert events.get('tab_destroyed') is True
+assert 'unregistered_scope_result' in events
+assert events.get('other_store_result') is False
+assert events.get('push_dispatch_result') is True
+assert events.get('native_click_result') is True
+pushes = [item for item in worker if item['event'] == 'worker_push']
+assert len(pushes) == 1 and pushes[0]['clients'] == 0 and pushes[0]['payload'] == 'bowser-proof-payload'
+assert any(item['event'] == 'worker_notificationclick' for item in worker)
+print('PASS: native worker dispatch and click with no tab; no wrong-store/scope payload reached worker.')
+print('Subscription feasibility is reported separately in page events; this is not end-to-end Web Push.')
+PY

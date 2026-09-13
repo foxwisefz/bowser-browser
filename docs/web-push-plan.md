@@ -5,6 +5,11 @@ The owner selected a Bowser-operated service. This document does not enable
 push, deploy infrastructure, or promise that system WKWebView can support the
 required integration.
 
+An isolated signed [delivery probe](web-push-proof.md) proves worker payload and
+notification-click dispatch after tab closure on the development machine.
+Standard subscription creation still fails without a push daemon; the full
+integration gate remains open.
+
 ## Architecture
 
 ```mermaid
