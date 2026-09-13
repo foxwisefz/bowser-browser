@@ -136,13 +136,20 @@ defmodule BowserBrain.ModSmith do
     Events: "url_changed"(url,webview) "title_changed"(title) "load_status"(status 0|2)
     "chrome_click"(id) "omnibar_command"(text) "store_changed"(mod,key) "page"(payload via window.bowser.emit in
     injected JS) "tab_opened"(webview,opener,profile,order — native tab IDs in display order) "tabs_reordered"(order — native tab IDs in display order) "tab_activated"(webview) "hello" "mod_reloaded".
-    HOT RELOAD KEEPS OLD PROCESS STATE: init_mod is NOT called again. When
-    adding state keys, normalize at the start of EVERY event before reading
-    them: state = Map.merge(%{view: :welcome, keyword: ""}, state), using YOUR
-    actual defaults. Delegate to private event handlers after normalization.
-    Preserve existing values; never assume state.new_key or %{state | new_key: x}
-    is safe merely because the new init_mod defines it. Test mod_reloaded with
-    the previous state shape (including %{}), not only a fresh process.
+    HOT RELOAD: init_mod is NOT called again. Define state_version/0 (default 0).
+    When changing the state shape, increment it and implement migrate_state(old_version, state)
+    returning {:ok, migrated_state} or {:error, reason}. Implement validate_state(state)
+    returning :ok or {:error, reason}. These callbacks run in a disposable compiler BEAM
+    without browser services and MUST be pure data transformations: no UI, storage,
+    network, processes or other side effects. State must contain data, not PIDs, refs,
+    ports or functions. Default migration accepts only an unchanged version.
+    Failed compilation/migration/validation leaves the running mod code and state intact;
+    queued events resume after activation. Handle mod_reloaded to reassert UI after success.
+    Example: def state_version, do: 1
+    def migrate_state(0, state), do: {:ok, Map.put_new(state, :view, :welcome)}
+    def migrate_state(1, state), do: {:ok, state}
+    def validate_state(%{view: _}), do: :ok
+    def validate_state(_), do: {:error, :invalid_state}
     SCRIPT WORLDS: Page.set_scripts/1,2 and Page.eval/1,2 default to isolated JavaScript, sharing DOM but not page globals. Explicit world: :page opts into website globals/patching; scripts and eval must select the same world to share mod variables. Injected payloads have function scope; put shared state on globalThis. Persistent site/saved-app JS opts in with // bowser-world: page as first nonblank line after optional profile tag. CSS remains isolated. Native injection enforces the declared mod/site host (saved apps exact origin). No private DOM data: websites can read DOM changes in either world.
     ELIXIR AUDIT: A separate tool-free LLM reviews each changed Elixir source before file installation/compilation. Only explicit exact-source approval permits activation; reject/uncertain/unavailable/malformed/timeout blocks it. Never claim runtime verification if audit fails. Accepted mods still have full OS privileges; this is not a sandbox.
 

@@ -17,6 +17,9 @@ defmodule BowserBrain.Mod do
   code into the running process on the next event (see BowserBrain.Loader).
   """
 
+  @callback state_version() :: non_neg_integer()
+  @callback migrate_state(non_neg_integer(), term()) :: {:ok, term()} | {:error, term()}
+  @callback validate_state(term()) :: :ok | {:error, term()}
   @callback init_mod(term) :: term
   @callback handle_event(map, term) :: term
 
@@ -96,7 +99,16 @@ defmodule BowserBrain.Mod do
       @impl BowserBrain.Mod
       def handle_event(_event, state), do: state
 
-      defoverridable init_mod: 1, handle_event: 2, handle_info: 2
+      @impl BowserBrain.Mod
+      def state_version, do: 0
+      @impl BowserBrain.Mod
+      def migrate_state(version, state) do
+        if version == state_version(), do: {:ok, state}, else: {:error, :unsupported_state_version}
+      end
+      @impl BowserBrain.Mod
+      def validate_state(_state), do: :ok
+
+      defoverridable state_version: 0, migrate_state: 2, validate_state: 1, init_mod: 1, handle_event: 2, handle_info: 2
     end
   end
 end

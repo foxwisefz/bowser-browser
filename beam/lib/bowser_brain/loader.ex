@@ -1,11 +1,11 @@
 defmodule BowserBrain.Loader do
   @moduledoc """
   The hot-reload loop: watches ~/.bowser/mods/*.ex (500ms mtime polling —
-  no deps) and compiles changed files straight into the running VM.
+  no deps). A disposable BEAM compiles candidates before coordinated activation.
 
   - New mod file        -> compiled, started under ModSupervisor
   - Edited mod file     -> recompiled; the running process picks up the new
-                           code on its next event, state intact, no restart
+                           code after validated state migration, no restart
   - Broken mod file     -> compile error logged, old code keeps running
   - Deleted mod file    -> its process is stopped (deleting a mod is how the
                            owner kills it; it used to keep running until a
@@ -105,8 +105,7 @@ defmodule BowserBrain.Loader do
         if BowserBrain.ModScope.current(pid) not in [nil, profile],
           do: raise("Module #{inspect(module)} already belongs to another profile; choose a distinct module name")
       end
-      results = for {module, _bytecode} <- Code.compile_file(path),
-          function_exported?(module, :__bowser_mod__, 0) do
+      results = for module <- BowserBrain.ModUpgrade.load(path) do
         case DynamicSupervisor.start_child(BowserBrain.ModSupervisor, {module, []}) do
           {:ok, _pid} ->
             Logger.info("loader: started mod #{inspect(module)}")
@@ -137,10 +136,12 @@ defmodule BowserBrain.Loader do
     rescue
       error ->
         Logger.error(
-          "loader: #{Path.basename(path)} failed to compile — old code still running\n" <>
+          "loader: #{Path.basename(path)} upgrade rejected — old code still running\n" <>
             Exception.format(:error, error, __STACKTRACE__)
         )
         %{ok: false, error: Exception.message(error)}
+    catch
+      kind, reason -> %{ok: false, error: Exception.format(kind, reason, __STACKTRACE__)}
     end
   end
 end

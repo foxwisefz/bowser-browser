@@ -28,3 +28,22 @@ These are internal controller contracts, not new ModSmith capabilities. Existing
 native call sites remain until their controller is extracted. Creating native
 objects, calling AppKit and fulfilling platform delegate contracts remain native;
 choosing feature behavior belongs in the replaceable controller layer.
+
+## Mod state upgrades
+
+Mods declare `state_version/0` (default 0), `migrate_state(old_version, state)`
+returning `{:ok, state}` or `{:error, reason}`, and `validate_state(state)` returning
+`:ok` or `{:error, reason}`. Defaults retain state only for an unchanged version.
+Migration and validation run in a disposable BEAM with the candidate code, before
+any candidate bytecode enters the browser brain. Callbacks must be pure data
+transformations; browser services are not started there. Accepted Elixir remains
+fully privileged: this compiler peer is not an operating-system sandbox.
+
+The loader suspends affected mod event loops, snapshots their data-only state,
+prepares and validates migrations, installs state while still suspended, and
+atomically loads the candidate modules. Failed compilation or preparation never
+changes the live code. Failed activation restores old state before resuming.
+Mailboxes retain queued events. Successful upgrades emit `mod_reloaded` for UI
+reassertion; `init_mod/1` does not run again. Runtime handles in mod state require
+an explicit redesign of that mod's state ownership before it can use this path.
+Whole-brain checkpoint handoff remains a separate upgrade mechanism.
