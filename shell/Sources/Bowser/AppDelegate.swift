@@ -406,128 +406,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func buildMenu() {
-        let mainMenu = NSMenu()
-
-        let appMenuItem = NSMenuItem()
-        let appMenu = NSMenu()
-        if SiteAppConfiguration.current == nil {
-            appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
-            let updates = appMenu.addItem(withTitle: "Check for Updates…", action: #selector(AppUpdates.checkForUpdates(_:)), keyEquivalent: "")
-            updates.target = AppUpdates.shared
-        }
-        appMenu.addItem(.separator())
-        if SiteAppConfiguration.current != nil {
-            let item = appMenu.addItem(withTitle: "Reset Website Notification Permissions…", action: #selector(SiteAppNotifications.resetPermissions(_:)), keyEquivalent: "")
-            item.target = SiteAppNotifications.shared
-        }
-        appMenu.addItem(withTitle: "Quit " + (SiteAppConfiguration.current?.url.host ?? "Bowser"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appMenuItem.submenu = appMenu
-        mainMenu.addItem(appMenuItem)
-
-        let fileMenuItem = NSMenuItem()
-        let fileMenu = NSMenu(title: "File")
-        if SiteAppConfiguration.current != nil {
-            fileMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w")
-        } else {
-        fileMenu.addItem(withTitle: "New Tab", action: #selector(newTab(_:)), keyEquivalent: "t")
-        fileMenu.addItem(withTitle: "Open File…", action: #selector(openFile(_:)), keyEquivalent: "o")
-        fileMenu.addItem(withTitle: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
-        let inItem = NSMenuItem(title: "New Window In", action: nil, keyEquivalent: "")
-        let inMenu = NSMenu(title: "New Window In")
-        inItem.submenu = inMenu
-        fileMenu.addItem(inItem)
-        profileMenu = inMenu
-        rebuildProfileMenu()
-        fileMenu.addItem(withTitle: "Close Tab", action: #selector(closeTab(_:)), keyEquivalent: "w")
-        let closeWindowItem = fileMenu.addItem(
-            withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w"
-        )
-        closeWindowItem.keyEquivalentModifierMask = [.command, .shift]
-        }
-        fileMenuItem.submenu = fileMenu
-        mainMenu.addItem(fileMenuItem)
-
-        let editMenuItem = NSMenuItem()
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        editMenuItem.submenu = editMenu
-        mainMenu.addItem(editMenuItem)
-
-        let viewMenuItem = NSMenuItem()
-        let view = NSMenu(title: "View")
-        let modsmith = NSMenuItem(title: "ModSmith…", action: #selector(ModSmithWindow.open(_:)), keyEquivalent: "")
-        modsmith.target = ModSmithWindow.shared
-        view.addItem(modsmith)
-        view.addItem(.separator())
-        view.addItem(withTitle: "Reload Page", action: #selector(reloadPage(_:)), keyEquivalent: "r")
-        view.addItem(.separator())
-        view.addItem(withTitle: "Actual Size", action: #selector(actualSize(_:)), keyEquivalent: "0")
-        view.addItem(withTitle: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "+")
-        view.addItem(withTitle: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
-        view.addItem(.separator())
-        let fullScreen = view.addItem(
-            withTitle: "Enter Full Screen",
-            action: #selector(NSWindow.toggleFullScreen(_:)),
-            keyEquivalent: "f"
-        )
-        fullScreen.keyEquivalentModifierMask = [.command, .control]
-        let pip = view.addItem(withTitle: "Picture in Picture", action: #selector(togglePictureInPicture(_:)), keyEquivalent: "p")
-        pip.target = self
-        pip.keyEquivalentModifierMask = [.command, .option]
-        viewMenuItem.submenu = view
-        mainMenu.addItem(viewMenuItem)
-        viewMenu = view
-        rebuildModMenuItems()
-
-        let goMenuItem = NSMenuItem()
-        let goMenu = NSMenu(title: "Go")
-        if SiteAppConfiguration.current == nil {
-            goMenu.addItem(withTitle: "Command Bar", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "k")
-            goMenu.addItem(withTitle: "Open Location", action: #selector(BrowserWindowController.focusOmnibarAction(_:)), keyEquivalent: "l")
-        }
-        let copyURLItem = goMenu.addItem(
-            withTitle: "Copy URL", action: #selector(copyCurrentURL(_:)), keyEquivalent: "c"
-        )
-        copyURLItem.keyEquivalentModifierMask = [.command, .shift]
-        goMenu.addItem(.separator())
-        if SiteAppConfiguration.current == nil {
-        let previousItem = goMenu.addItem(
-            withTitle: "Previous Tab", action: #selector(previousTab(_:)), keyEquivalent: "["
-        )
-        previousItem.keyEquivalentModifierMask = [.command, .shift]
-        let nextItem = goMenu.addItem(
-            withTitle: "Next Tab", action: #selector(nextTabInOrder(_:)), keyEquivalent: "]"
-        )
-        nextItem.keyEquivalentModifierMask = [.command, .shift]
-        }
-        if SiteAppConfiguration.current != nil {
-            for action in [SiteAppCommands.Action.back, .forward, .openInBowser, .createMod] {
-                let item = goMenu.addItem(withTitle: action.rawValue, action: #selector(SiteAppCommands.runMenuAction(_:)), keyEquivalent: "")
-                item.target = SiteAppCommands.shared
-                item.representedObject = action.rawValue
-            }
-        }
-        goMenuItem.submenu = goMenu
-        mainMenu.addItem(goMenuItem)
-
-        // A real Window menu: Minimize/Zoom, cycling, and AppKit's own list
-        // of open windows (one per profile, typically) via windowsMenu.
-        let windowMenuItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-        windowMenu.addItem(.separator())
-        windowMenu.addItem(withTitle: "Cycle Through Windows", action: #selector(cycleWindowsForward(_:)), keyEquivalent: "`")
-        let back = windowMenu.addItem(withTitle: "Cycle Back Through Windows", action: #selector(cycleWindowsBackward(_:)), keyEquivalent: "`")
-        back.keyEquivalentModifierMask = [.command, .shift]
-        windowMenu.addItem(.separator())
-        windowMenuItem.submenu = windowMenu
-        mainMenu.addItem(windowMenuItem)
-        NSApp.windowsMenu = windowMenu
-
-        NSApp.mainMenu = mainMenu
+        let state = NativeUIHost.shared.state
+        state.changed = { [weak self] in self?.buildMenu() }
+        let context = NativeMenuContext(target: self, siteHost: SiteAppConfiguration.current?.url.host,
+            targets: ["updates": AppUpdates.shared, "notifications": SiteAppNotifications.shared,
+                      "modsmith": ModSmithWindow.shared, "siteCommands": SiteAppCommands.shared],
+            siteActions: [SiteAppCommands.Action.back, .forward, .openInBowser, .createMod].map(\.rawValue))
+        guard let menus = state.menus?(context) else { return }
+        profileMenu = menus.profiles; viewMenu = menus.mods
+        rebuildProfileMenu(); rebuildModMenuItems()
+        NSApp.windowsMenu = menus.windows; NSApp.mainMenu = menus.main
     }
 }

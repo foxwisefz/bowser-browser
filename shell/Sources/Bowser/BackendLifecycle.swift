@@ -77,11 +77,7 @@ final class BackendLifecycle {
 
     private func showStartupFailure() {
         guard !isQuitting else { return }
-        let alert = NSAlert()
-        alert.messageText = "Bowser couldn’t start its backend"
-        alert.informativeText = "Tabs and mods need the backend. Details are in \(BowserPaths.home.appendingPathComponent("brain.log").path)."
-        alert.addButton(withTitle: "Retry")
-        alert.addButton(withTitle: "Quit Bowser")
+        let alert = NativeUIHost.alert("backend-start", ["log": BowserPaths.home.appendingPathComponent("brain.log").path])
         if alert.runModal() == .alertFirstButtonReturn {
             Task { [weak self] in
                 await Task.yield()

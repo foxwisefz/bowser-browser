@@ -36,10 +36,7 @@ enum PictureInPicture {
         engine.webView.evaluateJavaScript(toggleScript) { [weak engine] result, error in
             guard let engine, let window = engine.window else { return }
             if error != nil || result as? String == "unavailable" {
-                let alert = NSAlert()
-                alert.messageText = "Picture in Picture unavailable"
-                alert.informativeText = "Play a supported video on this page, then try again. Videos in some embedded players may need their own Picture in Picture control."
-                alert.addButton(withTitle: "OK")
+                let alert = NativeUIHost.alert("pip-unavailable", [:])
                 alert.beginSheetModal(for: window)
             }
         }

@@ -19,11 +19,7 @@ final class SiteAppNotifications: NSObject, WKScriptMessageHandlerWithReply, UNU
     func start() { center.delegate = self }
 
     @objc func resetPermissions(_ sender: Any?) {
-        let alert = NSAlert()
-        alert.messageText = "Reset website notification permissions?"
-        alert.informativeText = "Websites in this app will ask again. macOS notification settings remain in System Settings."
-        alert.addButton(withTitle: "Reset")
-        alert.addButton(withTitle: "Cancel")
+        let alert = NativeUIHost.alert("notification-reset", [:])
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("SiteNotificationPermission.") {
             UserDefaults.standard.removeObject(forKey: key)
@@ -57,12 +53,8 @@ final class SiteAppNotifications: NSObject, WKScriptMessageHandlerWithReply, UNU
                 if state == "default", !prompting.contains(origin) {
                     prompting.insert(origin)
                     defer { prompting.remove(origin) }
-                    let alert = NSAlert()
-                    alert.messageText = "Allow notifications from \(origin)?"
-                    alert.informativeText = "This website can send notifications while this app is running. You can turn them off in Notification Settings."
-                    alert.addButton(withTitle: "Allow")
-                    alert.addButton(withTitle: "Don't Allow")
-                    if alert.runModal() == .alertFirstButtonReturn {
+                    let alert = NativeUIHost.alert("notification-permission", ["origin": origin])
+        if alert.runModal() == .alertFirstButtonReturn {
                         do { state = try await center.requestAuthorization(options: [.alert, .sound, .badge]) ? "granted" : "denied" }
                         catch { replyHandler(nil, error.localizedDescription); return }
                     } else { state = "denied" }

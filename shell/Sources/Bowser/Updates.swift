@@ -135,7 +135,7 @@ final class AppUpdates: NSObject {
         Task { await check(manual: false) }
     }
     @objc func checkForUpdates(_ sender: Any? = nil) { Task { await check(manual: true) } }
-    private func message(_ text: String) { let alert = NSAlert(); alert.messageText = text; alert.runModal() }
+    private func message(_ text: String) { NativeUIHost.alert("message", ["text": text]).runModal() }
     func check(manual: Bool) async {
         guard !busy else { if manual { message("An update check is already in progress.") }; return }
         guard let encoded = Bundle.main.infoDictionary?["BowserUpdatePublicKey"] as? String,
@@ -153,9 +153,7 @@ final class AppUpdates: NSObject {
                 osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
             UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
             guard let release else { if manual { message("You’re up to date.") }; return }
-            let alert = NSAlert(); alert.messageText = "Bowser \(release.version) is available"
-            alert.informativeText = "Download now? The update will activate after Bowser and its saved apps quit."
-            alert.addButton(withTitle: "Download Update"); alert.addButton(withTitle: "Later")
+            let alert = NativeUIHost.alert("update-available", ["version": release.version])
             guard alert.runModal() == .alertFirstButtonReturn else { return }
             requestedDownload = true
             let home = BowserPaths.home, bundle = Bundle.main.bundleURL

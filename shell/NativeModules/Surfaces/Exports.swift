@@ -19,7 +19,9 @@ public func surfaceCreate(_ bytes: UnsafePointer<UInt8>, _ count: Int32, _ gener
         if let value = try? JSONSerialization.jsonObject(with: data) as? [String: String],
            let id = value["screen"], let screen = BrowserScreenContext.contexts[id] {
             let view: NSView
-            if screen.kind == "palette", let state = screen.model as? CommandPaletteState {
+            if screen.kind == "native-ui", let state = screen.model as? NativeUIState {
+                view = NativeUIRenderer(state: state)
+            } else if screen.kind == "palette", let state = screen.model as? CommandPaletteState {
                 view = CommandPaletteRenderer(state: state)
             } else {
                 let hosting = NSHostingView(rootView: BrowserScreenRoot(context: screen))

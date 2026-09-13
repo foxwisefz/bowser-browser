@@ -63,11 +63,7 @@ final class ProfileSettingsModel: ObservableObject, ProfilesPresentation {
     func confirmDiscardChanges() -> Bool {
         guard !isBusy else { return false }
         guard hasChanges else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Discard unsaved profile changes?"
-        alert.informativeText = "Your changes to this profile haven’t been saved."
-        alert.addButton(withTitle: "Discard Changes")
-        alert.addButton(withTitle: "Keep Editing")
+        let alert = NativeUIHost.alert("profile-discard", [:])
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         revert()
         return true

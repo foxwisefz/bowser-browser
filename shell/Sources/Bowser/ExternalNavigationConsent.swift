@@ -9,11 +9,7 @@ final class ExternalNavigationConsent {
         guard let application = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         let name = FileManager.default.displayName(atPath: application.path)
         request(url: url, present: { completion in
-            let alert = NSAlert()
-            alert.messageText = "Open \(name)?"
-            alert.informativeText = "\(source) wants to open a link in \(name)."
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Open")
+            let alert = NativeUIHost.alert("external", ["name": name, "source": source])
             alert.beginSheetModal(for: window) { response in
                 completion(response == .alertSecondButtonReturn)
             }
