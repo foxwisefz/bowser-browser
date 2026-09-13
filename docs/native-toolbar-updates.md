@@ -35,7 +35,7 @@ callback, so a drag retains its original implementation. Rejections are logged a
 bundle their matching state library and use the built-in surface renderer.
 
 Renderer sources are `shell/NativeModules/CommandToolbar/Toolbar.swift` and
-`shell/Sources/Bowser/Surface{Renderer,Forms,Composition,TextEditor,TabDrag}.swift` and `TabDustEffect.swift`.
+`shell/Sources/Bowser/Surface{Renderer,Forms,Composition,TextEditor,NativeEditor,TabDrag}.swift` and `TabDustEffect.swift`.
 The surface bundle's C entry points are in `shell/NativeModules/Surfaces/Exports.swift`.
 The stable contracts live in `shell/SurfaceKit/`.
 
@@ -65,7 +65,13 @@ and fullscreen transitions defer replacement. Candidate callbacks are ignored
 until commit; retired-generation callbacks are ignored afterward. Native editor
 mounts cannot move a live editor until their generation becomes authoritative.
 The same NSTextView, delegate, undo manager, text storage and selection then attach to the new
-renderer. Form values, validation errors and pending request IDs remain host-owned.
+renderer. The native editor component's configuration, binding and editing-command
+implementation belong to SurfaceRenderer and are rebound on activation. The
+persistent delegate forwards text changes; existing undo entries target the same
+Apple text view. Font/layout, editing configuration and insert/wrap/select/undo/redo
+behavior can therefore update live. Replacing the underlying AppKit text-system
+objects or changing their shared storage contract still requires a host update.
+Form values, validation errors and pending request IDs remain host-owned.
 
 Candidate creation exceeding 16 ms is rejected; this detects a breach after it
 occurs, not preemptive isolation. The old renderer remains until creation and

@@ -62,6 +62,7 @@ import BowserSurfaceKit
         XCTAssertTrue(model.editor("text").textView === editor)
         XCTAssertEqual(editor.string, "private draft")
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 2, length: 3))
+        let retiredCommand = model.editor("text").command
         let undoManager = editor.undoManager
         weak var retired = slot.subviews.last
         let request = try XCTUnwrap(model.begin(required: []))
@@ -69,6 +70,8 @@ import BowserSurfaceKit
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertTrue(model.editor("text").textView === editor)
         XCTAssertNil(retired, "retired renderer should release its view while the editor stays alive")
+        retiredCommand?(["op":"insert", "text":"stale"] )
+        XCTAssertEqual(editor.string, "private draft", "retired component must not edit the active document")
         XCTAssertEqual(model.pendingID, request["request_id"] as? String)
         XCTAssertEqual(model.values["text"] as? String, "private draft")
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 2, length: 3))

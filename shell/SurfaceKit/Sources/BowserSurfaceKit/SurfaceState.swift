@@ -148,20 +148,7 @@ extension SurfaceFormModel {
                 }
             }
             return ["values": values.filter { fields.contains($0.key) }, "selections": selections]
-        case "wrap": editor(field).insert(prefix: command["prefix"] as? String ?? "", suffix: command["suffix"] as? String ?? "")
-        case "insert", "select", "undo", "redo":
-            guard let view = editor(field).textView, view.isEditable else { return nil }
-            switch op {
-            case "insert": view.insertText(command["text"] as? String ?? "", replacementRange: view.selectedRange())
-            case "select":
-                let length = (view.string as NSString).length
-                let start = max(0, min(length, command["location"] as? Int ?? 0))
-                let count = max(0, min(length - start, command["length"] as? Int ?? 0))
-                view.setSelectedRange(NSRange(location: start, length: count))
-            case "undo": if view.undoManager?.canUndo == true { view.undoManager?.undo(); view.didChangeText() }
-            default: if view.undoManager?.canRedo == true { view.undoManager?.redo(); view.didChangeText() }
-            }
-            view.window?.makeFirstResponder(view)
+        case "wrap", "insert", "select", "undo", "redo": editor(field).command?(command)
         default: break
         }
         return nil

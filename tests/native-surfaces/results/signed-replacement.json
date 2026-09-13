@@ -1,45 +1,47 @@
 {
-  "activeBuild" : "8d44dcb09c48422883a724eeda70e84b",
+  "activeBuild" : "b75f753e32d74913a7a7696d323a1bfd",
   "after" : {
     "draft" : "",
-    "frames" : 69,
+    "frames" : 229,
     "fullscreen" : false,
     "interruptions" : [
       "waiting"
     ],
-    "maxGapMS" : 256,
+    "maxGapMS" : 93,
     "paused" : false,
     "samePlayer" : true,
     "scrollY" : 0,
     "selectionEnd" : 0,
     "selectionStart" : 0,
-    "ticks" : 14,
-    "time" : 7.7954929166749176,
-    "token" : "d3460909-3eb9-4d5c-b558-5608501526a8"
+    "ticks" : 326,
+    "time" : 7.7773802916890249,
+    "token" : "fd31ae52-5356-4e9c-9f3e-831057449414"
   },
   "before" : {
     "draft" : "",
-    "frames" : 30,
+    "frames" : 39,
     "fullscreen" : false,
     "interruptions" : [
       "waiting"
     ],
-    "maxGapMS" : 256,
+    "maxGapMS" : 67,
     "paused" : false,
     "samePlayer" : true,
     "scrollY" : 0,
     "selectionEnd" : 0,
     "selectionStart" : 0,
-    "ticks" : 8,
-    "time" : 1.3739134996634361,
-    "token" : "d3460909-3eb9-4d5c-b558-5608501526a8"
+    "ticks" : 58,
+    "time" : 1.3495122499960288,
+    "token" : "fd31ae52-5356-4e9c-9f3e-831057449414"
   },
   "deckAction" : true,
   "developerID" : true,
   "draftAndSelectionRetained" : true,
   "dragDeferred" : true,
-  "initialBuild" : "ef556ab3d51640f789866e6042241f2c",
+  "editorConfigurationAndCommandsRebound" : true,
+  "initialBuild" : "b841e5e0e06748049ca232b7377afbf2",
   "libraryValidationDisabled" : false,
+  "moduleCloseAndCancel" : true,
   "passed" : true,
   "sameEditor" : true,
   "typingAndUndoAfterSwap" : true

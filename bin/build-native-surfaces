@@ -21,6 +21,7 @@ swiftc -target arm64-apple-macos15.0 -swift-version 6 -O -parse-as-library -emit
   "$repo/shell/Sources/Bowser/TabDustEffect.swift" \
   "$repo/shell/Sources/Bowser/SurfaceForms.swift" \
   "$repo/shell/Sources/Bowser/SurfaceComposition.swift" \
+  "$repo/shell/Sources/Bowser/SurfaceNativeEditor.swift" \
   "$repo/shell/Sources/Bowser/SurfaceTextEditor.swift" \
   "$repo/shell/NativeModules/Surfaces/Exports.swift" -o "$output/Contents/MacOS/SurfaceRenderer"
 cat > "$output/Contents/Info.plist" <<PLIST

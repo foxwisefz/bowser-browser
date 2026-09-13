@@ -76,6 +76,13 @@ import BowserSurfaceKit
         let second = root.appendingPathComponent("Second.bundle")
         let metadata = try NativeModuleLibrary.validate(second, team: NativeModuleLibrary.runningTeam(), bundled: false, kind: .surfaces)
         try FileManager.default.copyItem(at: second, to: publisher.appendingPathComponent(metadata.0 + ".bundle"))
+        // Deliberately invalidate component configuration and its command callback.
+        // Admission must rebind both while preserving the text system objects.
+        let originalUndo = editor.undoManager
+        let originalStorage = editor.textStorage
+        editor.textContainerInset = NSSize(width: 29, height: 31)
+        var staleCommandCalls = 0
+        model.editor("body").command = { _ in staleCommandCalls += 1 }
         // A pending drag must defer both view replacements.
         let interaction = SurfaceServices.shared.beginInteraction()
         try metadata.0.write(to: publisher.appendingPathComponent("current"), atomically: true, encoding: .utf8)
@@ -84,6 +91,8 @@ import BowserSurfaceKit
         SurfaceServices.shared.endInteraction(interaction)
         try await waitFor("second renderer") { slots.allSatisfy { $0.build == metadata.0 } }
         try require(model.editor("body").textView === editor, "editor identity changed")
+        try require(editor.textContainerInset == NSSize(width: 12, height: 12), "component configuration not refreshed")
+        try require(editor.undoManager === originalUndo && editor.textStorage === originalStorage, "text system replaced")
         try require(editor.string == "Unsent note" && model.values["body"] as? String == "Unsent note", "draft lost")
         try require(editor.selectedRange() == NSRange(location: 2, length: 4), "selection lost")
         try require(window.firstResponder === editor, "editor focus lost")
@@ -92,6 +101,7 @@ import BowserSurfaceKit
         try require(editor.string == "Unsent note after", "typing after swap failed")
         try require(editor.undoManager?.canUndo == true, "undo history lost")
         model.perform(["op":"undo", "field":"body"])
+        try require(staleCommandCalls == 0, "retired editor command callback used")
         let immediateUndo = ["editor": editor.string, "model": model.values["body"] as? String ?? ""]
         try await Task.sleep(for: .milliseconds(150))
         try JSONSerialization.data(withJSONObject: ["immediate": immediateUndo, "later": ["editor":editor.string, "model":model.values["body"] as? String ?? ""]], options: .prettyPrinted).write(to: root.appendingPathComponent("undo.json"))
@@ -141,7 +151,7 @@ import BowserSurfaceKit
         try require(before["token"] as? String == after["token"] as? String, "page replaced")
         try require(after["paused"] as? Bool == false && (after["time"] as? Double ?? 0) > (before["time"] as? Double ?? 0), "video stopped")
         let result: [String: Any] = ["passed":true, "developerID":true, "libraryValidationDisabled":false,
-            "initialBuild":initial, "activeBuild":metadata.0, "sameEditor":true, "draftAndSelectionRetained":true,
+            "initialBuild":initial, "activeBuild":metadata.0, "sameEditor":true, "editorConfigurationAndCommandsRebound":true, "draftAndSelectionRetained":true,
             "typingAndUndoAfterSwap":true, "dragDeferred":true, "deckAction":true, "moduleCloseAndCancel":true, "before":before, "after":after]
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted,.sortedKeys]).write(to: root.appendingPathComponent("result.json"))
     }

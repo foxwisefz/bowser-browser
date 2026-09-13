@@ -183,3 +183,18 @@ Before enabling admission, require:
 
 Passing these gates enables only the extracted module boundary. Whole-host and
 WebKit upgrade continuity remains the broader open goal of bowser-browser-29v.
+
+### Component behavior
+
+SurfaceRenderer also contains tab drag views, gesture rules, insertion targeting,
+close cues and dust effects. The host exposes validated tab snapshot/move/close
+and saved-app export services. Gesture leases prevent replacement until mouse
+tracking or the AppKit drag session ends; shared drag-source identity supports
+rows rendered by different admitted generations.
+
+Native editor construction, configuration, bindings and editing commands are
+replaceable component code. The shared state library retains the Apple text view,
+scroll view, delegate proxy and undo manager. Activation reattaches that same
+editor and rebinds commands; retired component commands have no authority. Changes
+to the shared storage contract or replacing the underlying text-system objects
+require a host update.

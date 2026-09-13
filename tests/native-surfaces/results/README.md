@@ -5,7 +5,10 @@ Both renderer generations, the shared state library and the test host are
 optimized. Hardened runtime and library validation are enabled. The check covers
 initial admission, replacement of Deck Tabs and a notes sidebar, retained editor
 identity/draft/selection/focus, native typing, synchronized undo, drag deferral,
-a new-generation Deck Tabs action, stable page identity and advancing video.
+a new-generation Deck Tabs action, Option-drag close/cancel without pasteboard
+export, stable page identity and advancing video. It also perturbs editor
+configuration and replaces its command callback before admission, verifying both
+are rebound while text storage and undo manager identities remain unchanged.
 `undo.json` records matching model/editor values immediately and after another
 render transaction, catching stale bindings that overwrite undo.
 

@@ -47,6 +47,7 @@ final class SurfaceCompositionTests: XCTestCase {
         view.isRichText = false
         view.string = "A 🐝 note"
         controller.textView = view
+        controller.command = { [weak controller] in controller?.applyEditorCommand($0) }
         model.perform(["op": "select", "field": "body", "location": 2, "length": 2])
         model.perform(["op": "wrap", "field": "body", "prefix": "**", "suffix": "**"])
         XCTAssertEqual(view.string, "A **🐝** note")
