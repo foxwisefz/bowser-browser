@@ -84,6 +84,8 @@ enum TabAppBundle {
             info["CFBundleVersion"] = "2"
             info["BowserEngineBuild"] = build
             info["BowserMainApp"] = bowser.path
+            info["NSCameraUsageDescription"] = "Allow websites you approve to use your camera."
+            info["NSMicrophoneUsageDescription"] = "Allow websites you approve to use your microphone."
         }
         if iconChanged, let cached {
             let resources = bundle.appendingPathComponent("Contents/Resources")
@@ -119,7 +121,7 @@ enum TabAppBundle {
     private static func signBundle(_ bundle: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        process.arguments = ["--force", "--sign", "-", bundle.path]
+        process.arguments = ["--force", "--sign", "-", "--preserve-metadata=entitlements", bundle.path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()

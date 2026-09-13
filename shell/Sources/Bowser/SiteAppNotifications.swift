@@ -14,55 +14,73 @@ final class SiteAppNotifications: NSObject, WKScriptMessageHandlerWithReply, UNU
         return "https://" + host + (url.port == nil || url.port == 443 ? "" : ":\(url.port!)")
     }
 
-    private func key(_ origin: String) -> String { "SiteNotificationPermission." + origin }
-
     func start() { center.delegate = self }
 
     @objc func resetPermissions(_ sender: Any?) {
         let alert = NativeUIHost.alert("notification-reset", [:])
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("SiteNotificationPermission.") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
+        guard let profile = SiteAppConfiguration.current?.profile else { return }
+        do { try SitePermissionStore.shared.reset(profile: profile, kind: "notifications") }
+        catch { NativeUIHost.alert("message", ["text": "Couldn’t reset notification permissions."]).runModal() }
     }
 
-    private func permission(_ origin: String) async -> String {
-        let local = UserDefaults.standard.string(forKey: key(origin)) ?? "default"
+    static func effectivePermission(choice: String, authorization: UNAuthorizationStatus) -> String {
+        if choice == "block" || authorization == .denied { return "denied" }
+        if choice == "allow", authorization == .authorized || authorization == .provisional { return "granted" }
+        return "default"
+    }
+    private func permission(_ origin: String, profile: String) async -> String {
         let status = await center.notificationSettings().authorizationStatus
-        if status == .denied { return "denied" }
-        if local == "granted", status != .authorized && status != .provisional { return "default" }
-        return local
+        let local = SitePermissionStore.shared.decision(profile: profile, origin: origin, kind: "notifications")
+        return Self.effectivePermission(choice: local, authorization: status)
     }
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage,
                                replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard SiteAppConfiguration.current != nil, message.frameInfo.isMainFrame,
-              let webView = message.webView, let origin = Self.origin(webView.url),
+              let webView = message.webView,
+              let engine = EngineView.live.values.first(where: { $0.webView === webView }),
+              engine.profileId == SiteAppConfiguration.current?.profile, let origin = Self.origin(webView.url),
               let frameOrigin = Self.origin(message.frameInfo.request.url), frameOrigin == origin,
               message.frameInfo.securityOrigin.protocol == "https",
               message.frameInfo.securityOrigin.host.lowercased() == webView.url?.host?.lowercased(),
               let body = message.body as? [String: Any], let op = body["op"] as? String else {
             replyHandler(nil, "Notifications require a secure top-level page."); return
         }
+        let profile = engine.profileId
         Task { @MainActor in
             switch op {
-            case "permission": replyHandler(await permission(origin), nil)
+            case "permission": replyHandler(await permission(origin, profile: profile), nil)
             case "request":
-                var state = await permission(origin)
-                if state == "default", !prompting.contains(origin) {
-                    prompting.insert(origin)
-                    defer { prompting.remove(origin) }
-                    let alert = NativeUIHost.alert("notification-permission", ["origin": origin])
-        if alert.runModal() == .alertFirstButtonReturn {
-                        do { state = try await center.requestAuthorization(options: [.alert, .sound, .badge]) ? "granted" : "denied" }
-                        catch { replyHandler(nil, error.localizedDescription); return }
-                    } else { state = "denied" }
-                    UserDefaults.standard.set(state, forKey: key(origin))
+                var state = await permission(origin, profile: profile)
+                let requestKey = profile + "\n" + origin
+                if state == "default", !prompting.contains(requestKey) {
+                    prompting.insert(requestKey)
+                    defer { prompting.remove(requestKey) }
+                    let store = SitePermissionStore.shared
+                    let revision = store.revision
+                    let existing = store.decision(profile: profile, origin: origin, kind: "notifications")
+                    let approved = existing == "allow" || NativeUIHost.alert("notification-permission", ["origin": origin]).runModal() == .alertFirstButtonReturn
+                    guard Self.origin(webView.url) == origin, EngineView.live[engine.webviewId] === engine,
+                          store.revision == revision else { replyHandler("default", nil); return }
+                    if approved {
+                        do {
+                            let allowed = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+                            guard Self.origin(webView.url) == origin, EngineView.live[engine.webviewId] === engine,
+                                  store.revision == revision else { replyHandler("default", nil); return }
+                            try store.set(profile: profile, origin: origin, kinds: ["notifications"], decision: "allow")
+                            state = allowed ? "granted" : "denied"
+                        } catch { replyHandler(nil, "Couldn’t save notification permission."); return }
+                    } else {
+                        do { try store.set(profile: profile, origin: origin, kinds: ["notifications"], decision: "block") }
+                        catch { replyHandler(nil, "Couldn’t save notification permission."); return }
+                        state = "denied"
+                    }
                 }
                 replyHandler(state, nil)
             case "show":
-                guard await permission(origin) == "granted", Self.origin(webView.url) == origin,
+                guard await permission(origin, profile: profile) == "granted", Self.origin(webView.url) == origin,
                       let id = body["id"] as? String, id.count <= 100,
                       let document = body["document"] as? String, document.count <= 100 else {
                     replyHandler(nil, "Notification permission is not granted."); return

@@ -58,7 +58,9 @@ struct SitePermissionKey: Codable, Hashable {
         for kind in kinds { next[SitePermissionKey(profile: profile, origin: origin, kind: kind)] = decision == "ask" ? nil : decision }
         try persist(next)
     }
-    func reset(profile: String) throws { try persist(entries.filter { $0.key.profile != profile }) }
+    func reset(profile: String, kind: String? = nil) throws {
+        try persist(entries.filter { $0.key.profile != profile || (kind != nil && $0.key.kind != kind) })
+    }
     private func persist(_ next: [SitePermissionKey: String]) throws {
         guard next.count <= 4096 else { throw CocoaError(.fileWriteOutOfSpace) }
         try PrivateIPC.prepareDirectory(file.deletingLastPathComponent())

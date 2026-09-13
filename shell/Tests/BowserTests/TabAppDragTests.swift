@@ -155,6 +155,8 @@ final class TabAppDragTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: executable), try Data(contentsOf: source))
         let updated = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as! [String: Any]
         XCTAssertEqual(updated["BowserAppVersion"] as? Int, 2)
+        XCTAssertNotNil(updated["NSCameraUsageDescription"] as? String)
+        XCTAssertNotNil(updated["NSMicrophoneUsageDescription"] as? String)
         let other = try TabAppBundle.create(url: page, profile: "personal", iconData: nil, directory: root, bowser: browser, sign: false)
         XCTAssertNotEqual(bundle, other)
     }

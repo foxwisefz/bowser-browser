@@ -65,7 +65,7 @@ for module in CommandToolbar SurfaceRenderer; do
     codesign "${sign_args[@]}" "$root/image/Bowser.app/Contents/Resources/$module.bundle"
   fi
 done
-codesign "${sign_args[@]}" "$root/image/Bowser.app"
+codesign "${sign_args[@]}" --entitlements "$repo/bin/shell-entitlements.plist" "$root/image/Bowser.app"
 codesign --verify --deep --strict "$root/image/Bowser.app"
 if [ "$notarize" = 1 ]; then
   ditto -c -k --keepParent "$root/image/Bowser.app" "$root/Bowser.zip"

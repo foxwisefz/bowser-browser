@@ -56,3 +56,24 @@ import WebKit
         XCTAssertTrue(engine.responds(to: NSSelectorFromString("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:")))
     }
 }
+
+@MainActor final class NotificationPermissionPolicyTests: XCTestCase {
+    func testPlatformDenialAndSiteBlockingOverrideAllow() {
+        XCTAssertEqual(SiteAppNotifications.effectivePermission(choice: "allow", authorization: .denied), "denied")
+        XCTAssertEqual(SiteAppNotifications.effectivePermission(choice: "block", authorization: .authorized), "denied")
+        XCTAssertEqual(SiteAppNotifications.effectivePermission(choice: "ask", authorization: .authorized), "default")
+        XCTAssertEqual(SiteAppNotifications.effectivePermission(choice: "allow", authorization: .notDetermined), "default")
+        XCTAssertEqual(SiteAppNotifications.effectivePermission(choice: "allow", authorization: .authorized), "granted")
+    }
+    func testNotificationResetPreservesCameraAndOtherProfiles() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SitePermissionStore(file: dir.appendingPathComponent("permissions.json")), origin = "https://example.com"
+        try store.set(profile: "default", origin: origin, kinds: ["notifications", "camera"], decision: "allow")
+        try store.set(profile: "work", origin: origin, kinds: ["notifications"], decision: "block")
+        try store.reset(profile: "default", kind: "notifications")
+        XCTAssertEqual(store.decision(profile: "default", origin: origin, kind: "notifications"), "ask")
+        XCTAssertEqual(store.decision(profile: "default", origin: origin, kind: "camera"), "allow")
+        XCTAssertEqual(store.decision(profile: "work", origin: origin, kind: "notifications"), "block")
+    }
+}
