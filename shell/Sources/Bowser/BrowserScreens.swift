@@ -668,7 +668,7 @@ struct PermissionsScreen: View {
                         }
                         Button("Reset This Site to Ask") { model.resetSite() }
                     } else {
-                        ContentUnavailableView("No websites yet", systemImage: "globe", description: Text("Open a secure website to manage its permissions."))
+                        ContentUnavailableView("No permission exceptions", systemImage: "globe", description: Text("Sites appear here when you save an Allow or Block decision."))
                     }
                     Spacer(minLength: 0)
                 }.padding(18).frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

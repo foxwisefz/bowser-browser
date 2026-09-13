@@ -3,7 +3,8 @@
 Open **Settings → Websites**, **View → Website Permissions**, or the toolbar’s
 site-permissions control. Choose a profile and site, then select Ask, Allow or
 Block separately for camera and microphone. Saved apps also offer notification
-permissions. The list includes open secure sites and sites with saved decisions.
+permissions. The list includes only sites with saved Allow or Block decisions in
+the selected profile. Returning every permission to Ask removes the site.
 
 The toolbar indicator turns green while a tab in that window has an active or
 muted camera/microphone capture session. Clicking it opens the capturing site’s

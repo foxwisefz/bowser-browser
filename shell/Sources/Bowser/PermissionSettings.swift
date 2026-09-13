@@ -32,10 +32,8 @@ import WebKit
     }
     func refresh() {
         let saved = store.entries.keys.filter { $0.profile == selectedProfile }.map(\.origin)
-        let open = EngineView.live.values.filter { $0.profileId == selectedProfile }.compactMap { SitePermissionKey.origin($0.webView.url) }
-        let extra = selectedOrigin.map { [$0] } ?? []
-        sites = Array(Set(saved + open + extra)).sorted()
-        if selectedOrigin == nil { selectedOrigin = sites.first }
+        sites = Array(Set(saved)).sorted()
+        if !sites.contains(selectedOrigin ?? "") { selectedOrigin = sites.first }
         refreshControls()
     }
     private func engines() -> [EngineView] {

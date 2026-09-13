@@ -46,8 +46,33 @@ import WebKit
         XCTAssertEqual(model.controls.first { $0.id == "camera" }?.choice, "ask")
         model.set("camera", choice: "block")
         model.resetSite()
-        XCTAssertEqual(model.controls.first { $0.id == "camera" }?.choice, "ask")
+        XCTAssertTrue(model.sites.isEmpty)
+        XCTAssertNil(model.selectedOrigin)
+        XCTAssertTrue(model.controls.isEmpty)
         XCTAssertEqual(store.decision(profile: "default", origin: "https://example.com", kind: "camera"), "allow")
+    }
+
+    func testSettingsListsOnlySavedExceptionsAndRemovesLastReset() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SitePermissionStore(file: dir.appendingPathComponent("permissions.json"))
+        let model = PermissionSettingsModel(store: store)
+        model.selectedOrigin = "https://unsaved.example"
+        model.refresh()
+        XCTAssertTrue(model.sites.isEmpty)
+        XCTAssertNil(model.selectedOrigin)
+        let origin = "https://example.com"
+        try store.set(profile: "default", origin: origin, kinds: ["camera", "microphone"], decision: "allow")
+        try store.set(profile: "work", origin: "https://work.example", kinds: ["camera"], decision: "block")
+        model.refresh()
+        XCTAssertEqual(model.sites, [origin])
+        model.set("camera", choice: "ask")
+        XCTAssertEqual(model.sites, [origin])
+        model.set("microphone", choice: "ask")
+        XCTAssertTrue(model.sites.isEmpty)
+        XCTAssertNil(model.selectedOrigin)
+        model.selectedProfile = "work"
+        XCTAssertEqual(model.sites, ["https://work.example"])
     }
 
     func testWebKitMediaDelegateIsActuallyExported() {
