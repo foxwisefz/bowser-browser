@@ -132,6 +132,11 @@ struct CommandToolbar: View {
                 }
             }
             Spacer(minLength: 0)
+            Button("What's new?") {}
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("whats-new")
         }
         .animation(.easeOut(duration: 0.15), value: model.revealed)
         .frame(maxHeight: .infinity)
