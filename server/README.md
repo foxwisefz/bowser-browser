@@ -148,8 +148,8 @@ proxy configuration. Do not use its `127.0.0.1` upstream inside the existing Cad
 container. Direct Phoenix TLS is also supported with `BOWSER_TLS_CERT` and
 `BOWSER_TLS_KEY`; non-loopback HTTP requires the explicit private-network opt-in.
 
-Set `BOWSER_DOWNLOAD_PATH` to the approved distribution ZIP to enable the landing
-page's `/Bowser.zip` links. For Docker, place it in `server/downloads/` and set `BOWSER_DOWNLOAD_PATH=/downloads/Bowser.zip`. The file is streamed, not loaded into memory. Without
+Set `BOWSER_DOWNLOAD_PATH` to the approved distribution DMG to enable the landing
+page's `/Bowser.dmg` links. For Docker, place it in `server/downloads/` and set `BOWSER_DOWNLOAD_PATH=/downloads/Bowser.dmg`. The file is streamed, not loaded into memory. Without
 an artifact the route returns 503 rather than serving a development binary.
 
 ## Limited telemetry

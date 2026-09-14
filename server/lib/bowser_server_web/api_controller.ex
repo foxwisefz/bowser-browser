@@ -141,11 +141,11 @@ defmodule BowserServerWeb.APIController do
         nil ->
           download = Application.get_env(:bowser_server, :download)
 
-          if path == ["Bowser.zip"] do
+          if path == ["Bowser.dmg"] do
             if is_binary(download) and File.regular?(download) do
               conn
-              |> put_resp_header("content-disposition", "attachment; filename=\"Bowser.zip\"")
-              |> send_asset(download, "application/zip")
+              |> put_resp_header("content-disposition", "attachment; filename=\"Bowser.dmg\"")
+              |> send_asset(download, "application/x-apple-diskimage")
             else
               reply(conn, 503, "download_unavailable")
             end
