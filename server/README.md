@@ -27,7 +27,7 @@ in-memory or ephemeral/serverless deployment.
 
 ## Registration
 
-`POST https://bowser.app/v1/registrations`, Content-Type `application/json`,
+`POST https://api.bowser.app/v1/registrations`, Content-Type `application/json`,
 `Idempotency-Key` equal to `requestID` (UUID; case-insensitive).
 
 ```json
@@ -115,7 +115,7 @@ cd /home/ubuntu/lobsterfarm-backend
 
 Add `import /etc/caddy/bowser.caddy` at the top level of the existing Caddyfile,
 after its global `{ ... }` block. Preserve all existing sites and the catch-all.
-The exact `bowser.app` site takes precedence over the partner-domain catch-all;
+The exact `bowser.app`, `www.bowser.app`, and `api.bowser.app` sites take precedence over the partner-domain catch-all;
 it uses normal automatic HTTPS, not the partner-domain verification endpoint.
 
 In the existing global `servers` block, add `trusted_proxies_strict` alongside
@@ -138,8 +138,8 @@ so it retains the Bowser network. The Bowser project must start first because
 it creates that network. Existing services remain on `lobsterfarm_net`.
 [Compose external networks](https://docs.docker.com/compose/how-tos/networking/).
 
-Point `bowser.app` DNS at this host, with ports 80/443 reachable. If proxied by
-Cloudflare, use Full (strict) origin TLS. Verify `https://bowser.app/healthz` and
+Point `bowser.app`, `www.bowser.app`, and `api.bowser.app` DNS at this host, with ports 80/443 reachable. If proxied by
+Cloudflare, use Full (strict) origin TLS. Verify `https://api.bowser.app/healthz` and
 the landing page, then enable the configured API and exercise it with a designated
 test registration. This change has not connected to or modified the remote host.
 
@@ -168,7 +168,7 @@ accept events; otherwise `/v1/events` returns 503. There is deliberately no
 invented production retention default. Expired events are deleted at startup,
 every minute, and during ingestion; server receipt time determines expiry.
 
-`POST https://bowser.app/v1/events` takes `{"events":[...]}` with 1–25 events.
+`POST https://api.bowser.app/v1/events` takes `{"events":[...]}` with 1–25 events.
 Each event has `eventID` (UUID), `name`, `occurredAt` (UTC ISO8601), and
 `properties`. An event older than the retention window is rejected. Accepted
 batches return 202 with `{"accepted":N,"duplicates":M}`. Event IDs deduplicate

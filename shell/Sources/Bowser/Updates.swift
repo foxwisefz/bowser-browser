@@ -23,7 +23,7 @@ struct UpdateRelease: Codable, Equatable, Sendable {
               release.version.count <= 64, !release.version.isEmpty,
               release.minimumMacOS >= 15, release.minimumMacOS <= osMajor,
               release.bytes > 0, release.bytes <= 1_073_741_824,
-              release.url.scheme == "https", release.url.host == "bowser.app", release.url.port == nil,
+              release.url.scheme == "https", release.url.host == "api.bowser.app", release.url.port == nil,
               release.url.user == nil, release.url.password == nil,
               release.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
               release.expiresAt > now else { throw UpdateError.invalidRelease }
@@ -146,7 +146,7 @@ final class AppUpdates: NSObject {
         busy = true; defer { busy = false }
         var requestedDownload = false
         do {
-            var request = URLRequest(url: URL(string: "https://bowser.app/updates/stable.json")!); request.timeoutInterval = 20
+            var request = URLRequest(url: URL(string: "https://api.bowser.app/updates/stable.json")!); request.timeoutInterval = 20
             let (data, response) = try await PrivateHTTP.send(request)
             guard response.statusCode == 200 else { throw UpdateError.unavailable }
             let release = try UpdateRelease.verified(data, publicKey: key, currentBuild: build,

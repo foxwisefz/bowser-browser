@@ -26,7 +26,7 @@ Never modify the DMG after generating its update manifest.
 
 ## Signed update channel
 
-The native app checks `https://bowser.app/updates/stable.json` at startup at most
+The native app checks `https://api.bowser.app/updates/stable.json` at startup at most
 once daily, and from **Check for Updates…**. It verifies an Ed25519 signature
 against the public key embedded in the installed app, checks build ordering,
 macOS compatibility and expiry, then asks before downloading. It verifies the
@@ -101,7 +101,7 @@ The release workflow **requires Developer ID signing and notarization**; missing
 credentials, rejection, timeout, stapling failure or Gatekeeper rejection stops
 it before artifacts or a draft release are uploaded. Local packaging without these
 options remains ad-hoc signed. This workflow does not connect to the Ubuntu host
-or change DNS. Copy its matched DMG/manifest to the configured `bowser.app` endpoints
+or change DNS. Copy its matched DMG/manifest to the configured `api.bowser.app` endpoints
 as described above. A GitHub Release URL alone will not work with the current
 updater's origin and redirect restrictions.
 

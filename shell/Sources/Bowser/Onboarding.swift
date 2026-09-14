@@ -47,10 +47,14 @@ enum RegistrationFailure: LocalizedError {
     var errorDescription: String? { "Registration couldn’t be completed. Please try again." }
 }
 
-/// No default endpoint or first-run activation: launch policy and the service
-/// contract must be configured before this form collects registration data.
+/// First-run activation and effective Terms remain an explicit launch policy.
 struct RegistrationService: Sendable {
+    static let productionEndpoint = URL(string: "https://api.bowser.app/v1/registrations")!
     let endpoint: URL
+
+    init(endpoint: URL = Self.productionEndpoint) {
+        self.endpoint = endpoint
+    }
 
     func submit(_ registration: RegistrationRequest) async throws -> RegistrationReceipt {
         guard endpoint.scheme == "https", endpoint.user == nil, endpoint.password == nil else {

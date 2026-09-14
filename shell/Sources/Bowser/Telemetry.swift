@@ -70,7 +70,7 @@ actor Telemetry {
     private static var configuredEndpoint: URL? {
         if ProcessInfo.processInfo.environment["BOWSER_TELEMETRY_DISABLED"] == "1" { return nil }
         guard Bundle.main.bundleIdentifier?.hasPrefix("com.foxwiseai.bowser") == true else { return nil }
-        return URL(string: "https://bowser.app/v1/events")
+        return URL(string: "https://api.bowser.app/v1/events")
     }
     typealias Sender = @Sendable (URLRequest) async throws -> Int
     private let directory: URL

@@ -157,11 +157,22 @@ docker compose -f docker-compose.yml -f compose.bowser.yaml up -d --no-deps cadd
 
 This first network attachment briefly recreates Caddy. Preserve both Compose
 `-f` arguments in future Caddy commands and its deploy.sh. Routine Bowser deploys
-do not change or restart Caddy. See the server README for proxy trust details.
+do not change or restart Caddy. When the site's Caddy configuration changes,
+copy the new fragment and validate/reload it explicitly:
 
-Point bowser.app DNS to the Ubuntu host. With Cloudflare proxying, use Full
-(strict) TLS. Verify the website, `/healthz`, `/Bowser.dmg`,
-`/updates/stable.json`, and `/updates/Bowser.dmg`. Do not configure push.bowser.app
+```sh
+cp -f /home/ubuntu/bowser/deploy/bowser.caddy /home/ubuntu/lobsterfarm-backend/config/bowser.caddy
+cd /home/ubuntu/lobsterfarm-backend
+docker compose -f docker-compose.yml -f compose.bowser.yaml exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose -f docker-compose.yml -f compose.bowser.yaml exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+See the server README for proxy trust details.
+
+Point `bowser.app`, `www.bowser.app`, and `api.bowser.app` DNS to the Ubuntu host. With Cloudflare proxying, use Full
+(strict) TLS. Verify `https://www.bowser.app/` and `/Bowser.dmg`; verify `/healthz`,
+`/updates/stable.json`, and `/updates/Bowser.dmg` on `https://api.bowser.app`.
+The apex redirects all paths to `https://www.bowser.app`. Do not configure push.bowser.app
 as a working service yet. No push endpoint is implemented in this image.
 
 ## 4. Routine releases
@@ -180,7 +191,7 @@ docker compose --env-file previous-image.env -f previous-compose.yaml up -d --no
 
 Back up SQLite before data migrations and check schema compatibility before a
 rollback. Keep one replica per SQLite volume. A successful container health check
-does not prove public DNS/TLS/Caddy works; verify `https://bowser.app/healthz`
+does not prove public DNS/TLS/Caddy works; verify `https://api.bowser.app/healthz`
 after the initial Caddy attachment.
 
 For desktop changes: run the desktop workflow with a new version, verify its
@@ -201,7 +212,7 @@ or restarting the server. Preserve previous artifacts outside this directory for
 recovery. A desktop rollback must carry a higher build number.
 
 Publish the reviewed GitHub draft Release when ready. GitHub Release publication
-does not activate the bowser.app update feed; serving the new manifest does.
+does not activate the api.bowser.app update feed; serving the new manifest does.
 The updater restricts download origins, so do not replace its endpoint with a
 redirect to a GitHub asset URL.
 

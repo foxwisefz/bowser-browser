@@ -31,7 +31,7 @@ do {
     guard bytes > 0 && bytes <= 1_073_741_824 else { fail("Image must be between 1 byte and 1 GiB") }
     let payload = try JSONSerialization.data(withJSONObject: [
         "version": args[2], "build": args[3], "minimumMacOS": os,
-        "url": "https://bowser.app/updates/Bowser.dmg", "bytes": bytes,
+        "url": "https://api.bowser.app/updates/Bowser.dmg", "bytes": bytes,
         "sha256": hash.finalize().map { String(format: "%02x", $0) }.joined(),
         "expiresAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(30 * 86400))
     ], options: [.sortedKeys])

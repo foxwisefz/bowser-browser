@@ -5,6 +5,10 @@ import XCTest
 
 @MainActor
 final class OnboardingTests: XCTestCase {
+    func testProductionRegistrationEndpoint() {
+        XCTAssertEqual(RegistrationService().endpoint.absoluteString, "https://api.bowser.app/v1/registrations")
+    }
+
     let policy = RegistrationPolicy(termsVersion: "test-terms",
         termsURL: URL(string: "https://example.invalid/terms")!)
 

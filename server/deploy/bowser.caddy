@@ -1,15 +1,40 @@
-# Import from the existing Caddyfile at top level, outside its global block.
+# Import at top level, outside the global Caddy options block.
 bowser.app {
-	encode zstd gzip
-	header Strict-Transport-Security "max-age=31536000"
-	request_body {
-		max_size 16384
-	}
-	reverse_proxy bowser:8080 {
-		# Caddy resolves client_ip using the global trusted proxy configuration.
-		header_up X-Real-IP {client_ip}
-		health_uri /healthz
-		health_interval 15s
-		health_timeout 3s
-	}
+    redir https://www.bowser.app{uri} permanent
+}
+
+www.bowser.app {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    @service path /v1 /v1/* /updates /updates/* /healthz
+    handle @service {
+        respond 404
+    }
+    handle {
+        reverse_proxy bowser:8080 {
+            header_up X-Real-IP {client_ip}
+            health_uri /healthz
+            health_interval 15s
+            health_timeout 3s
+        }
+    }
+}
+
+api.bowser.app {
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 16384
+    }
+    @service path /v1/registrations /v1/events /updates/stable.json /updates/Bowser.dmg /healthz
+    handle @service {
+        reverse_proxy bowser:8080 {
+            header_up X-Real-IP {client_ip}
+            health_uri /healthz
+            health_interval 15s
+            health_timeout 3s
+        }
+    }
+    handle {
+        respond 404
+    }
 }

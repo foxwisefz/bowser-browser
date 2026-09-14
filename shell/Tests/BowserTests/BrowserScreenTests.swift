@@ -12,7 +12,7 @@ import BowserSurfaceKit
         var submitting = false
         var error: String?
         var completed = false
-        var termsURL = URL(string: "https://bowser.app/terms")!
+        var termsURL = URL(string: "https://www.bowser.app/terms.html")!
         var canSubmit = true
         var submissions = 0
         func submit() async { submissions += 1 }

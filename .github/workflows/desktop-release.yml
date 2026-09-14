@@ -108,7 +108,7 @@ jobs:
 
           Developer ID signed and Apple-notarized. Both Bowser.app and the DMG carry stapled notarization tickets. Review this draft before publishing.
 
-          The Ed25519-signed stable.json is paired with this exact DMG and expires after 30 days. To activate updates, serve both files at the configured bowser.app update endpoints. Publishing this GitHub release alone does not activate the update feed.
+          The Ed25519-signed stable.json is paired with this exact DMG and expires after 30 days. To activate updates, serve both files at the configured api.bowser.app update endpoints. Publishing this GitHub release alone does not activate the update feed.
           NOTES
           gh release create "v$BOWSER_VERSION" dist/Bowser.dmg dist/stable.json dist/SHA256SUMS \
             --draft --target "$RELEASE_COMMIT" --title "Bowser $BOWSER_VERSION" \

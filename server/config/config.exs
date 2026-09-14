@@ -5,7 +5,7 @@ config :exqlite, force_build: config_env() == :prod
 
 config :bowser_server, BowserServerWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
-  url: [host: "bowser.app"],
+  url: [host: "api.bowser.app"],
   render_errors: [formats: [json: BowserServerWeb.ErrorJSON], layout: false],
   pubsub_server: BowserServer.PubSub,
   server: false,
