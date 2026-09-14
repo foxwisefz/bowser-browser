@@ -37,23 +37,41 @@ def check():
                     response = error
                 with response:
                     return response.status, response.headers, response.read()
-            for attempt in range(50):
-                try:
-                    status, _, _ = request('www.bowser.app', '/')
-                    if status == 200:
-                        break
+            # Each reverse_proxy handler has its own active health-check state.
+            # A ready marketing handler does not imply a ready API handler.
+            for host, route in [('www.bowser.app', '/'), ('api.bowser.app', '/healthz')]:
+                deadline = time.monotonic() + 15
+                last = 'no response'
+                while time.monotonic() < deadline:
+                    try:
+                        status, _, body = request(host, route)
+                        last = f'HTTP {status}: {body!r}'
+                        if status == 200 and body == b'upstream':
+                            break
+                    except (OSError, urllib.error.URLError) as error:
+                        last = str(error)
                     time.sleep(0.1)
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.1)
+                else:
+                    raise AssertionError(f'{host}{route} did not become ready: {last}')
+
+            def expect(host, route, expected):
+                status, _, body = request(host, route)
+                assert status == expected, f'{host}{route}: expected {expected}, got {status}: {body!r}'
+                if expected == 200:
+                    assert body == b'upstream', (host, route, body)
+
             status, headers, _ = request('bowser.app', '/hello?x=1')
             assert status == 301 and headers['Location'] == 'https://www.bowser.app/hello?x=1'
             for route in ['/', '/Bowser.dmg', '/terms.html']:
-                assert request('www.bowser.app', route)[0] == 200, (route, request('www.bowser.app', route))
-                assert request('api.bowser.app', route)[0] == 404, route
+                expect('www.bowser.app', route, 200)
+                expect('api.bowser.app', route, 404)
             for route in ['/healthz', '/v1/registrations', '/v1/events', '/updates/stable.json', '/updates/Bowser.dmg']:
-                assert request('api.bowser.app', route)[0] == 200, route
-                assert request('www.bowser.app', route)[0] == 404, route
+                expect('api.bowser.app', route, 200)
+                expect('www.bowser.app', route, 404)
             print('Caddy apex redirect and marketing/API route separation passed')
+        except Exception:
+            subprocess.run(['docker', 'logs', container], check=False)
+            raise
         finally:
             subprocess.run(['docker', 'rm', '-f', container], check=True, stdout=subprocess.DEVNULL)
 
