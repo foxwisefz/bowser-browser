@@ -1,5 +1,11 @@
 # Bowser website and API
 
+For GitHub image publishing and the one-time production setup, see
+[release setup](../doc/release-setup.md). The `server-image.yml` workflow publishes
+tested Linux amd64/arm64 images; set `BOWSER_SERVER_IMAGE` to its GHCR digest and
+use `docker compose pull bowser` followed by `docker compose up -d --no-build bowser`.
+The workflow does not deploy, and this service does not yet implement Web Push.
+
 Standalone Elixir 1.18+ / Phoenix 1.8 service, independent of the desktop BEAM process. Bandit serves HTTP; Exqlite/SQLite stores registrations on a persistent local volume. The
 existing `website/` directory is served from an explicit public-file allowlist.
 

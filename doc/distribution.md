@@ -1,5 +1,8 @@
 # Desktop DMG
 
+For the complete GitHub secrets, container and Ubuntu setup, see
+[release setup](release-setup.md).
+
 `bin/install` produces a complete unpublished stage and prints its path.
 Package that exact pair without accessing profile, session or credential data:
 

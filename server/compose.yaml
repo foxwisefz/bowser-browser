@@ -4,7 +4,7 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
-    image: bowser-server:local
+    image: ${BOWSER_SERVER_IMAGE:-bowser-server:local}
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
