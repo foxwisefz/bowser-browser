@@ -74,13 +74,13 @@ size/hash checks. `tests/test_apply_update.py` covers staged activation/rollback
 ## GitHub Actions builds
 
 `.github/workflows/desktop-release.yml` builds on GitHub's Apple Silicon
-`macos-26` runner. Run **Actions → Build desktop release → Run workflow**, with
-a version such as `0.1.0`. The workflow tests the release contracts, creates a
+`macos-26` runner. Run **Actions → Build desktop release → Run workflow**.
+The workflow tests the release contracts, creates a
 fresh standalone app/runtime, signs and notarizes `Bowser.dmg`, signs `stable.json`, and
 uploads both plus `SHA256SUMS` as workflow artifacts and a **draft GitHub Release**.
 On `main`, the following `publish-assets` job publishes to R2 automatically;
 the GitHub draft does not hold back the public download or update feed.
-Use a new version for each run: existing release tags/assets are not overwritten.
+Release identities are generated automatically; existing release assets are not overwritten.
 [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 Create a GitHub environment named `release` and add its secret
@@ -97,6 +97,13 @@ derives the matching public key and embeds it in every build, restores the priva
 key into a mode-0600 temporary file, and removes it afterward. The key is never
 included in artifacts. Restrict the `release` environment to trusted release
 branches. [GitHub Actions secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
+
+Run **Build desktop release → Run workflow** with no version input. Each run
+uses its UTC timestamp and source commit hash for the release tag and artifact
+name (for example `build-20260914193000-a067384c1234`). The app version is the
+numeric UTC date, such as `2026.9.14`; the updater compares the timestamp build
+number, so multiple releases on the same day remain ordered. Rebuilding the
+same commit produces a new release identity.
 
 `bin/install --stage-only` is the build entry point. It always uses a new temporary
 home, reads no installed runtime, and does not publish a pending update or register

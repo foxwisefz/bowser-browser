@@ -2,11 +2,6 @@ name: Build desktop release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: Release version (for example 0.1.0; no leading v)
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -22,10 +17,10 @@ jobs:
     environment: release
     outputs:
       update-public-key: ${{ steps.update-key.outputs.public-key }}
+      release-id: ${{ steps.identity.outputs.release-id }}
     permissions:
       contents: write
     env:
-      BOWSER_VERSION: ${{ inputs.version }}
       BOWSER_TELEMETRY_DISABLED: "1"
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
@@ -47,15 +42,29 @@ jobs:
           if not re.fullmatch('[a-fA-F0-9]{32}', os.environ['R2_ACCOUNT_ID']):
               raise SystemExit('R2_ACCOUNT_ID must be the Cloudflare account ID')
           PYTHON
-      - name: Validate release inputs
+      - name: Generate release identity
+        id: identity
         shell: bash
         run: |
           set -euo pipefail
           [[ "$(uname -m)" == arm64 ]]
-          [[ "$BOWSER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]
-          [[ ${#BOWSER_VERSION} -le 64 ]]
-          echo "BOWSER_STAGE_FILE=$RUNNER_TEMP/bowser-stage-path" >> "$GITHUB_ENV"
-          echo "BOWSER_BUILD=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_ENV"
+          python3 - <<'PYTHON'
+          import datetime, os, re
+          now = datetime.datetime.now(datetime.timezone.utc)
+          sha = os.environ['GITHUB_SHA']
+          if not re.fullmatch('[0-9a-f]{40}', sha):
+              raise SystemExit('Invalid source commit')
+          build = now.strftime('%Y%m%d%H%M%S')
+          release_id = f'{build}-{sha[:12]}'
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'BOWSER_VERSION={now.year}.{now.month}.{now.day}\n')
+              output.write(f'BOWSER_BUILD={build}\n')
+              output.write(f'BOWSER_RELEASE_ID={release_id}\n')
+              output.write(f"BOWSER_STAGE_FILE={os.environ['RUNNER_TEMP']}/bowser-stage-path\n")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'release-id={release_id}\n')
+          print(f'Building Bowser {release_id}')
+          PYTHON
       - name: Install Elixir and inspect toolchain
         run: |
           brew install elixir
@@ -109,7 +118,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Bowser-${{ inputs.version }}-arm64
+          name: Bowser-${{ steps.identity.outputs.release-id }}-arm64
           path: |
             dist/Bowser.dmg
             dist/stable.json
@@ -130,8 +139,8 @@ jobs:
 
           The Ed25519-signed stable.json is paired with this exact DMG and expires after 30 days. The publish-assets job uploads to assets.bowser.app and promotes the signed manifest last. The GitHub draft is a separate release record.
           NOTES
-          gh release create "v$BOWSER_VERSION" dist/Bowser.dmg dist/stable.json dist/SHA256SUMS \
-            --draft --target "$RELEASE_COMMIT" --title "Bowser $BOWSER_VERSION" \
+          gh release create "build-$BOWSER_RELEASE_ID" dist/Bowser.dmg dist/stable.json dist/SHA256SUMS \
+            --draft --target "$RELEASE_COMMIT" --title "Bowser $BOWSER_RELEASE_ID" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
       - name: Remove signing credentials
         if: always()
@@ -155,7 +164,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Bowser-${{ inputs.version }}-arm64
+          name: Bowser-${{ needs.build.outputs.release-id }}-arm64
           path: dist
       - name: Install R2 publishing dependencies
         run: |
