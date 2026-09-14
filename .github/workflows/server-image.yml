@@ -1,13 +1,19 @@
-name: Build website and API image
+name: Build and deploy website and API
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "website/**"
+      - ".github/workflows/server-image.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: server-image-${{ github.ref }}
+  group: bowser-server-production
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +47,8 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix test
+      - name: Test deployment scripts
+        run: python3 -B -m unittest discover -s server/test -p test_deploy.py
       - name: Build and smoke-test native container
         run: |
           docker build -f server/Dockerfile -t bowser-server:local .
@@ -63,6 +71,8 @@ jobs:
           docker push "$image"
   publish:
     needs: build
+    outputs:
+      image: ${{ steps.image.outputs.image }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -75,6 +85,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish multi-architecture image reference
+        id: image
         env:
           REPOSITORY: ${{ github.repository }}
           REVISION: ${{ github.sha }}
@@ -84,11 +95,43 @@ jobs:
           docker buildx imagetools create --tag "$image:sha-$REVISION" \
             "$image:sha-$REVISION-amd64" "$image:sha-$REVISION-arm64"
           docker buildx imagetools inspect "$image:sha-$REVISION" | tee image.txt
+          digest="$(python3 -c 'import re; matches = re.findall(r"^Digest:\s+(sha256:[a-f0-9]{64})\s*$", open("image.txt").read(), re.M); assert len(matches) == 1, "Expected one manifest digest"; print(matches[0])')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "image=$image@$digest" >> "$GITHUB_OUTPUT"
           {
             echo '### Website and API image'
             echo "Reference: \`$image:sha-$REVISION\`"
-            echo 'Use the manifest digest below for a fixed deployment. This workflow does not deploy.'
+            echo 'The deployment job pulls this exact manifest digest over Tailscale SSH.'
             echo '```'
             cat image.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: publish
+    if: github.ref == 'refs/heads/main'
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Join deployment tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:bowser-ci
+      - name: Deploy tested image and wait for health
+        env:
+          BOWSER_DEPLOY_HOST: ${{ vars.BOWSER_DEPLOY_HOST || 'dodorouter.tail5bb99c.ts.net' }}
+          BOWSER_DEPLOY_USER: ${{ vars.BOWSER_DEPLOY_USER || 'ubuntu' }}
+          BOWSER_DEPLOY_DIR: ${{ vars.BOWSER_DEPLOY_DIR || '/home/ubuntu/bowser' }}
+          BOWSER_SERVER_IMAGE: ${{ needs.publish.outputs.image }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 server/deploy/deploy.py

@@ -4,7 +4,7 @@ For GitHub image publishing and the one-time production setup, see
 [release setup](../doc/release-setup.md). The `server-image.yml` workflow publishes
 tested Linux amd64/arm64 images; set `BOWSER_SERVER_IMAGE` to its GHCR digest and
 use `docker compose pull bowser` followed by `docker compose up -d --no-build bowser`.
-The workflow does not deploy, and this service does not yet implement Web Push.
+The workflow deploys `main` over Tailscale SSH; see [release setup](../doc/release-setup.md). This service does not yet implement Web Push.
 
 Standalone Elixir 1.18+ / Phoenix 1.8 service, independent of the desktop BEAM process. Bandit serves HTTP; Exqlite/SQLite stores registrations on a persistent local volume. The
 existing `website/` directory is served from an explicit public-file allowlist.
@@ -81,22 +81,20 @@ release with website assets, runs as UID 10001, and persists SQLite in `bowser_d
 No public ports are published. Only Caddy connects over the dedicated `bowser_edge`
 network. This service stays independent of the desktop browser and other backends.
 
-Copy this repo (or at least `server/` and `website/`) to `/home/ubuntu/bowser-browser`.
-Build on the Ubuntu host so the release and SQLite native library match its CPU.
-The Docker build context allowlist excludes credentials, local databases, and
-unrelated browser code. Keep one replica per SQLite volume.
+GitHub builds the image for both Linux architectures and deploys its digest over
+Tailscale SSH. Follow [release setup](../doc/release-setup.md) for the OIDC identity,
+first deployment, and Caddy attachment. No source checkout or build is needed on
+Ubuntu. Keep one replica per SQLite volume.
+
+After the first successful workflow run:
 
 ```sh
-cd /home/ubuntu/bowser-browser/server
-cp -f .env.example .env
-mkdir -p downloads
+cd /home/ubuntu/bowser
 # Edit .env: leave registration and telemetry disabled until configured.
-docker compose config --quiet
-docker compose up -d --build
-docker compose ps
-# Optional isolated fixture test (temporary container + volume, no production writes):
-python3 test/docker_smoke.py
-docker compose exec bowser curl --fail http://127.0.0.1:8080/healthz
+docker compose --env-file image.env config --quiet
+docker compose --env-file image.env up -d --no-build --wait bowser
+docker compose --env-file image.env ps
+docker compose --env-file image.env exec bowser curl --fail http://127.0.0.1:8080/healthz
 ```
 
 The example network uses `172.30.29.0/29`. Check `docker network inspect` for
@@ -234,5 +232,4 @@ with both APIs disabled until the desired service configuration is set.
 The production release passed HTTP smoke checks. The Docker image was built
 and tested on Linux arm64: non-root/read-only runtime, website, registration,
 telemetry, backup RPC and persistence across container replacement all passed.
-Both Compose files and the Caddy site fragment were validated. Build on the
-Ubuntu host for its architecture; remote deployment has not been performed.
+Both Compose files and the Caddy site fragment were validated. GitHub builds both Linux architectures; production pulls the tested image without building on the host. Hosted deployment still needs verification.

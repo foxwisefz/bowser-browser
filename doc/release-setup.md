@@ -5,15 +5,15 @@
 | Component | Build/publish path | Deployment |
 | --- | --- | --- |
 | Desktop + bundled runtime | Actions: Build desktop release | Draft GitHub Release with signed/notarized DMG, signed stable.json, SHA256SUMS |
-| Website, registration, limited telemetry, update hosting | Actions: Build website and API image | GHCR container, Linux amd64 and arm64; operator deploys by digest |
+| Website, registration, limited telemetry, update hosting | Actions: Build and deploy website and API | GHCR container, Linux amd64 and arm64; deploys by digest over Tailscale SSH |
 | Web Push | Plan and isolated native delivery probe only | Not ready; subscription provider integration remains open |
 | Public component live activation | Follow-up bowser-browser-7xho | Public updater currently stages the full DMG for normal quit/reopen |
 
-Both workflows are manually triggered. Pushing commits alone does not run a
-release. No workflow has SSH credentials or deploys to the Ubuntu server.
-The server image includes website assets; publishing the image alone does not
-change the live website. Local `bin/install` live activation and public DMG
-update activation currently differ.
+The desktop workflow is manually triggered. Website/API changes pushed to `main`
+automatically build and deploy; the server workflow also supports manual runs.
+Only `main` deploys. Production jobs are serialized. The server image includes
+website assets. Local `bin/install` live activation and public DMG update
+activation currently differ.
 
 ## 1. Configure GitHub once
 
@@ -56,16 +56,42 @@ signing are separate and both required. See [distribution](distribution.md).
 
 The server workflow uses GitHub's built-in GITHUB_TOKEN with `packages: write`;
 do not create a PAT for CI. Organization policy must permit package publishing.
-Initially GHCR packages may be private. For public distribution, make the server
-package public; otherwise the Ubuntu host needs a read:packages credential via
-`docker login ghcr.io` (kept on the host, not in compose.yaml).
+The deployment job sends its short-lived, read-only GITHUB_TOKEN over Tailscale
+SSH to `docker login` using a disposable Docker config, deleted when deployment
+finishes. No persistent GHCR token or SSH private key is needed on the server.
+
+### Tailscale deployment identity
+
+In the `release` environment, add `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` secrets
+from the Tailscale OIDC credential. It needs Auth Keys write scope and
+`tag:bowser-ci`. Restrict its subject to this repository's `release` environment;
+use the exact GitHub subject format for the repository (new repositories include
+immutable owner/repository IDs). Keep the environment restricted to `main`.
+The deployment job requests `id-token: write` and uses Tailscale's ephemeral runner.
+
+Optional environment variables (these are also the defaults):
+
+| Variable | Value |
+| --- | --- |
+| BOWSER_DEPLOY_HOST | dodorouter.tail5bb99c.ts.net |
+| BOWSER_DEPLOY_USER | ubuntu |
+| BOWSER_DEPLOY_DIR | /home/ubuntu/bowser |
+
+On the server, run `sudo tailscale set --ssh`. The server keeps `tag:lobsterfarm`.
+Define `tag:bowser-ci` in tagOwners; grant it TCP 22 to `100.109.207.69`, and
+Tailscale SSH `accept` to `tag:lobsterfarm` as `ubuntu`. Retain existing rules.
+The `ubuntu` user must be able to run Docker without interactive sudo. Docker
+access grants host-level privileges; the CI tag restricts network reach, not the
+privileges of this deployment account.
 
 ## 2. Build artifacts in Actions
 
-Run **Build website and API image** on the chosen ref. Both native Linux jobs
-must pass API tests and container smoke tests before the combined image is
-published. The workflow summary prints a commit-tagged image and manifest digest.
-Deploy the digest, e.g. `ghcr.io/OWNER/REPO/server@sha256:...`, to avoid mutable tags.
+Run **Build and deploy website and API** on `main`. Both native Linux jobs must
+pass API and container smoke tests before publication. The deployment job joins
+Tailscale, transfers Compose/Caddy configuration, pulls the published digest, and
+starts only Bowser with `--no-build --wait`. It creates `.env` from defaults only
+if missing, preserving subsequent operator settings, downloads and named volumes.
+The default configuration leaves registration and telemetry disabled.
 
 Run **Build desktop release**, entering a new version such as `0.1.0`. It uses
 GitHub's macOS arm64 runner, builds the app/runtime, signs and notarizes both app
@@ -79,20 +105,15 @@ artifact before making it public. Never alter the DMG after signing its manifest
 
 ## 3. Bootstrap the Ubuntu service once
 
-Copy or check out the matching code under `/home/ubuntu/bowser-browser`. On the
-server:
+The first successful deployment creates `/home/ubuntu/bowser`, a healthy service,
+and the `bowser_edge` Docker network. The host needs Docker Engine with Compose
+v2 supporting `up --wait`, Bash, tar and flock; it does not need source code,
+Elixir, or build tooling. Before the first run, check that `172.30.29.0/29` does
+not overlap existing Docker networks.
 
-```sh
-cd /home/ubuntu/bowser-browser/server
-cp -f .env.example .env
-chmod 600 .env
-mkdir -p downloads
-```
-
-Edit `.env`, using the actual GHCR digest from the workflow:
+After that run, edit `/home/ubuntu/bowser/.env` to configure downloads:
 
 ```dotenv
-BOWSER_SERVER_IMAGE=ghcr.io/OWNER/REPO/server@sha256:DIGEST
 BOWSER_DOWNLOAD_PATH=/downloads/Bowser.dmg
 BOWSER_UPDATE_IMAGE=/downloads/Bowser.dmg
 BOWSER_UPDATE_MANIFEST=/downloads/stable.json
@@ -106,20 +127,33 @@ effective. An enabled server must accept the exact Terms version embedded by the
 desktop onboarding configuration. Choose event retention before enabling telemetry.
 These are outstanding product configuration, not GitHub secrets.
 
-Upload the matched DMG and manifest into downloads (initially unavailable routes
-return 503). Start only the Bowser service:
+Upload the matched DMG and manifest into `downloads/`. To apply `.env` edits:
 
 ```sh
-docker compose config --quiet
-docker compose pull bowser
-docker compose up -d --no-build bowser
-docker compose exec bowser curl --fail http://127.0.0.1:8080/healthz
+cd /home/ubuntu/bowser
+docker compose --env-file image.env up -d --no-build --wait bowser
 ```
 
-Follow [server/README.md](../server/README.md#docker-deployment-on-the-existing-ubuntu-host)
-to add the Caddy overlay and top-level site import. Check subnet overlap before
-using the supplied network. Preserve both Compose files in future Caddy commands.
-This first Caddy network attachment recreates Caddy and briefly interrupts ingress.
+Attach Caddy once, after Bowser's first healthy deployment:
+
+```sh
+cp -f /home/ubuntu/bowser/deploy/caddy.compose.yaml /home/ubuntu/lobsterfarm-backend/compose.bowser.yaml
+cp -f /home/ubuntu/bowser/deploy/bowser.caddy /home/ubuntu/lobsterfarm-backend/config/bowser.caddy
+```
+
+Add `import /etc/caddy/bowser.caddy` at the top level of the existing Caddyfile,
+outside the global options block. Then:
+
+```sh
+cd /home/ubuntu/lobsterfarm-backend
+docker compose -f docker-compose.yml -f compose.bowser.yaml config --quiet
+docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose -f docker-compose.yml -f compose.bowser.yaml up -d --no-deps caddy
+```
+
+This first network attachment briefly recreates Caddy. Preserve both Compose
+`-f` arguments in future Caddy commands and its deploy.sh. Routine Bowser deploys
+do not change or restart Caddy. See the server README for proxy trust details.
 
 Point bowser.app DNS to the Ubuntu host. With Cloudflare proxying, use Full
 (strict) TLS. Verify the website, `/healthz`, `/Bowser.dmg`,
@@ -128,18 +162,29 @@ as a working service yet. No push endpoint is implemented in this image.
 
 ## 4. Routine releases
 
-For website/API changes: push code, run the server-image workflow, copy its digest
-into server `.env`, then run `docker compose pull bowser` and
-`docker compose up -d --no-build bowser`. Keep the previous digest for rollback.
-Back up SQLite before a release that changes persisted data; see the Admin backup
-command in the server README. Keep one replica per SQLite volume.
+For website/API changes, push to `main`; GitHub builds and deploys automatically.
+A failed pull leaves the service alone. A failed health check fails the workflow;
+it can leave the new container running/unhealthy and does not automatically roll
+back database changes. The last successful reference remains in `image.env`,
+with the preceding release in `previous-image.env` and `previous-compose.yaml`.
+For an explicit rollback after a successful deployment:
+
+```sh
+cd /home/ubuntu/bowser
+docker compose --env-file previous-image.env -f previous-compose.yaml up -d --no-build --wait bowser
+```
+
+Back up SQLite before data migrations and check schema compatibility before a
+rollback. Keep one replica per SQLite volume. A successful container health check
+does not prove public DNS/TLS/Caddy works; verify `https://bowser.app/healthz`
+after the initial Caddy attachment.
 
 For desktop changes: run the desktop workflow with a new version, verify its
 draft artifacts, then upload DMG and manifest to temporary filenames in the same
 downloads directory. Finish uploads before renaming. On Ubuntu:
 
 ```sh
-cd /home/ubuntu/bowser-browser/server/downloads
+cd /home/ubuntu/bowser/downloads
 # After verified uploads of Bowser.dmg.next and stable.json.next:
 mv -f Bowser.dmg.next Bowser.dmg
 mv -f stable.json.next stable.json
