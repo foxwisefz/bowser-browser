@@ -64,6 +64,37 @@ enum UpdateInstaller {
         try process.run(); process.waitUntilExit()
         if process.terminationStatus != 0 && !allowFailure { throw UpdateError.commandFailed }
     }
+    /// Publishing does not load code. Each running host independently checks
+    /// Team ID, ABI, dependencies and its module budget before swapping views.
+    static func publishModules(from app: URL, home: URL,
+                               verify: (URL) throws -> Void = { try run("/usr/bin/codesign", ["--verify", "--strict", $0.path]) }) throws {
+        let fm = FileManager.default
+        for (name, kind, identifier) in [
+            ("SurfaceRenderer", "surfaces", "com.foxwiseai.bowser.surfaces"),
+            ("CommandToolbar", "command-toolbar", "com.foxwiseai.bowser.command-toolbar")
+        ] {
+            let source = app.appendingPathComponent("Contents/Resources/\(name).bundle")
+            let info = try Data(contentsOf: source.appendingPathComponent("Contents/Info.plist"))
+            guard let metadata = try PropertyListSerialization.propertyList(from: info, format: nil) as? [String: Any],
+                  metadata["CFBundleIdentifier"] as? String == identifier,
+                  let build = metadata["CFBundleVersion"] as? String,
+                  build.count == 32, build.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw UpdateError.invalidRelease }
+            try verify(source)
+            let root = home.appendingPathComponent("native-modules/" + kind)
+            try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let target = root.appendingPathComponent(build + ".bundle")
+            if !fm.fileExists(atPath: target.path) {
+                let temporary = root.appendingPathComponent("stage-" + UUID().uuidString)
+                defer { try? fm.removeItem(at: temporary) }
+                try fm.copyItem(at: source, to: temporary)
+                try verify(temporary)
+                try fm.moveItem(at: temporary, to: target)
+            } else {
+                try verify(target)
+            }
+            try Data((build + "\n").utf8).write(to: root.appendingPathComponent("current"), options: .atomic)
+        }
+    }
     static func stage(_ image: URL, release: UpdateRelease, home: URL, bundle: URL) throws {
         try release.verifyFile(image)
         let fm = FileManager.default, root = home.appendingPathComponent("updates")
@@ -110,6 +141,7 @@ enum UpdateInstaller {
         try run("/bin/launchctl", ["bootout", label], allowFailure: true)
         try run("/bin/launchctl", ["bootstrap", domain, plist.path])
         try run("/bin/launchctl", ["kickstart", label])
+        try publishModules(from: stage.appendingPathComponent("bundle"), home: home)
     }
     static func download(_ release: UpdateRelease) async throws -> URL {
         let config = URLSessionConfiguration.ephemeral
@@ -130,10 +162,20 @@ enum UpdateInstaller {
 final class AppUpdates: NSObject {
     static let shared = AppUpdates()
     private var busy = false
+    private var timer: Timer?
     func start() {
+        if timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
+                Task { @MainActor in AppUpdates.shared.start() }
+            }
+        }
         guard SiteAppConfiguration.current == nil,
               Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: "lastUpdateCheck") > 86400 else { return }
         Task { await check(manual: false) }
+    }
+    nonisolated static func latestBuild(_ installed: String, _ prepared: String?) -> String {
+        guard let prepared, let value = UInt64(prepared), value > (UInt64(installed) ?? 0) else { return installed }
+        return prepared
     }
     @objc func checkForUpdates(_ sender: Any? = nil) { Task { await check(manual: true) } }
     private func message(_ text: String) { NativeUIHost.alert("message", ["text": text]).runModal() }
@@ -145,25 +187,29 @@ final class AppUpdates: NSObject {
             if manual { message("Updates are not available for this build yet.") }; return
         }
         busy = true; defer { busy = false }
-        var requestedDownload = false
         do {
             var request = URLRequest(url: URL(string: "https://assets.bowser.app/updates/stable.json")!); request.timeoutInterval = 20
             let (data, response) = try await PrivateHTTP.send(request)
             guard response.statusCode == 200 else { throw UpdateError.unavailable }
-            let release = try UpdateRelease.verified(data, publicKey: key, currentBuild: build,
+            let release = try UpdateRelease.verified(data, publicKey: key, currentBuild: Self.latestBuild(build, UserDefaults.standard.string(forKey: "preparedUpdateBuild")),
                 osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
-            guard let release else { if manual { message("You’re up to date.") }; return }
-            let alert = NativeUIHost.alert("update-available", ["version": release.version])
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-            requestedDownload = true
+            guard let release else {
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
+                if manual {
+                    let prepared = Self.latestBuild(build, UserDefaults.standard.string(forKey: "preparedUpdateBuild"))
+                    message(prepared == build ? "You’re up to date." : "The latest update is already prepared. Compatible components apply automatically; remaining changes wait for a normal quit.")
+                }
+                return
+            }
             let home = BowserPaths.home, bundle = Bundle.main.bundleURL
             try await Task.detached {
                 let image = try await UpdateInstaller.download(release)
                 defer { try? FileManager.default.removeItem(at: image) }
                 try UpdateInstaller.stage(image, release: release, home: home, bundle: bundle)
             }.value
-            message("Update ready. It will activate after Bowser and its saved apps quit.")
-        } catch { if manual || requestedDownload { message("Couldn’t prepare the update. Please try again later.") } }
+            UserDefaults.standard.set(release.build, forKey: "preparedUpdateBuild")
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateCheck")
+            if manual { message("Update prepared. Compatible components apply automatically; anything requiring a restart waits until Bowser and its saved apps quit.") }
+        } catch { if manual { message("Couldn’t prepare the update. Please try again later.") } }
     }
 }

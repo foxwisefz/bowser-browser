@@ -36,4 +36,42 @@ final class UpdateTests: XCTestCase {
         try Data("xyz".utf8).write(to: file); XCTAssertThrowsError(try release.verifyFile(file))
         try Data("abcd".utf8).write(to: file); XCTAssertThrowsError(try release.verifyFile(file))
     }
+    func testPreparedBuildPreventsRepeatDownloadWithoutHidingNewerInstalledBuild() {
+        XCTAssertEqual(AppUpdates.latestBuild("100", "200"), "200")
+        XCTAssertEqual(AppUpdates.latestBuild("300", "200"), "300")
+        XCTAssertEqual(AppUpdates.latestBuild("100", nil), "100")
+        XCTAssertEqual(AppUpdates.latestBuild("100", "invalid"), "100")
+    }
+
+    func testModulesPublishVerifiedCopiesAndLeavePointerOnVerificationFailure() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: home) }
+        let app = home.appendingPathComponent("app.bundle")
+        let build = String(repeating: "a", count: 32)
+        for (name, identifier) in [("SurfaceRenderer", "surfaces"), ("CommandToolbar", "command-toolbar")] {
+            let contents = app.appendingPathComponent("Contents/Resources/\(name).bundle/Contents")
+            try fm.createDirectory(at: contents, withIntermediateDirectories: true)
+            let info = ["CFBundleIdentifier": "com.foxwiseai.bowser." + identifier, "CFBundleVersion": build]
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+                .write(to: contents.appendingPathComponent("Info.plist"))
+        }
+        // Real verification must reject the unsigned fixture before publishing anything.
+        XCTAssertThrowsError(try UpdateInstaller.publishModules(from: app, home: home))
+        XCTAssertFalse(fm.fileExists(atPath: home.appendingPathComponent("native-modules/surfaces/current").path))
+        var verified: [URL] = []
+        try UpdateInstaller.publishModules(from: app, home: home) { verified.append($0) }
+        XCTAssertEqual(verified.count, 4) // Source and copied generation for both modules.
+        for kind in ["surfaces", "command-toolbar"] {
+            let root = home.appendingPathComponent("native-modules/" + kind)
+            XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("current"), encoding: .utf8), build + "\n")
+            XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent(build + ".bundle/Contents/Info.plist").path))
+        }
+        XCTAssertThrowsError(try UpdateInstaller.publishModules(from: app, home: home) { _ in throw UpdateError.invalidRelease })
+        XCTAssertEqual(try String(contentsOf: home.appendingPathComponent("native-modules/surfaces/current"), encoding: .utf8), build + "\n")
+        verified = []
+        try UpdateInstaller.publishModules(from: app, home: home) { verified.append($0) }
+        XCTAssertEqual(verified.count, 4) // Retry validates existing immutable generations too.
+    }
+
 }

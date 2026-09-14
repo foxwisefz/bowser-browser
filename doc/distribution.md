@@ -27,12 +27,18 @@ Never modify the DMG after generating its update manifest.
 ## Signed update channel
 
 The native app checks `https://assets.bowser.app/updates/stable.json` at startup at most
-once daily, and from **Check for Updates…**. It verifies an Ed25519 signature
+once daily (also while it remains open), and from **Check for Updates…**. It verifies an Ed25519 signature
 against the public key embedded in the installed app, checks build ordering,
-macOS compatibility and expiry, then asks before downloading. It verifies the
+macOS compatibility and expiry, then automatically downloads verified newer releases. It verifies the
 DMG's signed length and SHA-256 before mounting it read-only and checking the
-bundle signature/build. The updater stages the complete app/runtime;
-activation waits until Bowser and saved apps quit. Current browsing is preserved.
+bundle signature/build. It publishes the native UI modules for live loading and
+asks the backend host to perform a compatible handoff. Running hosts enforce
+signature, Team ID, ABI, dependency and module-loading limits; active editing
+can defer a UI swap. The complete app/runtime remains staged for the next normal
+quit, so host changes and incompatible components activate only after Bowser and
+saved apps quit. Current browsing is preserved. Prepared builds are remembered to
+avoid downloading them again while the installed host still has its old build
+number. Automatic checks are silent; manual checks report preparation or failure.
 
 Create a signing key **once on the release signing machine**, outside the repo:
 
