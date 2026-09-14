@@ -47,6 +47,21 @@ defmodule BowserBrain.Paths do
     end
   end
 
+  @doc "Find Claude even when a GUI launch inherits only the macOS system PATH."
+  def claude_executable do
+    claude_executable(System.user_home!(), System.get_env("PATH", ""), ["/opt/homebrew/bin", "/usr/local/bin"])
+  end
+
+  @doc false
+  def claude_executable(home, path, system_dirs) do
+    directories = String.split(path, ":", trim: true) ++ [Path.join(home, ".local/bin")] ++ system_dirs
+
+    directories
+    |> Enum.map(&Path.expand(Path.join(&1, "claude")))
+    |> Enum.uniq()
+    |> Enum.find_value(&System.find_executable/1)
+  end
+
   def icon_worker do
     installed = Path.join(root(), "bin/BowserIconWorker")
 

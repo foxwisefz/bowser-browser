@@ -431,7 +431,7 @@ defmodule BowserBrain.ModSmith do
   @doc "Run a fresh tool-free security reviewer, independent of generation history."
   def run_audit(prompt) do
     settings = BowserBrain.Settings.all()
-    with claude when is_binary(claude) <- System.find_executable("claude"),
+    with claude when is_binary(claude) <- BowserBrain.Paths.claude_executable(),
          route when route == :cli or elem(route, 0) == :router <- auth_route(settings) do
       args = audit_args(prompt)
       case run_port(claude, args, claude_env(settings), 90_000, fn _ -> :ok end) do
@@ -462,11 +462,11 @@ defmodule BowserBrain.ModSmith do
   def run_claude(prompt, resume, on_progress, app) do
     settings = BowserBrain.Settings.all()
 
-    case {System.find_executable("claude"), auth_route(settings)} do
+    case {BowserBrain.Paths.claude_executable(), auth_route(settings)} do
       {nil, _route} ->
         {nil,
          {:error,
-          "claude CLI not found on PATH — install it, then sign in or set up a router in :settings"}}
+          "Claude Code is not installed or could not be found. Install its CLI, then retry. Router settings supply authentication but still require the CLI."}}
 
       {_claude, {:missing, key}} ->
         {nil,

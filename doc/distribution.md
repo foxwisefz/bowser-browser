@@ -140,3 +140,13 @@ an unverified release.
 References: [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution),
 [custom notarization workflows](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow),
 [JIT entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-jit).
+
+## ModSmith CLI dependency
+
+The desktop bundle includes the browser and BEAM runtime. ModSmith additionally
+requires an installed Claude Code CLI, including when a router endpoint/API key
+is configured. Generation and independent auditing use the same CLI discovery:
+inherited PATH first, then `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin`.
+This works with Finder launches that omit user-installed commands from PATH.
+Bowser does not bundle or silently install Claude Code. After installing the CLI,
+retry ModSmith; executable discovery happens for each request.
