@@ -6,7 +6,7 @@ bowser.app {
 www.bowser.app {
     encode zstd gzip
     header Strict-Transport-Security "max-age=31536000"
-    @service path /v1 /v1/* /updates /updates/* /healthz
+    @service path /v1 /v1/* /updates /updates/* /healthz /Bowser.dmg
     handle @service {
         respond 404
     }
@@ -25,7 +25,7 @@ api.bowser.app {
     request_body {
         max_size 16384
     }
-    @service path /v1/registrations /v1/events /updates/stable.json /updates/Bowser.dmg /healthz
+    @service path /v1/registrations /v1/events /healthz
     handle @service {
         reverse_proxy 127.0.0.1:8080 {
             header_up X-Real-IP {remote_host}

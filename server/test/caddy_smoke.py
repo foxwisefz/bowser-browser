@@ -62,12 +62,15 @@ def check():
 
             status, headers, _ = request('bowser.app', '/hello?x=1')
             assert status == 301 and headers['Location'] == 'https://www.bowser.app/hello?x=1'
-            for route in ['/', '/Bowser.dmg', '/terms.html']:
+            for route in ['/', '/terms.html']:
                 expect('www.bowser.app', route, 200)
                 expect('api.bowser.app', route, 404)
-            for route in ['/healthz', '/v1/registrations', '/v1/events', '/updates/stable.json', '/updates/Bowser.dmg']:
+            for route in ['/healthz', '/v1/registrations', '/v1/events']:
                 expect('api.bowser.app', route, 200)
                 expect('www.bowser.app', route, 404)
+            for host in ['www.bowser.app', 'api.bowser.app']:
+                for route in ['/Bowser.dmg', '/updates/stable.json', '/updates/Bowser.dmg']:
+                    expect(host, route, 404)
             print('Caddy apex redirect and marketing/API route separation passed')
         except Exception:
             subprocess.run(['docker', 'logs', container], check=False)

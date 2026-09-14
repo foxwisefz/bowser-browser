@@ -34,8 +34,6 @@ if config_env() != :test do
          transport ++ [server: System.get_env("PHX_SERVER") == "true"]
 
   config :bowser_server,
-    update_manifest: System.get_env("BOWSER_UPDATE_MANIFEST"),
-    update_image: System.get_env("BOWSER_UPDATE_IMAGE"),
     database: System.get_env("BOWSER_DATABASE", Path.expand("data/bowser.sqlite")),
     website:
       System.get_env("BOWSER_WEBSITE") || Application.app_dir(:bowser_server, "priv/static"),
@@ -44,6 +42,5 @@ if config_env() != :test do
       |> Enum.map(&String.trim/1),
     telemetry_enabled: enabled,
     event_retention_days: days,
-    trusted_proxy: System.get_env("BOWSER_TRUSTED_PROXY"),
-    download: System.get_env("BOWSER_DOWNLOAD_PATH")
+    trusted_proxy: System.get_env("BOWSER_TRUSTED_PROXY")
 end

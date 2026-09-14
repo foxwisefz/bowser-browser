@@ -21,7 +21,6 @@ services:
     volumes:
       - data:/data
       - backups:/backups
-      - ./downloads:/downloads:ro
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m,mode=1777

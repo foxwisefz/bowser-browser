@@ -4,8 +4,8 @@
 
 | Component | Build/publish path | Deployment |
 | --- | --- | --- |
-| Desktop + bundled runtime | Actions: Build desktop release | Draft GitHub Release with signed/notarized DMG, signed stable.json, SHA256SUMS |
-| Website, registration, limited telemetry, update hosting | Actions: Build and deploy website and API | GHCR container, Linux amd64 and arm64; deploys by digest over Tailscale SSH |
+| Desktop + bundled runtime | Actions: Build desktop release | Signed/notarized DMG and signed feed published to R2; draft GitHub Release also retained |
+| Website, registration, limited telemetry | Actions: Build and deploy website and API | GHCR container, Linux amd64 and arm64; deploys by digest over Tailscale SSH |
 | Web Push | Plan and isolated native delivery probe only | Not ready; subscription provider integration remains open |
 | Public component live activation | Follow-up bowser-browser-7xho | Public updater currently stages the full DMG for normal quit/reopen |
 
@@ -94,7 +94,7 @@ Run **Build and deploy website and API** on `main`. Both native Linux jobs must
 pass API and container smoke tests before publication. The deployment job joins
 Tailscale, transfers Compose/Caddy configuration, pulls the published digest, and
 starts only Bowser with `--no-build --wait`. It creates `.env` from defaults only
-if missing, preserving subsequent operator settings, downloads and named volumes.
+if missing, preserving subsequent operator settings and named volumes.
 The default configuration leaves registration and telemetry disabled.
 
 Run **Build desktop release**, entering a new version such as `0.1.0`. It uses
@@ -102,10 +102,40 @@ GitHub's macOS arm64 runner, builds the app/runtime, signs and notarizes both ap
 and DMG, signs update metadata, and creates a draft Release. These are configured
 workflows; successful hosted runs must still be verified in your repository.
 
-Review/download `Bowser.dmg`, `stable.json`, and `SHA256SUMS` from the same run.
-The DMG is used for both initial installation and updates; no ZIP is needed.
-Check the downloaded checksums and test installation/launch from that actual
-artifact before making it public. Never alter the DMG after signing its manifest.
+The `publish-assets` job downloads the matched build artifacts, verifies the
+Ed25519 signature and DMG hash/size, and publishes to R2 automatically on `main`.
+Running the desktop release workflow therefore publishes a public release, even
+though the separate GitHub Release record is a draft. No ZIP is needed. Never
+alter the DMG after signing its manifest.
+
+### R2 assets setup
+
+The bucket is `bowser`, with custom domain `assets.bowser.app`. In Cloudflare,
+create an R2 API token with **Object Read & Write**, restricted to this bucket.
+Add these GitHub `release` environment secrets:
+
+| Secret | Value |
+| --- | --- |
+| R2_ACCOUNT_ID | Cloudflare account ID from the R2 overview/S3 endpoint |
+| R2_ACCESS_KEY_ID | R2 token's S3 Access Key ID |
+| R2_SECRET_ACCESS_KEY | R2 token's S3 Secret Access Key |
+
+`R2_BUCKET` is an optional environment variable defaulting to `bowser`. The
+publisher uses the S3 endpoint for uploads and the custom domain for public URLs.
+Keep R2 credentials in GitHub, not on Ubuntu. Leave `r2.dev` access disabled.
+
+Public paths:
+
+- `https://assets.bowser.app/releases/BUILD/Bowser.dmg`: immutable build artifact.
+- `https://assets.bowser.app/Bowser.dmg`: current marketing download.
+- `https://assets.bowser.app/updates/stable.json`: signed update feed.
+
+In Cloudflare Cache Rules, bypass cache for `/Bowser.dmg` and
+`/updates/stable.json` on `assets.bowser.app`. The publisher also sets `no-store`
+on these mutable objects. Build-specific DMGs have a one-year immutable cache
+header. Do not override these with a blanket cache rule; Cloudflare can otherwise
+serve stale objects or cached 404s. Purge existing cached failures if needed.
+
 
 ## 3. Bootstrap the Ubuntu service once
 
@@ -115,15 +145,9 @@ v2 supporting `up --wait`, Bash, tar and flock; it does not need source code,
 Elixir, or build tooling. Before the first run, check that `172.30.29.0/29` does
 not overlap existing Docker networks.
 
-After that run, edit `/home/ubuntu/bowser/.env` to configure downloads:
-
-```dotenv
-BOWSER_DOWNLOAD_PATH=/downloads/Bowser.dmg
-BOWSER_UPDATE_IMAGE=/downloads/Bowser.dmg
-BOWSER_UPDATE_MANIFEST=/downloads/stable.json
-BOWSER_TERMS_VERSIONS=
-BOWSER_TELEMETRY_ENABLED=0
-```
+After that run, edit `/home/ubuntu/bowser/.env` for the effective Terms and telemetry
+configuration. Release assets are hosted on R2; Ubuntu needs no download paths,
+files, mounts or R2 credentials.
 
 Keep registration disabled until the actual Terms are finalized. The current
 `website/terms.html` has registered-address/support-email placeholders and is not
@@ -131,7 +155,7 @@ effective. An enabled server must accept the exact Terms version embedded by the
 desktop onboarding configuration. Choose event retention before enabling telemetry.
 These are outstanding product configuration, not GitHub secrets.
 
-Upload the matched DMG and manifest into `downloads/`. To apply `.env` edits:
+To apply `.env` edits:
 
 ```sh
 cd /home/ubuntu/bowser
@@ -169,11 +193,12 @@ docker compose -f docker-compose.yml -f compose.bowser.yaml exec caddy caddy rel
 
 See the server README for proxy trust details.
 
-Point `bowser.app`, `www.bowser.app`, and `api.bowser.app` DNS to the Ubuntu host. With Cloudflare proxying, use Full
-(strict) TLS. Verify `https://www.bowser.app/` and `/Bowser.dmg`; verify `/healthz`,
-`/updates/stable.json`, and `/updates/Bowser.dmg` on `https://api.bowser.app`.
-The apex redirects all paths to `https://www.bowser.app`. Do not configure push.bowser.app
-as a working service yet. No push endpoint is implemented in this image.
+Point `bowser.app`, `www.bowser.app`, and `api.bowser.app` DNS to the Ubuntu host.
+The `assets.bowser.app` custom domain belongs to R2, not Caddy. With Cloudflare
+proxying the Ubuntu sites, use Full (strict) TLS. Verify the apex redirect,
+`https://www.bowser.app/`, and `https://api.bowser.app/healthz`. After publishing a
+desktop release, verify the download and feed on `assets.bowser.app`.
+No Web Push endpoint is implemented in this image.
 
 ## 4. Routine releases
 
@@ -194,27 +219,20 @@ rollback. Keep one replica per SQLite volume. A successful container health chec
 does not prove public DNS/TLS/Caddy works; verify `https://api.bowser.app/healthz`
 after the initial Caddy attachment.
 
-For desktop changes: run the desktop workflow with a new version, verify its
-draft artifacts, then upload DMG and manifest to temporary filenames in the same
-downloads directory. Finish uploads before renaming. On Ubuntu:
+For desktop changes, run **Build desktop release** on `main` with a new version.
+The publication job uploads a build-specific DMG, reads it back to verify its
+signed size/hash, saves the build's manifest, updates `/Bowser.dmg`, and promotes
+`/updates/stable.json` last. The signed feed always references an immutable DMG,
+so a client fetching during promotion can still download the exact signed bytes.
+Failed uploads cannot promote the feed. Older builds cannot replace newer ones;
+a retry reuses matching immutable bytes. Conditional writes protect feed promotion.
 
-```sh
-cd /home/ubuntu/bowser/downloads
-# After verified uploads of Bowser.dmg.next and stable.json.next:
-mv -f Bowser.dmg.next Bowser.dmg
-mv -f stable.json.next stable.json
-```
-
-Replace the DMG first and the manifest last. A client racing the two replacements
-may fail verification and retry; it cannot install a mismatched image. The
-downloads directory is mounted, so replacing its files does not require rebuilding
-or restarting the server. Preserve previous artifacts outside this directory for
-recovery. A desktop rollback must carry a higher build number.
-
-Publish the reviewed GitHub draft Release when ready. GitHub Release publication
-does not activate the api.bowser.app update feed; serving the new manifest does.
-The updater restricts download origins, so do not replace its endpoint with a
-redirect to a GitHub asset URL.
+No SSH, scp, Ubuntu restart, or container rebuild is involved in publishing DMGs.
+If only `publish-assets` fails, correct its configuration and rerun failed jobs
+within the artifact retention period. A new full run must use a new version
+because GitHub draft release tags are not overwritten. Keep previous build objects
+for clients that already fetched their manifests. A desktop rollback requires a
+new signed release with a higher build number.
 
 Signed manifests expire after 30 days. Renew the manifest with the same private
 key and unchanged artifact before expiry, even if no new desktop version ships.

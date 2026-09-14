@@ -26,7 +26,7 @@ Never modify the DMG after generating its update manifest.
 
 ## Signed update channel
 
-The native app checks `https://api.bowser.app/updates/stable.json` at startup at most
+The native app checks `https://assets.bowser.app/updates/stable.json` at startup at most
 once daily, and from **Check for Updates…**. It verifies an Ed25519 signature
 against the public key embedded in the installed app, checks build ordering,
 macOS compatibility and expiry, then asks before downloading. It verifies the
@@ -50,18 +50,16 @@ skip background checks and show an unavailable message for manual checks.
 Never place the private key in an image, app, server directory or repository.
 A replacement key must be delivered through an already trusted release.
 
-Copy the DMG and manifest to the server's read-only `downloads/` mount and set:
+The manifest names `https://assets.bowser.app/releases/BUILD/Bowser.dmg`.
+The desktop workflow publishes the exact DMG and signed manifest to R2. It
+verifies the uploaded image before updating the feed, and preserves build-specific
+objects. The website downloads `https://assets.bowser.app/Bowser.dmg`.
+See [R2 setup](release-setup.md#r2-assets-setup) for the bucket-scoped credentials.
+No release files are hosted by the Phoenix server.
 
-```sh
-BOWSER_UPDATE_MANIFEST=/downloads/stable.json
-BOWSER_UPDATE_IMAGE=/downloads/Bowser.dmg
-```
-
-Restart only the Bowser server after configuration changes. Publish the DMG
-before atomically replacing the manifest; a client fetching during replacement
-may retry, but a mismatched image cannot install. Manifests expire after 30 days;
-re-sign the current release before expiry. Rollbacks require a **higher build
-number** signed release. The updater keeps `.previous` copies for local recovery.
+Manifests expire after 30 days; re-sign the current release before expiry.
+Rollbacks require a **higher build number** signed release. The updater keeps
+`.previous` copies for local recovery.
 
 Validation: `swift test --package-path shell --filter UpdateTests` covers signed
 metadata, wrong-key/tamper rejection, expiry, downgrade prevention and image
@@ -74,6 +72,8 @@ size/hash checks. `tests/test_apply_update.py` covers staged activation/rollback
 a version such as `0.1.0`. The workflow tests the release contracts, creates a
 fresh standalone app/runtime, signs and notarizes `Bowser.dmg`, signs `stable.json`, and
 uploads both plus `SHA256SUMS` as workflow artifacts and a **draft GitHub Release**.
+On `main`, the following `publish-assets` job publishes to R2 automatically;
+the GitHub draft does not hold back the public download or update feed.
 Use a new version for each run: existing release tags/assets are not overwritten.
 [GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
@@ -100,10 +100,9 @@ LaunchAgents. `BOWSER_VERSION` and `BOWSER_BUILD` supply artifact identity;
 The release workflow **requires Developer ID signing and notarization**; missing
 credentials, rejection, timeout, stapling failure or Gatekeeper rejection stops
 it before artifacts or a draft release are uploaded. Local packaging without these
-options remains ad-hoc signed. This workflow does not connect to the Ubuntu host
-or change DNS. Copy its matched DMG/manifest to the configured `api.bowser.app` endpoints
-as described above. A GitHub Release URL alone will not work with the current
-updater's origin and redirect restrictions.
+options remains ad-hoc signed. This workflow uploads release assets directly to R2;
+it does not connect to Ubuntu or change DNS. The updater permits only the exact
+build-specific HTTPS URL on `assets.bowser.app` and rejects redirected downloads.
 
 ## Apple credentials
 

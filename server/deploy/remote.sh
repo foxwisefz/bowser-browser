@@ -20,12 +20,11 @@ printf '%s' "$registry_token" | docker login ghcr.io --username "$registry_user"
 unset registry_token
 tar -xf - -C "$scratch/files"
 docker pull "$image"
-# Preserve operator configuration and download artifacts across deployments.
+# Preserve operator configuration across deployments.
 if [[ ! -f .env ]]; then
   cp "$scratch/files/.env.example" .env
 fi
 chmod 600 .env
-mkdir -p downloads
 export BOWSER_SERVER_IMAGE="$image"
 export BOWSER_ENV_FILE="$deploy_dir/.env"
 compose=(docker compose --project-name bowser --project-directory "$deploy_dir" -f "$scratch/files/compose.yaml")

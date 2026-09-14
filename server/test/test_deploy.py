@@ -65,7 +65,6 @@ if [[ "$*" = *" up "* && "$FAIL_HEALTH" = 1 ]]; then exit 7; fi
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((target / 'image.env').read_text(), 'BOWSER_SERVER_IMAGE=' + IMAGE + '\n')
                 self.assertTrue((target / 'deploy/bowser.caddy').is_file())
-                self.assertTrue((target / 'downloads').is_dir())
                 self.assertEqual((target / '.env').stat().st_mode & 0o777, 0o600)
 
     def test_success_preserves_operator_config(self):

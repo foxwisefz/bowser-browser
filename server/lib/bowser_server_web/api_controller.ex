@@ -22,17 +22,6 @@ defmodule BowserServerWeb.APIController do
     |> put_resp_header("cache-control", "no-store")
   end
 
-  def update_manifest(conn, _), do: update_file(conn, :update_manifest, "application/json")
-  def update_image(conn, _), do: update_file(conn, :update_image, "application/x-apple-diskimage")
-
-  defp update_file(conn, key, type) do
-    path = Application.get_env(:bowser_server, key)
-
-    if is_binary(path) and File.regular?(path),
-      do: send_asset(conn, path, type),
-      else: reply(conn, 503, "update_unavailable")
-  end
-
   def health(conn, _), do: json(conn, %{ok: true})
 
   def method(conn, _),
@@ -139,19 +128,7 @@ defmodule BowserServerWeb.APIController do
             else: reply(conn, 404, "not_found")
 
         nil ->
-          download = Application.get_env(:bowser_server, :download)
-
-          if path == ["Bowser.dmg"] do
-            if is_binary(download) and File.regular?(download) do
-              conn
-              |> put_resp_header("content-disposition", "attachment; filename=\"Bowser.dmg\"")
-              |> send_asset(download, "application/x-apple-diskimage")
-            else
-              reply(conn, 503, "download_unavailable")
-            end
-          else
-            reply(conn, 404, "not_found")
-          end
+          reply(conn, 404, "not_found")
       end
     else
       reply(conn, 404, "not_found")

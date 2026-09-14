@@ -152,10 +152,6 @@ proxy configuration. Do not use its `127.0.0.1` upstream inside the existing Cad
 container. Direct Phoenix TLS is also supported with `BOWSER_TLS_CERT` and
 `BOWSER_TLS_KEY`; non-loopback HTTP requires the explicit private-network opt-in.
 
-Set `BOWSER_DOWNLOAD_PATH` to the approved distribution DMG to enable the landing
-page's `/Bowser.dmg` links. For Docker, place it in `server/downloads/` and set `BOWSER_DOWNLOAD_PATH=/downloads/Bowser.dmg`. The file is streamed, not loaded into memory. Without
-an artifact the route returns 503 rather than serving a development binary.
-
 ## Limited telemetry
 
 Owner-approved categories: registration completion, ModSmith outcomes, and crash
@@ -233,3 +229,10 @@ The production release passed HTTP smoke checks. The Docker image was built
 and tested on Linux arm64: non-root/read-only runtime, website, registration,
 telemetry, backup RPC and persistence across container replacement all passed.
 Both Compose files and the Caddy site fragment were validated. GitHub builds both Linux architectures; production pulls the tested image without building on the host. Hosted deployment still needs verification.
+
+## Desktop release assets
+
+DMGs and signed update manifests are published by the desktop GitHub workflow to
+R2 at `assets.bowser.app`. This service does not serve release assets. No download
+volume, file-path environment variables, or R2 credentials are needed on Ubuntu.
+See [R2 release setup](../doc/release-setup.md#r2-assets-setup).

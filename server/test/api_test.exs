@@ -114,7 +114,7 @@ defmodule BowserServer.APITest do
         do: assert(get(build_conn(), path).status == 404)
 
     assert get(build_conn(), "/v1/registrations").status == 405
-    assert get(build_conn(), "/Bowser.dmg").status == 503
+    assert get(build_conn(), "/Bowser.dmg").status == 404
     assert register(%{payload() | "email" => String.duplicate("x", 17000)}).status == 413
 
     conn =

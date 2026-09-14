@@ -4,8 +4,8 @@ import CryptoKit
 
 final class UpdateTests: XCTestCase {
     let key = Curve25519.Signing.PrivateKey()
-    func envelope(build: String = "200", url: String = "https://api.bowser.app/updates/Bowser.dmg", expiry: Date = Date().addingTimeInterval(3600), os: Int = 15) throws -> Data {
-        let release = UpdateRelease(version: "test", build: build, minimumMacOS: os, url: URL(string: url)!, bytes: 3,
+    func envelope(build: String = "200", url: String? = nil, expiry: Date = Date().addingTimeInterval(3600), os: Int = 15) throws -> Data {
+        let release = UpdateRelease(version: "test", build: build, minimumMacOS: os, url: URL(string: url ?? "https://assets.bowser.app/releases/\(build)/Bowser.dmg")!, bytes: 3,
             sha256: SHA256.hash(data: Data("abc".utf8)).map { String(format: "%02x", $0) }.joined(), expiresAt: expiry)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         let payload = try encoder.encode(release)
@@ -19,7 +19,7 @@ final class UpdateTests: XCTestCase {
         XCTAssertNil(try verify(envelope(build: "99")))
         XCTAssertNil(try verify(envelope(build: "100")))
         XCTAssertThrowsError(try verify(envelope(), key: Curve25519.Signing.PrivateKey().publicKey.rawRepresentation))
-        for url in ["http://api.bowser.app/updates/Bowser.dmg", "https://evil.invalid/update", "https://bowser.app/updates/Bowser.dmg", "https://www.bowser.app/updates/Bowser.dmg", "https://user@api.bowser.app/file"] {
+        for url in ["http://api.bowser.app/updates/Bowser.dmg", "https://evil.invalid/update", "https://assets.bowser.app/releases/999/Bowser.dmg", "https://assets.bowser.app/releases/200/Bowser.dmg?x=1", "https://api.bowser.app/updates/Bowser.dmg", "https://bowser.app/updates/Bowser.dmg", "https://www.bowser.app/updates/Bowser.dmg", "https://user@api.bowser.app/file"] {
             XCTAssertThrowsError(try verify(envelope(url: url)))
         }
         XCTAssertThrowsError(try verify(envelope(expiry: Date().addingTimeInterval(-1))))
