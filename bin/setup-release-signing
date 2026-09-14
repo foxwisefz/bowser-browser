@@ -19,6 +19,15 @@ echo "::add-mask::$password"
 security create-keychain -p "$password" "$keychain"
 security set-keychain-settings -lut 7200 "$keychain"
 security unlock-keychain -p "$password" "$keychain"
+# Make the imported keychain discoverable to signing tools, retaining the
+# runner's existing search list (including certificate-chain resources).
+python3 - "$keychain" <<'PY'
+import shlex, subprocess, sys
+existing = shlex.split(subprocess.check_output(
+    ['security', 'list-keychains', '-d', 'user'], text=True))
+keychains = list(dict.fromkeys([sys.argv[1], *existing]))
+subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *keychains], check=True)
+PY
 security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
 # Validate the imported private-key identity before spending time on the build.

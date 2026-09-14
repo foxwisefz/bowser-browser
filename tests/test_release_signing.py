@@ -16,7 +16,21 @@ class ReleaseSigningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for tool, body in {
-                'security': '#!/bin/bash\nif [ "$1" = find-identity ]; then printf "%s\\n" "$FIXTURE_IDENTITIES"; fi\n',
+                'security': '''#!/bin/bash
+if [ "$1" = list-keychains ]; then
+    if [ "$4" = -s ]; then
+        [ "$5" = "$RUNNER_TEMP/bowser-signing.keychain-db" ] &&
+        [ "$6" = "/fixture/login keychain-db" ] &&
+        [ "$7" = "/fixture/System.keychain" ] || exit 9
+        touch "$RUNNER_TEMP/search-list-set"
+    else
+        printf '    "/fixture/login keychain-db"\\n    "/fixture/System.keychain"\\n'
+    fi
+elif [ "$1" = find-identity ]; then
+    [ -f "$RUNNER_TEMP/search-list-set" ] || exit 10
+    printf "%s\\n" "$FIXTURE_IDENTITIES"
+fi
+''',
                 'xcrun': '#!/bin/bash\ntouch "$RUNNER_TEMP/notary-called"\n',
             }.items():
                 file = root / tool
