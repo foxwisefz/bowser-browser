@@ -129,7 +129,7 @@ jobs:
           tags: tag:bowser-ci
       - name: Deploy tested image and wait for health
         env:
-          BOWSER_DEPLOY_HOST: ${{ vars.BOWSER_DEPLOY_HOST || 'dodorouter.tail5bb99c.ts.net' }}
+          BOWSER_DEPLOY_HOST: ${{ vars.BOWSER_DEPLOY_HOST || '100.109.207.69' }}
           BOWSER_DEPLOY_USER: ${{ vars.BOWSER_DEPLOY_USER || 'ubuntu' }}
           BOWSER_DEPLOY_DIR: ${{ vars.BOWSER_DEPLOY_DIR || '/home/ubuntu/bowser' }}
           BOWSER_SERVER_IMAGE: ${{ needs.publish.outputs.image }}

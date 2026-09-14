@@ -73,9 +73,13 @@ Optional environment variables (these are also the defaults):
 
 | Variable | Value |
 | --- | --- |
-| BOWSER_DEPLOY_HOST | dodorouter.tail5bb99c.ts.net |
+| BOWSER_DEPLOY_HOST | 100.109.207.69 |
 | BOWSER_DEPLOY_USER | ubuntu |
 | BOWSER_DEPLOY_DIR | /home/ubuntu/bowser |
+
+Use the Tailscale IP to avoid dependency on the runner's MagicDNS resolver. If
+`BOWSER_DEPLOY_HOST` is already set in GitHub, update that variable too; it overrides
+the workflow default.
 
 On the server, run `sudo tailscale set --ssh`. The server keeps `tag:lobsterfarm`.
 Define `tag:bowser-ci` in tagOwners; grant it TCP 22 to `100.109.207.69`, and

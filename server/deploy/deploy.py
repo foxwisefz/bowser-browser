@@ -34,8 +34,13 @@ def deploy():
     command = shlex.join(['bash', '-c', (ROOT / 'deploy/remote.sh').read_text(),
                           'bowser-deploy', directory, image, os.environ['GITHUB_ACTOR']])
     # Token is sent on encrypted stdin, never in the remote command or persisted config.
-    subprocess.run(['tailscale', 'ssh', f'{user}@{host}', command],
-                   input=token.encode() + b'\n' + archive.getvalue(), check=True, timeout=600)
+    try:
+        subprocess.run(['tailscale', 'ssh', f'{user}@{host}', command],
+                       input=token.encode() + b'\n' + archive.getvalue(), check=True, timeout=600)
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f'Deployment to {user}@{host} failed (exit {error.returncode}); see SSH/Docker output above.') from None
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f'Deployment to {user}@{host} timed out; inspect the server before retrying.') from None
 
 
 if __name__ == '__main__':

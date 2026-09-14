@@ -106,3 +106,18 @@ class ClientTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 client['deploy']()
             run.assert_not_called()
+
+
+    def test_ip_connection_failure_has_concise_error(self):
+        client = runpy.run_path(str(SERVER / 'deploy/deploy.py'))
+        env = dict(BOWSER_DEPLOY_HOST='100.109.207.69', BOWSER_DEPLOY_USER='ubuntu',
+                   BOWSER_DEPLOY_DIR='/home/ubuntu/bowser', BOWSER_SERVER_IMAGE=IMAGE,
+                   GH_TOKEN='fixture-token', GITHUB_ACTOR='fixture')
+        with patch.dict(os.environ, env), patch('subprocess.run') as run:
+            run.side_effect = subprocess.CalledProcessError(255, ['remote-script'])
+            with self.assertRaises(SystemExit) as failure:
+                client['deploy']()
+            self.assertIn('ubuntu@100.109.207.69', str(failure.exception))
+            self.assertIn('exit 255', str(failure.exception))
+            self.assertNotIn('remote-script', str(failure.exception))
+            self.assertEqual(run.call_args.args[0][2], 'ubuntu@100.109.207.69')
