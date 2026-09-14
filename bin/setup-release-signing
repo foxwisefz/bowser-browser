@@ -21,13 +21,33 @@ security set-keychain-settings -lut 7200 "$keychain"
 security unlock-keychain -p "$password" "$keychain"
 security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+# Validate the imported private-key identity before spending time on the build.
+# Select its fingerprint so every later codesign invocation uses the exact match.
+security find-identity -v -p codesigning "$keychain" > "$RUNNER_TEMP/bowser-identities.txt"
+fingerprint="$(python3 - "$RUNNER_TEMP/bowser-identities.txt" <<'PY'
+import os, re, sys
+expected = os.environ['APPLE_SIGN_IDENTITY'].strip()
+identities = re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"\r\n]+)"', open(sys.argv[1]).read())
+matches = [digest for digest, name in identities if name == expected]
+if len(matches) != 1:
+    print('Imported keychain must contain exactly one valid signing identity matching APPLE_SIGN_IDENTITY.', file=sys.stderr)
+    print('Export Developer ID Application as a .p12 WITH its private key; check certificate validity and the exact identity name.', file=sys.stderr)
+    print('Valid imported identity names (public certificate information):', file=sys.stderr)
+    for _, name in identities:
+        print('  ' + name, file=sys.stderr)
+    if not identities:
+        print('  None. The imported certificate/private key is missing or not valid for code signing.', file=sys.stderr)
+    sys.exit(2)
+print(matches[0])
+PY
+)"
 xcrun notarytool store-credentials bowser-release --keychain "$keychain" \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
 # Do not permit multiline values to inject additional GITHUB_ENV entries.
 [[ "$APPLE_SIGN_IDENTITY" != *$'\n'* && "$APPLE_SIGN_IDENTITY" != *$'\r'* ]]
 {
   echo "BOWSER_SIGN_KEYCHAIN=$keychain"
-  echo "BOWSER_SIGN_IDENTITY=$APPLE_SIGN_IDENTITY"
+  echo "BOWSER_SIGN_IDENTITY=$fingerprint"
   echo 'BOWSER_NOTARY_PROFILE=bowser-release'
   echo 'BOWSER_NOTARIZE=1'
 } >> "$GITHUB_ENV"

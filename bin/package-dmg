@@ -6,7 +6,15 @@ repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 identity="${BOWSER_SIGN_IDENTITY:--}"
 notarize="${BOWSER_NOTARIZE:-0}"
 if [ "$notarize" = 1 ]; then
-  case "$identity" in 'Developer ID Application: '*) ;; *) echo 'Notarization requires Developer ID Application signing' >&2; exit 2;; esac
+  if [[ "$identity" != 'Developer ID Application: '* ]]; then
+    # CI resolves the named Developer ID identity to an exact certificate hash.
+    [[ "$identity" =~ ^[0-9A-Fa-f]{40}$ ]] || { echo 'Notarization requires Developer ID Application signing' >&2; exit 2; }
+    lookup=(-v -p codesigning)
+    if [ -n "${BOWSER_SIGN_KEYCHAIN:-}" ]; then lookup+=("$BOWSER_SIGN_KEYCHAIN"); fi
+    security find-identity "${lookup[@]}" | grep -Eiq "$identity \"Developer ID Application: " || {
+      echo 'Signing fingerprint does not identify a valid Developer ID Application certificate' >&2; exit 2;
+    }
+  fi
   : "${BOWSER_NOTARY_PROFILE:?Set a notarytool profile for notarization}"
 fi
 stage="$(cd "$1" && pwd -P)"

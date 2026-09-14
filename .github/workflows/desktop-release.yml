@@ -44,6 +44,8 @@ jobs:
           brew install elixir
           elixir --version
           swift --version
+      - name: Test signing setup validation
+        run: python3 -m unittest discover -s tests -p test_release_signing.py
       - name: Restore update signing key
         env:
           UPDATE_KEY: ${{ secrets.BOWSER_UPDATE_PRIVATE_KEY_BASE64 }}
